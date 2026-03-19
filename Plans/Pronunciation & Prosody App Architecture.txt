@@ -1,0 +1,74 @@
+﻿App Implementation Plan: Pronunciation & Prosody Evaluator
+1. System Architecture
+Frontend: Gradio (Python-based UI, native microphone support).
+Backend Processing: Local Python pipeline optimized for 12GB VRAM (RTX 3060).
+Synthesis Engine: Local LLM (via Ollama) or Remote LLM (Gemini/OpenAI) to translate metrics into readable feedback.
+2. Tech Stack & Dependencies
+Run the following to set up the environment:
+pip install gradio torch torchaudio transformers
+pip install praat-parselmouth numpy scipy
+# If using local LLM for feedback synthesis:
+pip install ollama
+
+3. Pipeline Logic (The "Push-to-Talk" Flow)
+Step A: Audio Capture & Alignment
+1. Input: User presses record, reads a target sentence (e.g., "The weather is very hot today.").
+2. Capture: Gradio saves a 16kHz .wav file.
+3. Alignment: Use a Wav2Vec2 forced-aligner (e.g., torchaudio.pipelines.MMS_FA) to align the audio to the expected text. This provides exact start/end timestamps for every word and phoneme.
+Step B: Pronunciation Extraction (Wav2Vec2 / PyGOP)
+1. Process: Pass the aligned audio through a Wav2Vec2 phoneme recognizer.
+2. Measure: Calculate the Log-Likelihood (GOP score) for each expected phoneme.
+3. Trigger: If a phoneme scores below a threshold (e.g., < 0.3), flag it.
+4. Identify: Extract the actual phoneme spoken (e.g., Target: /θ/ in "think", Spoken: /s/).
+Step C: Prosody Extraction (Parselmouth / Praat)
+1. Pitch (F0): Extract the pitch contour using parselmouth.Sound(audio_file).to_pitch().
+   * Action: Calculate F0_max - F0_min. If under 50Hz, flag as "Narrow Pitch Range" (flat intonation).
+2. Rhythm (nPVI): Calculate the duration of each vowel (using timestamps from Step A). Apply the normalized Pairwise Variability Index formula.
+   * Action: If nPVI < 40, flag as "Syllable-timed" (staccato/robotic).
+3. Stress: Map intensity (to_intensity()) to the word timestamps. Identify the word with peak intensity. Check if it matches the expected sentence stress.
+Step D: Diagnostic Synthesis (LLM)
+Pass the raw data to a prompt template to generate actionable feedback.
+Prompt Example:
+System: You are an ESL pronunciation coach for Taiwanese students.
+Data:
+- Target Sentence: "I think it is a good idea."
+- Phoneme Error: /θ/ (think) substituted with /s/ (sink).
+- Prosody: F0 range 35Hz (Flat). Word stress peak on "is" (Incorrect).
+
+Generate a 3-bullet-point correction for the student.
+
+4. Minimal Gradio Implementation Prototype
+import gradio as gr
+import parselmouth
+import numpy as np
+
+def analyze_audio(audio_filepath, target_text):
+   # 1. Phoneme Analysis (Placeholder for PyGOP/Wav2Vec2 logic)
+   phoneme_errors = detect_phoneme_errors(audio_filepath, target_text) 
+   
+   # 2. Prosody Analysis (Parselmouth)
+   snd = parselmouth.Sound(audio_filepath)
+   pitch = snd.to_pitch()
+   pitch_values = pitch.selected_array['frequency']
+   pitch_values = pitch_values[pitch_values > 0] # Remove unvoiced segments
+   
+   f0_range = np.max(pitch_values) - np.min(pitch_values) if len(pitch_values) > 0 else 0
+   prosody_flag = "Flat intonation." if f0_range < 50 else "Good pitch variation."
+   
+   # 3. LLM Synthesis (Placeholder for LLM API call)
+   feedback = synthesize_feedback(phoneme_errors, f0_range, target_text)
+   
+   return f"F0 Range: {f0_range:.1f}Hz\n{prosody_flag}\n\nDetailed Feedback:\n{feedback}"
+
+# Gradio Interface
+iface = gr.Interface(
+   fn=analyze_audio,
+   inputs=[
+       gr.Audio(type="filepath", label="Read the sentence"),
+       gr.Textbox(label="Target Sentence")
+   ],
+   outputs="text",
+   title="Pronunciation & Prosody Evaluator"
+)
+
+iface.launch()

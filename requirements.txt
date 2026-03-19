@@ -1,0 +1,32 @@
+# Core dependencies for Pronunciation & Prosody Evaluator
+# This is the development version for CPU-only systems without CUDA GPU support
+
+# UI Framework
+gradio>=5.0.0,<6.0.0
+
+# Data Science & Audio Processing
+numpy>=1.24.0,<2.0.0
+scipy>=1.10.0,<2.0.0
+
+# Audio Analysis (Praat/Parselmouth)
+praat-parselmouth>=0.4.5,<0.5.0
+
+# Machine Learning (CPU-only)
+torch>=2.2.0,<3.0.0
+torchaudio>=2.2.0,<3.0.0
+transformers>=4.40.0,<5.0.0
+
+# Development & Code Quality
+ruff>=0.1.0
+mypy>=1.8.0
+pytest>=7.4.0
+
+# Grapheme-to-Phoneme conversion (requires 'espeak' system package)
+phonemizer>=3.3.0
+
+# Linguistic feature extraction for articulatory visualization
+# Note: pip install pyclts, and import as 'import pyclts'
+pyclts>=3.0.0
+
+# Optional: For local LLM via Ollama (CPU inference will be slow)
+ollama>=0.1.7
