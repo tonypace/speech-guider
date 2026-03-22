@@ -290,8 +290,26 @@ def format_prosody_feedback(overall_score: float, prosody) -> str:
 
 
 # Read JavaScript content for injection (at module level for use in launch())
+# Load Pink Trombone animation files in order: core -> processor -> animation lab
 _JS_PATH = Path("src/ui/assets/vocal_tract.js")
 _JS_CONTENT = _JS_PATH.read_text() if _JS_PATH.exists() else ""
+
+# Load Pink Trombone files
+_PINK_TROMBONE_CORE_PATH = Path("src/ui/assets/pink_trombone_core.js")
+_PINK_TROMBONE_CORE = (
+    _PINK_TROMBONE_CORE_PATH.read_text() if _PINK_TROMBONE_CORE_PATH.exists() else ""
+)
+
+_MOCK_PROCESSOR_PATH = Path("src/ui/assets/mock_processor.js")
+_MOCK_PROCESSOR = _MOCK_PROCESSOR_PATH.read_text() if _MOCK_PROCESSOR_PATH.exists() else ""
+
+_ANIMATION_LAB_PATH = Path("src/ui/assets/animation_lab.js")
+_ANIMATION_LAB = _ANIMATION_LAB_PATH.read_text() if _ANIMATION_LAB_PATH.exists() else ""
+
+# Combine all JS content (order matters!)
+_ALL_JS_CONTENT = (
+    _PINK_TROMBONE_CORE + "\n" + _MOCK_PROCESSOR + "\n" + _ANIMATION_LAB + "\n" + _JS_CONTENT
+)
 
 
 def create_interface() -> gr.Blocks:
@@ -300,7 +318,7 @@ def create_interface() -> gr.Blocks:
     with gr.Blocks(
         title="Pronunciation & Prosody Evaluator",
         css_paths="src/ui/assets/vocal_tract.css",
-        js="async () => { " + _JS_CONTENT + " }",
+        js="async () => { " + _ALL_JS_CONTENT + " }",
     ) as demo:
         gr.Markdown("# Pronunciation & Prosody Evaluator")
         gr.Markdown(
@@ -402,6 +420,144 @@ def create_interface() -> gr.Blocks:
             """,
         )
 
+        # Animation Lab Tab
+        gr.Markdown("---")
+        gr.Markdown("## Animation Lab")
+        gr.Markdown(
+            "Interactive vocal tract visualization. Use the sliders to control articulatory parameters, "
+            "or click phoneme buttons to see common English sounds."
+        )
+
+        with gr.Row():
+            with gr.Column(scale=1):
+                # Parameter sliders
+                tongue_idx_slider = gr.Slider(
+                    minimum=0,
+                    maximum=1,
+                    value=0.5,
+                    step=0.01,
+                    label="Tongue Position (front ← → back)",
+                    elem_id="tongue-idx-slider",
+                )
+                tongue_dia_slider = gr.Slider(
+                    minimum=0,
+                    maximum=1,
+                    value=0.5,
+                    step=0.01,
+                    label="Tongue Height (low ← → high)",
+                    elem_id="tongue-dia-slider",
+                )
+                lip_round_slider = gr.Slider(
+                    minimum=0,
+                    maximum=1,
+                    value=0.5,
+                    step=0.01,
+                    label="Lip Rounding (spread ← → rounded)",
+                    elem_id="lip-round-slider",
+                )
+                voicing_slider = gr.Slider(
+                    minimum=0,
+                    maximum=1,
+                    value=0.5,
+                    step=0.01,
+                    label="Voicing (voiceless ← → voiced)",
+                    elem_id="voicing-slider",
+                )
+
+                gr.Markdown("### Phoneme Presets")
+
+                # Vowel buttons
+                with gr.Row():
+                    gr.Button("i").click(
+                        fn=lambda: None,
+                        js="() => { if(window.setPhonemePreset) window.setPhonemePreset('i'); }",
+                    )
+                    gr.Button("ɪ").click(
+                        fn=lambda: None,
+                        js="() => { if(window.setPhonemePreset) window.setPhonemePreset('ɪ'); }",
+                    )
+                    gr.Button("e").click(
+                        fn=lambda: None,
+                        js="() => { if(window.setPhonemePreset) window.setPhonemePreset('e'); }",
+                    )
+                    gr.Button("æ").click(
+                        fn=lambda: None,
+                        js="() => { if(window.setPhonemePreset) window.setPhonemePreset('æ'); }",
+                    )
+
+                with gr.Row():
+                    gr.Button("a").click(
+                        fn=lambda: None,
+                        js="() => { if(window.setPhonemePreset) window.setPhonemePreset('a'); }",
+                    )
+                    gr.Button("ɑ").click(
+                        fn=lambda: None,
+                        js="() => { if(window.setPhonemePreset) window.setPhonemePreset('ɑ'); }",
+                    )
+                    gr.Button("ɔ").click(
+                        fn=lambda: None,
+                        js="() => { if(window.setPhonemePreset) window.setPhonemePreset('ɔ'); }",
+                    )
+                    gr.Button("o").click(
+                        fn=lambda: None,
+                        js="() => { if(window.setPhonemePreset) window.setPhonemePreset('o'); }",
+                    )
+
+                with gr.Row():
+                    gr.Button("ʊ").click(
+                        fn=lambda: None,
+                        js="() => { if(window.setPhonemePreset) window.setPhonemePreset('ʊ'); }",
+                    )
+                    gr.Button("u").click(
+                        fn=lambda: None,
+                        js="() => { if(window.setPhonemePreset) window.setPhonemePreset('u'); }",
+                    )
+                    gr.Button("ə").click(
+                        fn=lambda: None,
+                        js="() => { if(window.setPhonemePreset) window.setPhonemePreset('ə'); }",
+                    )
+                    gr.Button("ɝ").click(
+                        fn=lambda: None,
+                        js="() => { if(window.setPhonemePreset) window.setPhonemePreset('ɝ'); }",
+                    )
+
+                gr.Markdown("### Consonants")
+
+                with gr.Row():
+                    gr.Button("s").click(
+                        fn=lambda: None,
+                        js="() => { if(window.setPhonemePreset) window.setPhonemePreset('s'); }",
+                    )
+                    gr.Button("ʃ").click(
+                        fn=lambda: None,
+                        js="() => { if(window.setPhonemePreset) window.setPhonemePreset('ʃ'); }",
+                    )
+                    gr.Button("f").click(
+                        fn=lambda: None,
+                        js="() => { if(window.setPhonemePreset) window.setPhonemePreset('f'); }",
+                    )
+
+            with gr.Column(scale=2):
+                # Pink Trombone canvas
+                animation_canvas = gr.HTML(
+                    value='<canvas id="pink-trombone-canvas" width="600" height="500" style="background-color: white; border: 1px solid #ccc;"></canvas>',
+                    show_label=False,
+                )
+
+        # Update animation when sliders change
+        for slider in [tongue_idx_slider, tongue_dia_slider, lip_round_slider, voicing_slider]:
+            slider.change(
+                fn=None,
+                inputs=[tongue_idx_slider, tongue_dia_slider, lip_round_slider, voicing_slider],
+                js="""
+                (tongueIdx, tongueDia, lipRound, voicing) => {
+                    if (window.updateAnimationParams) {
+                        window.updateAnimationParams(tongueIdx, tongueDia, lipRound, voicing);
+                    }
+                }
+                """,
+            )
+
         gr.Markdown("---")
         gr.Markdown("### Instructions")
         gr.Markdown(
@@ -409,7 +565,8 @@ def create_interface() -> gr.Blocks:
             "2. Click the microphone to record (or upload a .wav file)\n"
             "3. Click 'Analyze Pronunciation' to receive feedback\n"
             "4. Select an error to see articulatory visualization\n"
-            "5. Click 'Animate' to see mouth/tongue positions"
+            "5. Click 'Animate' to see mouth/tongue positions\n"
+            "6. Visit Animation Lab to experiment with vocal tract shapes"
         )
 
         gr.Markdown(
