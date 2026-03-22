@@ -1,5 +1,6 @@
 // Mock Processor - Simulates Pink Trombone audio processor for visual-only mode
 // Generates tract diameter arrays from articulatory parameters
+// Based on research: IPA to Pink Trombone Parameter Mapping
 
 class MockProcessor {
   constructor() {
@@ -13,7 +14,10 @@ class MockProcessor {
         length: 28,
         diameter: new Array(28).fill(0.5),
         start: 20,  // Index where nasal cavity branches off
-        offset: -2
+        offset: -2,
+        amplitude: {
+          max: new Array(28).fill(0)
+        }
       },
       
       // Tongue control
@@ -42,25 +46,42 @@ class MockProcessor {
     
     // Constriction points (for visual feedback)
     this.constrictions = [];
+    
+    // Store current params
+    this._params = {
+      tongueIndex: 0.5,
+      tongueDiameter: 0.5,
+      lipRounding: 0.5,
+      voicing: 0.5
+    };
   }
 
   // Update tract shape from our 4 articulatory parameters
   updateFromParams(params) {
-    // params: { tongueIndex, tongueDiameter, lipRounding, voicing }
+    // Store params
+    this._params = params;
     
     // Map tongueIndex (0-1) to tongue.index (12-32)
+    // 0.0 = Back/Velar, 1.0 = Front/Alveolar
     this.tract.tongue.index = this.tract.tongue.range.index.minValue + 
                                params.tongueIndex * (this.tract.tongue.range.index.maxValue - this.tract.tongue.range.index.minValue);
     
-    // Map tongueDiameter (0-1) to tongue.diameter (1.0-4.0)
-    // Higher diameter = closer to palate = more constricted
-    this.tract.tongue.diameter = this.tract.tongue.range.diameter.minValue + 
+    // Map tongueDiameter (0-1) to tongue.diameter (4.0-1.0, INVERTED)
+    // 0.0 = Open/Low, 1.0 = Closed/High Constriction
+    // In Pink Trombone: smaller diameter = lower tongue position (closer to bottom)
+    //                   larger diameter = higher tongue position (closer to palate)
+    // We need: 0.0 (open/low) = high diameter value (close to palate? No...)
+    // Actually: In Pink Trombone, the diameter parameter represents distance from origin
+    // So: low vowel (tongue down) = large diameter = far from origin = low on screen
+    //     high vowel (tongue up) = small diameter = close to origin = high on screen
+    // So we want: slider 0.0 (open) -> large diameter, slider 1.0 (closed) -> small diameter
+    this.tract.tongue.diameter = this.tract.tongue.range.diameter.maxValue - 
                                   params.tongueDiameter * (this.tract.tongue.range.diameter.maxValue - this.tract.tongue.range.diameter.minValue);
     
     // Map voicing (0-1) to intensity
     this._intensity = params.voicing;
     
-    // Generate tract diameter profile based on tongue position
+    // Generate tract diameter profile based on tongue position and lip rounding
     this._generateTractProfile();
     
     // Update nasal cavity based on velum (lipRounding can affect this)
@@ -71,25 +92,48 @@ class MockProcessor {
   }
 
   // Generate tract diameter array based on tongue position
-  // PLACEHOLDER: This needs research-based algorithm
+  // Uses research-based algorithm from IPA mapping
   _generateTractProfile() {
     const baseDiameter = 1.5;  // Resting diameter
     const tongueIdx = this.tract.tongue.index;
     const tongueDia = this.tract.tongue.diameter;
+    const lipRounding = this._params.lipRounding;
+    const tongueDiameterParam = this._params.tongueDiameter;  // 0.0-1.0 from slider
+    const lipStart = this.tract.lip.start;
     
     for (let i = 0; i < this.tract.length; i++) {
-      // Distance from tongue center
+      // Distance from tongue center (using quadratic falloff for smoother curve)
       const distance = Math.abs(i - tongueIdx);
-      
-      // Tongue influence falls off with distance
-      const influence = Math.max(0, 1 - distance / 8);
+      const normalizedDist = distance / 12;  // Wider influence for smoother curve
+      const influence = Math.max(0, 1 - normalizedDist * normalizedDist);  // Quadratic falloff
       
       // Calculate diameter at this point
-      // Higher tongue diameter = smaller tract diameter (more constriction)
-      let diameter = baseDiameter - influence * (tongueDia - 1.0) * 0.5;
+      // The constriction depends on how "closed" the tongue is (1.0 - tongueDiaParam)
+      // High tongueDiameterParam (1.0) = high tongue = small tract diameter
+      // Low tongueDiameterParam (0.0) = low tongue = large tract diameter
+      const constrictionAmount = tongueDiameterParam * 1.2;  // Max constriction
+      let diameter = baseDiameter - influence * constrictionAmount;
       
-      // Ensure minimum diameter
-      diameter = Math.max(0.1, diameter);
+      // Apply lip rounding constriction at the lips
+      // Lip rounding affects the opening at the end of the tract
+      if (i >= lipStart - 3) {
+        // Closer to lip start = more rounding effect
+        const lipDistance = Math.max(0, (i - (lipStart - 3)) / 5);  // 0 to 1
+        const lipInfluence = Math.min(1, lipDistance);
+        // Higher lip rounding = smaller opening
+        // Bilabials need lipRounding = 1.0 to create closure
+        const lipConstriction = lipRounding * 1.3 * lipInfluence;
+        diameter = Math.max(0.1, diameter - lipConstriction);
+      }
+      
+      // Ensure minimum diameter (prevents negative values)
+      diameter = Math.max(0.15, diameter);
+      
+      // Special handling for stops (tongueDiameter = 1.0)
+      // Complete closure at tongue position
+      if (tongueDiameterParam >= 0.95 && i >= tongueIdx - 1 && i <= tongueIdx + 1) {
+        diameter = 0.1;  // Complete blockage
+      }
       
       this.tract.diameter[i] = diameter;
     }
@@ -100,13 +144,22 @@ class MockProcessor {
   }
 
   // Update nasal cavity opening (velum)
-  // lipRounding affects velum opening in this simplified model
+  // For nasal consonants, velum opens
   _updateNasalCavity(lipRounding) {
-    // Velum diameter (0 = closed, 1 = open)
-    // For now, keep it mostly closed unless specifically opened
-    const velumOpening = lipRounding > 0.8 ? (lipRounding - 0.8) * 5 : 0;
+    // Check if this might be a nasal sound based on tongue configuration
+    // Nasals typically have complete oral closure but open velum
+    const isNasal = this._params.tongueDiameter >= 0.98 && this._params.voicing > 0;
     
-    this.tract.nose.diameter[0] = velumOpening;
+    // Velum diameter (0 = closed, 0.4 = open for nasals)
+    let velumOpening = 0;
+    if (isNasal) {
+      velumOpening = 0.4;  // Open for nasal sounds
+    } else if (lipRounding > 0.85) {
+      // Slight opening for heavily rounded sounds (optional)
+      velumOpening = (lipRounding - 0.85) * 0.5;
+    }
+    
+    this.tract.nose.diameter[0] = Math.min(0.4, velumOpening);
     
     // Nasal cavity profile
     for (let i = 1; i < this.tract.nose.length; i++) {
@@ -164,32 +217,64 @@ class MockProcessor {
   }
 }
 
-// Phoneme preset definitions
-// Format: [tongueIndex, tongueDiameter, lipRounding, voicing]
+// Phoneme preset definitions - Based on Research: IPA to Pink Trombone Parameter Mapping
+// tongueIndex: 0.0 (Back/Velar) ↔ 1.0 (Front/Alveolar)
+// tongueDiameter: 0.0 (Open/Low) ↔ 1.0 (Closed/High Constriction)
+// lipRounding: 0.0 (Spread) ↔ 1.0 (Rounded)
+// voicing: 0.0 (Voiceless) ↔ 1.0 (Voiced)
+
 const PhonemePresets = {
-  'i': { name: 'beat', params: { tongueIndex: 0.75, tongueDiameter: 0.9, lipRounding: 0.1, voicing: 1.0 } },
-  'ɪ': { name: 'bit', params: { tongueIndex: 0.72, tongueDiameter: 0.7, lipRounding: 0.1, voicing: 1.0 } },
-  'e': { name: 'bait', params: { tongueIndex: 0.68, tongueDiameter: 0.6, lipRounding: 0.1, voicing: 1.0 } },
-  'æ': { name: 'bat', params: { tongueIndex: 0.60, tongueDiameter: 0.3, lipRounding: 0.2, voicing: 1.0 } },
-  'a': { name: 'father', params: { tongueIndex: 0.50, tongueDiameter: 0.2, lipRounding: 0.3, voicing: 1.0 } },
-  'ɑ': { name: 'hot', params: { tongueIndex: 0.45, tongueDiameter: 0.25, lipRounding: 0.6, voicing: 1.0 } },
-  'ɔ': { name: 'caught', params: { tongueIndex: 0.40, tongueDiameter: 0.4, lipRounding: 0.8, voicing: 1.0 } },
-  'o': { name: 'boat', params: { tongueIndex: 0.35, tongueDiameter: 0.7, lipRounding: 0.9, voicing: 1.0 } },
-  'ʊ': { name: 'book', params: { tongueIndex: 0.38, tongueDiameter: 0.6, lipRounding: 0.85, voicing: 1.0 } },
-  'u': { name: 'boot', params: { tongueIndex: 0.30, tongueDiameter: 0.9, lipRounding: 0.95, voicing: 1.0 } },
-  'ə': { name: 'schwa', params: { tongueIndex: 0.55, tongueDiameter: 0.4, lipRounding: 0.4, voicing: 1.0 } },
-  'ʌ': { name: 'cup', params: { tongueIndex: 0.48, tongueDiameter: 0.35, lipRounding: 0.3, voicing: 1.0 } },
-  'ɝ': { name: 'bird', params: { tongueIndex: 0.52, tongueDiameter: 0.5, lipRounding: 0.4, voicing: 1.0 } },
+  // VOWELS
+  // High Front
+  'i': { name: 'beat', params: { tongueIndex: 1.00, tongueDiameter: 0.85, lipRounding: 0.00, voicing: 1.0 } },
+  'ɪ': { name: 'kit', params: { tongueIndex: 0.85, tongueDiameter: 0.70, lipRounding: 0.00, voicing: 1.0 } },
   
-  // Voiceless fricatives (for testing voiceless sounds)
-  's': { name: 'sip', params: { tongueIndex: 0.65, tongueDiameter: 0.1, lipRounding: 0.0, voicing: 0.0 } },
-  'ʃ': { name: 'ship', params: { tongueIndex: 0.55, tongueDiameter: 0.15, lipRounding: 0.2, voicing: 0.0 } },
-  'f': { name: 'fin', params: { tongueIndex: 0.70, tongueDiameter: 0.05, lipRounding: 0.1, voicing: 0.0 } },
+  // Mid Front
+  'e': { name: 'dress', params: { tongueIndex: 0.80, tongueDiameter: 0.40, lipRounding: 0.00, voicing: 1.0 } },
+  'ɛ': { name: 'dress', params: { tongueIndex: 0.78, tongueDiameter: 0.40, lipRounding: 0.00, voicing: 1.0 } },
   
-  // Voiced stops
-  'b': { name: 'bat', params: { tongueIndex: 0.65, tongueDiameter: 0.0, lipRounding: 0.0, voicing: 0.0 } },
-  'd': { name: 'dad', params: { tongueIndex: 0.55, tongueDiameter: 0.0, lipRounding: 0.0, voicing: 0.0 } },
-  'g': { name: 'go', params: { tongueIndex: 0.35, tongueDiameter: 0.0, lipRounding: 0.0, voicing: 0.0 } },
+  // Low Front
+  'æ': { name: 'trap', params: { tongueIndex: 1.00, tongueDiameter: 0.10, lipRounding: 0.00, voicing: 1.0 } },
+  'a': { name: 'father', params: { tongueIndex: 0.00, tongueDiameter: 0.10, lipRounding: 0.00, voicing: 1.0 } },
+  
+  // Central
+  'ə': { name: 'about', params: { tongueIndex: 0.50, tongueDiameter: 0.50, lipRounding: 0.10, voicing: 1.0 } },
+  
+  // Back
+  'ʌ': { name: 'strut', params: { tongueIndex: 0.30, tongueDiameter: 0.35, lipRounding: 0.00, voicing: 1.0 } },
+  'ɑ': { name: 'hot', params: { tongueIndex: 0.00, tongueDiameter: 0.10, lipRounding: 0.00, voicing: 1.0 } },
+  'ɔ': { name: 'thought', params: { tongueIndex: 0.10, tongueDiameter: 0.35, lipRounding: 0.60, voicing: 1.0 } },
+  
+  // High Back Rounded
+  'ʊ': { name: 'foot', params: { tongueIndex: 0.15, tongueDiameter: 0.70, lipRounding: 0.70, voicing: 1.0 } },
+  'u': { name: 'goose', params: { tongueIndex: 0.00, tongueDiameter: 0.85, lipRounding: 1.00, voicing: 1.0 } },
+  'o': { name: 'boat', params: { tongueIndex: 0.15, tongueDiameter: 0.70, lipRounding: 0.90, voicing: 1.0 } },
+  
+  // Rhotic
+  'ɝ': { name: 'bird', params: { tongueIndex: 0.52, tongueDiameter: 0.50, lipRounding: 0.40, voicing: 1.0 } },
+  
+  // PLOSIVES (Stops) - tongueDiameter = 1.0 for complete closure
+  'p': { name: 'pat', params: { tongueIndex: 0.50, tongueDiameter: 1.00, lipRounding: 1.00, voicing: 0.0 } },
+  'b': { name: 'bat', params: { tongueIndex: 0.50, tongueDiameter: 1.00, lipRounding: 1.00, voicing: 1.0 } },
+  't': { name: 'tap', params: { tongueIndex: 1.00, tongueDiameter: 1.00, lipRounding: 0.00, voicing: 0.0 } },
+  'd': { name: 'dad', params: { tongueIndex: 1.00, tongueDiameter: 1.00, lipRounding: 0.00, voicing: 1.0 } },
+  'k': { name: 'cat', params: { tongueIndex: 0.00, tongueDiameter: 1.00, lipRounding: 0.00, voicing: 0.0 } },
+  'g': { name: 'go', params: { tongueIndex: 0.00, tongueDiameter: 1.00, lipRounding: 0.00, voicing: 1.0 } },
+  
+  // FRICATIVES - tongueDiameter 0.90-0.96 for turbulence
+  'f': { name: 'fin', params: { tongueIndex: 0.70, tongueDiameter: 0.95, lipRounding: 0.80, voicing: 0.0 } },
+  'v': { name: 'van', params: { tongueIndex: 0.70, tongueDiameter: 0.95, lipRounding: 0.80, voicing: 1.0 } },
+  's': { name: 'sip', params: { tongueIndex: 1.00, tongueDiameter: 0.95, lipRounding: 0.00, voicing: 0.0 } },
+  'z': { name: 'zip', params: { tongueIndex: 1.00, tongueDiameter: 0.95, lipRounding: 0.00, voicing: 1.0 } },
+  'ʃ': { name: 'ship', params: { tongueIndex: 0.80, tongueDiameter: 0.93, lipRounding: 0.40, voicing: 0.0 } },
+  'ʒ': { name: 'measure', params: { tongueIndex: 0.80, tongueDiameter: 0.93, lipRounding: 0.40, voicing: 1.0 } },
+  'h': { name: 'hat', params: { tongueIndex: 0.00, tongueDiameter: 0.50, lipRounding: 0.00, voicing: 0.0 } },
+  
+  // APPROXIMANTS
+  'w': { name: 'wet', params: { tongueIndex: 0.00, tongueDiameter: 0.80, lipRounding: 1.00, voicing: 1.0 } },
+  'j': { name: 'yes', params: { tongueIndex: 0.85, tongueDiameter: 0.80, lipRounding: 0.00, voicing: 1.0 } },
+  'l': { name: 'let', params: { tongueIndex: 1.00, tongueDiameter: 0.85, lipRounding: 0.00, voicing: 1.0 } },
+  'r': { name: 'red', params: { tongueIndex: 0.70, tongueDiameter: 0.80, lipRounding: 0.50, voicing: 1.0 } },
 };
 
 // Export for Gradio
