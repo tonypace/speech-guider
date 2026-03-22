@@ -41,6 +41,9 @@ dmypy.json
 # Linter
 .ruff_cache/
 
+# Node.js/npm
+node_modules/
+
 # IDEs
 .vscode/
 .idea/

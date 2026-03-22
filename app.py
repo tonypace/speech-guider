@@ -1,7 +1,7 @@
 import json
 import sys
 from pathlib import Path
-from typing import Union
+from typing import Any, Union
 
 import gradio as gr  # type: ignore
 import numpy as np
@@ -28,8 +28,21 @@ class AnalysisState:
 
 state = AnalysisState()
 
+# Cache for Wav2Vec2 model to avoid reloading on every analysis
+_cached_aligner: ForcedAligner | None = None
 
-def analyze_audio(audio_filepath: str | None, target_text: str) -> tuple[list, str]:
+
+def get_aligner() -> ForcedAligner:
+    """Get or create cached ForcedAligner instance."""
+    global _cached_aligner
+    if _cached_aligner is None:
+        print("Initializing Wav2Vec2 aligner (first time)...")
+        _cached_aligner = ForcedAligner()
+        print("Wav2Vec2 aligner initialized and cached.")
+    return _cached_aligner
+
+
+def analyze_audio(audio_filepath: str | None, target_text: str) -> tuple[dict[str, Any], str]:
     """Analyze audio and return error list with prosody feedback.
 
     Args:
@@ -37,7 +50,7 @@ def analyze_audio(audio_filepath: str | None, target_text: str) -> tuple[list, s
         target_text: Target sentence to analyze
 
     Returns:
-        Tuple of (error_display_list, comprehensive_feedback)
+        Gradio update for error_select and feedback markdown
     """
     if audio_filepath is None:
         raise gr.Error("Please record or upload audio first.")
@@ -79,10 +92,8 @@ def analyze_audio(audio_filepath: str | None, target_text: str) -> tuple[list, s
 
         audio_tensor = torch.from_numpy(audio_data).float()
 
-        aligner = ForcedAligner()
+        aligner = get_aligner()
         errors, alignment = aligner.analyze_pronunciation(audio_tensor, target_text)
-
-        aligner.cleanup()
 
     except Exception:
         progress(0.8, desc="Analysis encountered issues...")
@@ -119,22 +130,48 @@ def analyze_audio(audio_filepath: str | None, target_text: str) -> tuple[list, s
 
     state.errors = errors
     state.alignment = alignment
-    state.selected_error_index = 0 if errors else -1
 
     error_display_list = format_error_list(errors)
+    selected_value = (
+        error_display_list[0]
+        if error_display_list and error_display_list[0] != "No errors detected"
+        else None
+    )
 
-    return error_display_list, comprehensive_feedback
+    return (
+        gr.update(choices=error_display_list, value=selected_value),
+        comprehensive_feedback,
+    )
 
 
-def select_error(error_index: int) -> tuple[str, str, str, str]:
+def select_error(error_text: str | None) -> tuple[str, str, str, str]:
     """Select an error to display in the vocal tract visualization.
 
     Args:
-        error_index: Index of selected error
+        error_text: Selected error text from radio button
 
     Returns:
         Tuple of (incorrect_description, correct_description, animation_json, highlight_json)
     """
+    if not error_text or error_text == "No errors detected":
+        return (
+            "",
+            "",
+            json.dumps({"left": {}, "right": {}}),
+            json.dumps({"zone": None}),
+        )
+
+    # Extract index from error text (e.g., "1. 'today'..." -> 0)
+    try:
+        error_index = int(error_text.split(".")[0]) - 1
+    except (ValueError, IndexError):
+        return (
+            "",
+            "",
+            json.dumps({"left": {}, "right": {}}),
+            json.dumps({"zone": None}),
+        )
+
     if error_index < 0 or error_index >= len(state.errors):
         return (
             "",
@@ -252,9 +289,19 @@ def format_prosody_feedback(overall_score: float, prosody) -> str:
     return feedback
 
 
+# Read JavaScript content for injection (at module level for use in launch())
+_JS_PATH = Path("src/ui/assets/vocal_tract.js")
+_JS_CONTENT = _JS_PATH.read_text() if _JS_PATH.exists() else ""
+
+
 def create_interface() -> gr.Blocks:
     """Create the Gradio interface with vocal tract visualization."""
-    with gr.Blocks(title="Pronunciation & Prosody Evaluator") as demo:
+
+    with gr.Blocks(
+        title="Pronunciation & Prosody Evaluator",
+        css_paths="src/ui/assets/vocal_tract.css",
+        js="async () => { " + _JS_CONTENT + " }",
+    ) as demo:
         gr.Markdown("# Pronunciation & Prosody Evaluator")
         gr.Markdown(
             "Record yourself reading the target sentence and receive instant feedback on pronunciation and intonation."
@@ -286,7 +333,7 @@ def create_interface() -> gr.Blocks:
 
         vocal_tract_html = gr.HTML(
             value=get_vocal_tract_html(),
-            label="Vocal Tract Visualization",
+            show_label=False,
         )
 
         # Hidden state components
@@ -319,11 +366,9 @@ def create_interface() -> gr.Blocks:
         gr.Markdown("## Articulatory Feedback")
 
         gr.Markdown(
-            *(
-                "Select an error below to see the incorrect pronunciation on the left "
-                "and the correct pronunciation on the right. Click 'Animate' to see "
-                "the mouth/tongue position. Hover over technical terms for explanations."
-            )
+            "Select an error below to see the incorrect pronunciation on the left "
+            "and the correct pronunciation on the right. Click 'Animate' to see "
+            "the mouth/tongue position. Hover over technical terms for explanations."
         )
 
         with gr.Row():
@@ -344,55 +389,44 @@ def create_interface() -> gr.Blocks:
             ],
         )
 
+        # Add JavaScript callback to update vocal tract visualization when state changes
+        animation_params.change(
+            fn=None,
+            inputs=[incorrect_desc, correct_desc, animation_params, highlight_params],
+            js="""
+            (left_html, right_html, animation_params, highlight_params) => {
+                if (typeof window.updateVocalTractDescriptions === 'function') {
+                    window.updateVocalTractDescriptions(left_html, right_html, animation_params, highlight_params);
+                }
+            }
+            """,
+        )
+
         gr.Markdown("---")
         gr.Markdown("### Instructions")
         gr.Markdown(
-            *(
-                "1. Read the target sentence aloud\n"
-                "2. Click the microphone to record (or upload a .wav file)\n"
-                "3. Click 'Analyze Pronunciation' to receive feedback\n"
-                "4. Select an error to see articulatory visualization\n"
-                "5. Click 'Animate' to see mouth/tongue positions"
-            )
+            "1. Read the target sentence aloud\n"
+            "2. Click the microphone to record (or upload a .wav file)\n"
+            "3. Click 'Analyze Pronunciation' to receive feedback\n"
+            "4. Select an error to see articulatory visualization\n"
+            "5. Click 'Animate' to see mouth/tongue positions"
         )
 
         gr.Markdown(
-            *(
-                "**Note**: This system uses IPA-based phoneme analysis. "
-                "For best results, speak clearly and at a moderate pace."
-            )
+            "**Note**: This system uses IPA-based phoneme analysis. "
+            "For best results, speak clearly and at a moderate pace."
         )
 
     return demo  # type: ignore[no-any-return]
 
 
 def get_vocal_tract_html() -> str:
-    """Get the HTML for vocal tract visualization.
+    """Get the HTML structure for vocal tract visualization.
 
     Returns:
-        HTML string with embedded CSS and JS
+        HTML string containing the markup for panels and canvases.
     """
-    css_path = Path("src/ui/assets/vocal_tract.css")
-    js_path = Path("src/ui/assets/vocal_tract.js")
-
-    try:
-        with open(css_path) as f:
-            css_content = f.read()
-    except FileNotFoundError:
-        css_content = ""
-
-    try:
-        with open(js_path) as f:
-            js_content = f.read()
-    except FileNotFoundError:
-        js_content = ""
-
-    html = f"""
-    <link rel="stylesheet" href="data:text/css;base64,{css_content.encode()!r}">
-    <script>
-    {js_content}
-    </script>
-
+    html = """
     <div class="vocal-tract-container">
         <div class="vocal-tract-panels">
             <div class="vocal-tract-panel">
@@ -410,7 +444,7 @@ def get_vocal_tract_html() -> str:
                 </div>
 
                 <div class="vocal-tract-actions">
-                    <button class="vocal-tract-button" onclick="animateLeft()">Animate</button>
+                    <button class="vocal-tract-button" onclick="window.animateLeft()">Animate</button>
                 </div>
             </div>
 
@@ -429,110 +463,11 @@ def get_vocal_tract_html() -> str:
                 </div>
 
                 <div class="vocal-tract-actions">
-                    <button class="vocal-tract-button" onclick="animateRight()">Animate</button>
+                    <button class="vocal-tract-button" onclick="window.animateRight()">Animate</button>
                 </div>
             </div>
         </div>
     </div>
-
-    <script>
-    // Initialize vocal tracts
-    let leftTract = null;
-    let rightTract = null;
-    let currentAnimationParams = {{left: {{}}, right: {{}}}};
-    let currentHighlightParams = {{zone: null}};
-
-    document.addEventListener('DOMContentLoaded', function() {{
-        const leftCanvas = document.getElementById('vocal-tract-left');
-        const rightCanvas = document.getElementById('vocal-tract-right');
-
-        if (typeof VocalTract !== 'undefined') {{
-            leftTract = new VocalTract(leftCanvas);
-            rightTract = new VocalTract(rightCanvas);
-
-            // Draw initial state
-            leftTract.draw();
-            rightTract.draw();
-
-            // Watch for state changes from Gradio
-            const observer = new MutationObserver(function(mutations) {{
-                mutations.forEach(function(mutation) {{
-                    if (mutation.type === 'childList') {{
-                        // Check for animated descriptions
-                        setupAnimationWatcher();
-                    }}
-                }});
-            }});
-
-            // Start watching for description updates
-            setupAnimationWatcher();
-        }}
-    }});
-
-    function setupAnimationWatcher() {{
-        // Watch for description updates to trigger animations
-        const leftDesc = document.getElementById('left-description');
-        const rightDesc = document.getElementById('right-description');
-
-        if (leftDesc && rightDesc) {{
-            const descObserver = new MutationObserver(function() {{
-                const leftText = leftDesc.innerHTML;
-                const rightText = rightDesc.innerHTML;
-
-                if (leftText !== 'No error selected' && rightText !== 'No error selected') {{
-                    const phonemeMatch = leftText.match(/\\/(.+)\\//);
-                    if (phonemeMatch) {{
-                        document.getElementById('left-phoneme').textContent = phonemeMatch[1];
-                    }}
-
-                    const rightMatch = rightText.match(/\\/(.+)\\//);
-                    if (rightMatch) {{
-                        document.getElementById('right-phoneme').textContent = rightMatch[1];
-                    }}
-
-                    applyAnimationParams();
-                }}
-            }});
-
-            descObserver.observe(leftDesc, {{childList: true, subtree: true}});
-            descObserver.observe(rightDesc, {{childList: true, subtree: true}});
-        }}
-    }}
-
-    function animateLeft() {{
-        if (leftTract && currentAnimationParams.left) {{
-            leftTract.setHighlightZone(null);
-            leftTract.setParameters(currentAnimationParams.left);
-            leftTract.startAnimation();
-        }}
-    }}
-
-    function animateRight() {{
-        if (rightTract && currentAnimationParams.right) {{
-            rightTract.setHighlightZone(currentHighlightParams.zone);
-            rightTract.setParameters(currentAnimationParams.right);
-            rightTract.startAnimation();
-
-            if (currentHighlightParams.zone && typeof startHighlightAnimation !== 'undefined') {{
-                startHighlightAnimation(rightTract);
-            }}
-        }}
-    }}
-
-    function applyAnimationParams() {{
-        // This will be called when new params are received from Gradio
-        // The actual params are passed via the hidden state components
-    }}
-
-    // Listen for Gradio parameter updates
-    function updateAnimationParams(params) {{
-        currentAnimationParams = params;
-    }}
-
-    function updateHighlightParams(params) {{
-        currentHighlightParams = params;
-    }}
-    </script>
     """
 
     return html

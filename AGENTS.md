@@ -54,7 +54,7 @@ speech-guider/
 ## 2. Environment & Commands
 
 ### Setup
-We use a Python virtual environment for development and testing.
+We use a Python virtual environment for development and testing. JavaScript linting requires Node.js.
 ```bash
 # Activate the venv (macOS/Linux)
 source speech-guider/bin/activate
@@ -62,8 +62,11 @@ source speech-guider/bin/activate
 # Activate the venv (Windows)
 speech-guider\Scripts\activate
 
-# Install dependencies (if not already installed)
+# Install Python dependencies
 pip install -r requirements.txt
+
+# Install JavaScript linter (requires Node.js)
+npm install
 
 # Note: macOS requires 'espeak' for phoneme conversion:
 # brew install espeak-ng
@@ -90,16 +93,20 @@ pytest -v
 ```
 
 ### Linting & Formatting
-We strictly use `ruff` for fast linting/formatting, and `mypy` for static type checking.
+We strictly use `ruff` for fast linting/formatting, and `mypy` for static type checking on Python files. JavaScript files use `eslint` (requires Node.js).
 ```bash
-# Format code
+# Format Python code
 ruff format .
 
-# Run linter and auto-fix simple issues
+# Run linter and auto-fix simple issues (Python)
 ruff check . --fix
 
-# Run static type checking
+# Run static type checking (Python)
 mypy .
+
+# Lint JavaScript files (requires Node.js)
+npm install  # First time setup
+eslint src/ui/assets/*.js
 ```
 
 ### Testing
@@ -149,6 +156,11 @@ Organize imports into three distinct blocks separated by a blank line:
 ### UI & Gradio Best Practices
 - Prefer `gr.Blocks()` over `gr.Interface()` for anything more complex than a basic prototype. It allows custom layouts, state management, and better modularity.
 - Handle long-running tasks gracefully. Use Gradio's progress bars (`gr.Progress`) for the multi-step pipeline (Alignment -> Phonemes -> Prosody -> LLM) so the user is aware of the processing status.
+
+### UI & Gradio Best Practices (Gradio 5.x)
+- **CSS Injection**: NEVER use `<style>` tags inside `gr.HTML()` components. Gradio 5's Svelte frontend strictly sanitizes and strips these tags, causing your UI to collapse. Always inject CSS globally using the `css_paths` argument in the Blocks constructor: `gr.Blocks(css_paths="path/to/style.css")`.
+- **JavaScript Scope & Execution**: When injecting custom JS via the `head` parameter in `gr.Blocks`, be aware that Gradio's event callbacks (e.g., `.change(js="...")`) run in isolated closures. For your injected scripts to communicate with Gradio events, you MUST attach all states and functions explicitly to the global `window` object (e.g., `window.myFunction = function(...) {}` and `window.myState = {}`). Standard `let` or `function` declarations in the head will be invisible to the Gradio callback hooks.
+- **DOM Polling**: Gradio renders components asynchronously. If your `head` script needs to target a specific `canvas` or `div` inside a Gradio component, you cannot rely purely on `DOMContentLoaded`. You must use a polling mechanism (e.g., `setInterval` or recursive `setTimeout`) to wait for the element to appear in the DOM before initializing it.
 
 ## 4. General AI Agent & Cursor/Copilot Instructions
 If you are Cursor, GitHub Copilot, or an autonomous agent:
