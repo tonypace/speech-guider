@@ -355,24 +355,18 @@
             }
         };
 
-        // Animation triggers - animate continuously
+        // Animation triggers - just update and draw
         window.animateLeft = function() {
             if (window.leftTractProcessor && window.currentAnimationParams.left && window.leftTractUI) {
-                // Set target params
-                window.leftTractProcessor.setParameters(window.currentAnimationParams.left);
-                window.leftTractUI._highlightZone = null;
-                // Start animation
-                window.leftTractUI.startAnimation();
+                window.leftTractProcessor.updateFromParams(window.currentAnimationParams.left);
+                window.leftTractUI.draw();
             }
         };
 
         window.animateRight = function() {
             if (window.rightTractProcessor && window.currentAnimationParams.right && window.rightTractUI) {
-                // Set target params
-                window.rightTractProcessor.setParameters(window.currentAnimationParams.right);
-                window.rightTractUI._highlightZone = window.currentHighlightParams.zone;
-                // Start animation
-                window.rightTractUI.startAnimation();
+                window.rightTractProcessor.updateFromParams(window.currentAnimationParams.right);
+                window.rightTractUI.draw();
             }
         };
 
