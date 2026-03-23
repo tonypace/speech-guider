@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pronunciation & Prosody Evaluator</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- HTMX -->
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/static/css/vocal_tract.css">
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div class="container mx-auto px-4 py-8 max-w-6xl">
+        <!-- Header -->
+        <header class="mb-8">
+            <h1 class="text-4xl font-bold text-gray-900 mb-2">Pronunciation & Prosody Evaluator</h1>
+            <p class="text-gray-600">Record yourself reading the target sentence and receive instant feedback on pronunciation and intonation.</p>
+        </header>
+
+        <!-- Main Analysis Section -->
+        <section class="bg-white rounded-lg shadow-md p-6 mb-8">
+            <h2 class="text-2xl font-semibold text-gray-800 mb-4">Analysis</h2>
+            
+            <form id="analyze-form" 
+                  hx-post="/api/analyze"
+                  hx-encoding="multipart/form-data"
+                  hx-target="#feedback-container"
+                  hx-swap="innerHTML"
+                  hx-trigger="submit">
+                
+                <!-- Target Text -->
+                <div class="mb-4">
+                    <label for="target_text" class="block text-sm font-medium text-gray-700 mb-1">Target Sentence</label>
+                    <input type="text" 
+                           id="target_text" 
+                           name="target_text"
+                           value="The weather is very hot today."
+                           class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                           placeholder="Enter the sentence to practice...">
+                </div>
+
+                <!-- Audio Upload -->
+                <div class="mb-4">
+                    <label for="audio" class="block text-sm font-medium text-gray-700 mb-1">Record or Upload Audio</label>
+                    <input type="file" 
+                           id="audio" 
+                           name="audio"
+                           accept="audio/*"
+                           class="w-full px-4 py-2 border border-gray-300 rounded-md file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                           required>
+                    <p class="text-sm text-gray-500 mt-1">Accepts WAV, MP3, or other audio formats</p>
+                </div>
+
+                <!-- Progress Bar (hidden by default) -->
+                <div id="progress-container" class="hidden mb-4">
+                    <div class="w-full bg-gray-200 rounded-full h-2.5 mb-2">
+                        <div id="progress-bar" class="bg-blue-600 h-2.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+                    </div>
+                    <p id="progress-text" class="text-sm text-gray-600">Initializing...</p>
+                </div>
+
+                <!-- Submit Button -->
+                <button type="submit" 
+                        id="analyze-btn"
+                        class="w-full bg-blue-600 text-white font-semibold py-2 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors">
+                    Analyze Pronunciation
+                </button>
+            </form>
+        </section>
+
+        <!-- Feedback Section -->
+        <section id="feedback-container" class="mb-8">
+            <!-- Feedback will be inserted here -->
+        </section>
+
+        <!-- Articulatory Feedback Section -->
+        <section id="articulatory-section" class="hidden bg-white rounded-lg shadow-md p-6 mb-8">
+            <h2 class="text-2xl font-semibold text-gray-800 mb-4">Articulatory Feedback</h2>
+            <p class="text-gray-600 mb-4">Select an error below to see the incorrect pronunciation on the left and the correct pronunciation on the right. Hover over technical terms for explanations.</p>
+            
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- Error List -->
+                <div class="lg:col-span-1">
+                    <h3 class="text-lg font-medium text-gray-800 mb-2">Detected Errors</h3>
+                    <div id="error-list" class="space-y-2">
+                        <!-- Errors will be populated here -->
+                    </div>
+                </div>
+
+                <!-- Vocal Tract Visualization -->
+                <div class="lg:col-span-2">
+                    <div id="vocal-tract-container" class="vocal-tract-container">
+                        <div class="vocal-tract-panels">
+                            <div class="vocal-tract-panel">
+                                <div class="vocal-tract-header">
+                                    <span class="vocal-tract-title">What you're doing</span>
+                                    <span id="left-phoneme" class="vocal-tract-phoneme">-</span>
+                                </div>
+                                <div class="vocal-tract-canvas-wrapper">
+                                    <canvas id="vocal-tract-left" width="400" height="300"></canvas>
+                                </div>
+                                <div id="left-description" class="vocal-tract-features">
+                                    No error selected
+                                </div>
+                                <div class="vocal-tract-actions">
+                                    <button class="vocal-tract-button" onclick="window.animateLeft()">Animate</button>
+                                </div>
+                            </div>
+
+                            <div class="vocal-tract-panel">
+                                <div class="vocal-tract-header">
+                                    <span class="vocal-tract-title">What you should do</span>
+                                    <span id="right-phoneme" class="vocal-tract-phoneme">-</span>
+                                </div>
+                                <div class="vocal-tract-canvas-wrapper">
+                                    <canvas id="vocal-tract-right" width="400" height="300"></canvas>
+                                </div>
+                                <div id="right-description" class="vocal-tract-features">
+                                    No error selected
+                                </div>
+                                <div class="vocal-tract-actions">
+                                    <button class="vocal-tract-button" onclick="window.animateRight()">Animate</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Animation Lab Section -->
+        <section class="bg-white rounded-lg shadow-md p-6 mb-8">
+            <h2 class="text-2xl font-semibold text-gray-800 mb-2">Animation Lab</h2>
+            <p class="text-gray-600 mb-6">Interactive vocal tract visualization. Use the sliders to control articulatory parameters, or click phoneme buttons to see common English sounds.</p>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- Controls -->
+                <div class="lg:col-span-1 space-y-6">
+                    <!-- Parameter Sliders -->
+                    <div class="space-y-4">
+                        <div>
+                            <label for="tongue-idx" class="block text-sm font-medium text-gray-700 mb-1">Tongue Position (front ↔ back)</label>
+                            <input type="range" 
+                                   id="tongue-idx" 
+                                   min="0" max="1" step="0.01" value="0.5"
+                                   class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                                   oninput="updateAnimation()">
+                            <div class="flex justify-between text-xs text-gray-500">
+                                <span>Back</span>
+                                <span>Front</span>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label for="tongue-dia" class="block text-sm font-medium text-gray-700 mb-1">Tongue Height (low ↔ high)</label>
+                            <input type="range" 
+                                   id="tongue-dia" 
+                                   min="0" max="1" step="0.01" value="0.5"
+                                   class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                                   oninput="updateAnimation()">
+                            <div class="flex justify-between text-xs text-gray-500">
+                                <span>Low</span>
+                                <span>High</span>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label for="lip-round" class="block text-sm font-medium text-gray-700 mb-1">Lip Rounding (spread ↔ rounded)</label>
+                            <input type="range" 
+                                   id="lip-round" 
+                                   min="0" max="1" step="0.01" value="0.5"
+                                   class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                                   oninput="updateAnimation()">
+                            <div class="flex justify-between text-xs text-gray-500">
+                                <span>Spread</span>
+                                <span>Rounded</span>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label for="voicing" class="block text-sm font-medium text-gray-700 mb-1">Voicing (voiceless ↔ voiced)</label>
+                            <input type="range" 
+                                   id="voicing" 
+                                   min="0" max="1" step="0.01" value="0.5"
+                                   class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                                   oninput="updateAnimation()">
+                            <div class="flex justify-between text-xs text-gray-500">
+                                <span>Voiceless</span>
+                                <span>Voiced</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Phoneme Buttons -->
+                    <div>
+                        <h3 class="text-lg font-medium text-gray-800 mb-3">Phoneme Presets</h3>
+                        
+                        <!-- Vowels -->
+                        <div class="mb-3">
+                            <p class="text-sm text-gray-600 mb-2">Vowels</p>
+                            <div class="flex flex-wrap gap-2">
+                                <button onclick="setPreset('i')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition">i</button>
+                                <button onclick="setPreset('ɪ')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition">ɪ</button>
+                                <button onclick="setPreset('e')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition">e</button>
+                                <button onclick="setPreset('æ')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition">æ</button>
+                                <button onclick="setPreset('a')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition">a</button>
+                                <button onclick="setPreset('ɑ')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition">ɑ</button>
+                                <button onclick="setPreset('ɔ')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition">ɔ</button>
+                                <button onclick="setPreset('o')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition">o</button>
+                                <button onclick="setPreset('ʊ')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition">ʊ</button>
+                                <button onclick="setPreset('u')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition">u</button>
+                                <button onclick="setPreset('ə')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition">ə</button>
+                                <button onclick="setPreset('ɝ')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition">ɝ</button>
+                            </div>
+                        </div>
+
+                        <!-- Consonants -->
+                        <div>
+                            <p class="text-sm text-gray-600 mb-2">Consonants</p>
+                            <div class="flex flex-wrap gap-2">
+                                <button onclick="setPreset('p')" class="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition">p</button>
+                                <button onclick="setPreset('b')" class="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition">b</button>
+                                <button onclick="setPreset('t')" class="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition">t</button>
+                                <button onclick="setPreset('d')" class="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition">d</button>
+                                <button onclick="setPreset('k')" class="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition">k</button>
+                                <button onclick="setPreset('g')" class="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition">g</button>
+                                <button onclick="setPreset('s')" class="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition">s</button>
+                                <button onclick="setPreset('ʃ')" class="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition">ʃ</button>
+                                <button onclick="setPreset('f')" class="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition">f</button>
+                                <button onclick="setPreset('h')" class="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition">h</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Canvas -->
+                <div class="lg:col-span-2">
+                    <div class="bg-gray-100 rounded-lg p-4">
+                        <canvas id="pink-trombone-canvas" width="600" height="500" class="bg-white rounded shadow w-full"></canvas>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Instructions -->
+        <section class="prose max-w-none">
+            <h2 class="text-xl font-semibold text-gray-800 mb-3">Instructions</h2>
+            <ol class="list-decimal list-inside space-y-1 text-gray-600">
+                <li>Read the target sentence aloud</li>
+                <li>Click "Choose File" to upload a .wav file (or use the microphone)</li>
+                <li>Click "Analyze Pronunciation" to receive feedback</li>
+                <li>Select an error to see articulatory visualization</li>
+                <li>Click "Animate" to see mouth/tongue positions</li>
+                <li>Visit Animation Lab to experiment with vocal tract shapes</li>
+            </ol>
+            
+            <div class="mt-4 p-4 bg-blue-50 rounded-md">
+                <p class="text-sm text-blue-800">
+                    <strong>Note:</strong> This system uses IPA-based phoneme analysis. For best results, speak clearly and at a moderate pace.
+                </p>
+            </div>
+        </section>
+    </div>
+
+    <!-- JavaScript for Animation Lab -->
+    <script src="/static/js/pink_trombone_core.js"></script>
+    <script src="/static/js/mock_processor.js"></script>
+    <script src="/static/js/animation_lab.js"></script>
+    <script src="/static/js/vocal_tract.js"></script>
+
+    <script>
+        // Animation Lab control functions
+        function updateAnimation() {
+            const tongueIndex = parseFloat(document.getElementById('tongue-idx').value);
+            const tongueDiameter = parseFloat(document.getElementById('tongue-dia').value);
+            const lipRounding = parseFloat(document.getElementById('lip-round').value);
+            const voicing = parseFloat(document.getElementById('voicing').value);
+            
+            if (window.updateAnimationParams) {
+                window.updateAnimationParams(tongueIndex, tongueDiameter, lipRounding, voicing);
+            }
+        }
+
+        async function setPreset(phoneme) {
+            try {
+                const response = await fetch('/api/presets');
+                const data = await response.json();
+                const preset = data.phonemes[phoneme];
+                
+                if (preset && preset.params) {
+                    // Update sliders
+                    document.getElementById('tongue-idx').value = preset.params.tongueIndex;
+                    document.getElementById('tongue-dia').value = preset.params.tongueDiameter;
+                    document.getElementById('lip-round').value = preset.params.lipRounding;
+                    document.getElementById('voicing').value = preset.params.voicing;
+                    
+                    // Update animation
+                    updateAnimation();
+                }
+            } catch (error) {
+                console.error('Failed to load preset:', error);
+            }
+        }
+
+        // HTMX event handling for progress updates
+        document.addEventListener('htmx:beforeRequest', function(evt) {
+            if (evt.detail.target.id === 'feedback-container') {
+                // Show progress bar
+                document.getElementById('progress-container').classList.remove('hidden');
+                document.getElementById('analyze-btn').disabled = true;
+                
+                // Start SSE connection for progress
+                const jobId = Date.now().toString();
+                const evtSource = new EventSource(`/api/progress/${jobId}`);
+                
+                evtSource.onmessage = function(event) {
+                    const data = JSON.parse(event.data);
+                    if (data.progress !== undefined) {
+                        document.getElementById('progress-bar').style.width = (data.progress * 100) + '%';
+                        document.getElementById('progress-text').textContent = data.message;
+                    }
+                    if (data.progress >= 1.0) {
+                        evtSource.close();
+                    }
+                };
+                
+                evtSource.onerror = function() {
+                    evtSource.close();
+                };
+            }
+        });
+
+        document.addEventListener('htmx:afterRequest', function(evt) {
+            if (evt.detail.target.id === 'feedback-container') {
+                // Hide progress bar
+                document.getElementById('progress-container').classList.add('hidden');
+                document.getElementById('analyze-btn').disabled = false;
+                document.getElementById('progress-bar').style.width = '0%';
+                
+                // Show articulatory section if there are errors
+                try {
+                    const response = JSON.parse(evt.detail.xhr.responseText);
+                    if (response.errors && response.errors.length > 0) {
+                        document.getElementById('articulatory-section').classList.remove('hidden');
+                        populateErrors(response.errors);
+                    }
+                } catch (e) {
+                    console.error('Failed to parse response:', e);
+                }
+            }
+        });
+
+        function populateErrors(errors) {
+            const errorList = document.getElementById('error-list');
+            errorList.innerHTML = '';
+            
+            errors.forEach((error, index) => {
+                const btn = document.createElement('button');
+                btn.className = 'w-full text-left px-4 py-2 border border-gray-200 rounded hover:bg-gray-50 transition';
+                btn.textContent = `${index + 1}. '${error.word_context}': /${error.target_phoneme}/ → /${error.predicted_phoneme}/`;
+                btn.onclick = () => selectError(index);
+                errorList.appendChild(btn);
+            });
+        }
+
+        async function selectError(index) {
+            // Get current errors from the page state
+            const errors = [];
+            document.querySelectorAll('#error-list button').forEach(btn => {
+                // Parse error info from button text
+                errors.push({});
+            });
+            
+            try {
+                const response = await fetch('/api/select-error', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({error_index: index, errors: errors})
+                });
+                const data = await response.json();
+                
+                // Update visualization
+                if (window.updateVocalTractDescriptions) {
+                    window.updateVocalTractDescriptions(
+                        data.incorrect_desc,
+                        data.correct_desc,
+                        JSON.stringify(data.animation_params),
+                        JSON.stringify(data.highlight_params)
+                    );
+                }
+            } catch (error) {
+                console.error('Failed to select error:', error);
+            }
+        }
+    </script>
+</body>
+</html>
