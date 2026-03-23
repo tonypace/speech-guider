@@ -75,15 +75,27 @@ class IntercomRecorder {
     }
 
     async init() {
+        console.log('Initializing recorder...');
+        console.log('Protocol:', window.location.protocol);
+        console.log('Hostname:', window.location.hostname);
+        console.log('navigator.mediaDevices:', navigator.mediaDevices);
+        
         // Check if mediaDevices is supported
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
             console.error('MediaDevices API not supported');
+            console.log('Browser:', navigator.userAgent);
             this.showNotSupportedMessage();
             return;
         }
 
         // Check if running on HTTPS (required for getUserMedia except localhost)
-        if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
+        const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        const isHttps = window.location.protocol === 'https:';
+        
+        console.log('Is localhost:', isLocalhost);
+        console.log('Is HTTPS:', isHttps);
+        
+        if (!isHttps && !isLocalhost) {
             console.error('HTTPS required for microphone access');
             this.showHttpsRequiredMessage();
             return;
@@ -138,9 +150,10 @@ class IntercomRecorder {
             <p class="text-sm text-red-600">Please use the file upload option below.</p>
         `;
         
-        if (this.recorderContainer) {
+        if (this.recorderContainer && !document.getElementById('browser-error-msg')) {
+            msgDiv.id = 'browser-error-msg';
             this.recorderContainer.parentNode.insertBefore(msgDiv, this.recorderContainer);
-            this.recorderContainer.style.display = 'none';
+            // Keep recorder visible but show it's unavailable
         }
         
         if (this.fileUploadSection) {
@@ -153,12 +166,13 @@ class IntercomRecorder {
         msgDiv.className = 'text-center p-4 bg-orange-50 border border-orange-200 rounded mb-4';
         msgDiv.innerHTML = `
             <p class="text-orange-800 mb-2">HTTPS Required</p>
-            <p class="text-sm text-orange-600">Microphone access requires HTTPS. Please use the file upload option below.</p>
+            <p class="text-sm text-orange-600">Microphone access requires HTTPS. Please use the file upload option below, or access via localhost.</p>
         `;
         
-        if (this.recorderContainer) {
+        if (this.recorderContainer && !document.getElementById('https-error-msg')) {
+            msgDiv.id = 'https-error-msg';
             this.recorderContainer.parentNode.insertBefore(msgDiv, this.recorderContainer);
-            this.recorderContainer.style.display = 'none';
+            // Keep recorder visible
         }
         
         if (this.fileUploadSection) {
