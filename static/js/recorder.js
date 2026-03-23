@@ -75,6 +75,20 @@ class IntercomRecorder {
     }
 
     async init() {
+        // Check if mediaDevices is supported
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            console.error('MediaDevices API not supported');
+            this.showNotSupportedMessage();
+            return;
+        }
+
+        // Check if running on HTTPS (required for getUserMedia except localhost)
+        if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
+            console.error('HTTPS required for microphone access');
+            this.showHttpsRequiredMessage();
+            return;
+        }
+
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             this.setupRecorder(stream);
@@ -94,18 +108,59 @@ class IntercomRecorder {
     }
 
     showPermissionPrompt() {
-        if (this.recorderContainer) {
-            this.recorderContainer.innerHTML = `
-                <div class="text-center p-4">
-                    <p class="text-gray-600 mb-3">Microphone access needed for recording</p>
-                    <button onclick="recorder.init()" 
-                            class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition">
-                        Allow Microphone
-                    </button>
-                </div>
-            `;
+        // Don't replace the entire container - just show a message above it
+        const msgDiv = document.createElement('div');
+        msgDiv.id = 'mic-permission-msg';
+        msgDiv.className = 'text-center p-4 bg-yellow-50 border border-yellow-200 rounded mb-4';
+        msgDiv.innerHTML = `
+            <p class="text-yellow-800 mb-3">Microphone access needed for recording</p>
+            <button onclick="recorder.init(); document.getElementById('mic-permission-msg').remove();" 
+                    class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition">
+                Allow Microphone
+            </button>
+        `;
+        
+        if (this.recorderContainer && !document.getElementById('mic-permission-msg')) {
+            this.recorderContainer.parentNode.insertBefore(msgDiv, this.recorderContainer);
         }
+        
         // Keep file upload as fallback
+        if (this.fileUploadSection) {
+            this.fileUploadSection.style.display = 'block';
+        }
+    }
+
+    showNotSupportedMessage() {
+        const msgDiv = document.createElement('div');
+        msgDiv.className = 'text-center p-4 bg-red-50 border border-red-200 rounded mb-4';
+        msgDiv.innerHTML = `
+            <p class="text-red-800 mb-2">Your browser doesn't support microphone recording.</p>
+            <p class="text-sm text-red-600">Please use the file upload option below.</p>
+        `;
+        
+        if (this.recorderContainer) {
+            this.recorderContainer.parentNode.insertBefore(msgDiv, this.recorderContainer);
+            this.recorderContainer.style.display = 'none';
+        }
+        
+        if (this.fileUploadSection) {
+            this.fileUploadSection.style.display = 'block';
+        }
+    }
+
+    showHttpsRequiredMessage() {
+        const msgDiv = document.createElement('div');
+        msgDiv.className = 'text-center p-4 bg-orange-50 border border-orange-200 rounded mb-4';
+        msgDiv.innerHTML = `
+            <p class="text-orange-800 mb-2">HTTPS Required</p>
+            <p class="text-sm text-orange-600">Microphone access requires HTTPS. Please use the file upload option below.</p>
+        `;
+        
+        if (this.recorderContainer) {
+            this.recorderContainer.parentNode.insertBefore(msgDiv, this.recorderContainer);
+            this.recorderContainer.style.display = 'none';
+        }
+        
         if (this.fileUploadSection) {
             this.fileUploadSection.style.display = 'block';
         }
@@ -456,6 +511,30 @@ class IntercomRecorder {
 
 // Initialize recorder when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
+    console.log('DOM loaded, initializing recorder...');
+    
+    // Check if required elements exist
+    const recordBtn = document.getElementById('record-btn');
+    const recorderContainer = document.getElementById('recorder');
+    
+    if (!recordBtn) {
+        console.error('Record button not found in DOM');
+        return;
+    }
+    
+    if (!recorderContainer) {
+        console.error('Recorder container not found in DOM');
+        return;
+    }
+    
+    console.log('Found recorder elements, creating instance...');
     window.recorder = new IntercomRecorder();
-    window.recorder.init();
+    
+    // Always show the recorder UI first
+    recorderContainer.style.display = 'block';
+    
+    // Then try to initialize microphone
+    window.recorder.init().catch(err => {
+        console.error('Failed to initialize recorder:', err);
+    });
 });
