@@ -102,41 +102,37 @@
                     </div>
                 </div>
 
-                <!-- Vocal Tract Visualization -->
+                <!-- Vocal Tract Visualization (Pink Trombone) -->
                 <div class="lg:col-span-2">
-                    <div id="vocal-tract-container" class="vocal-tract-container">
-                        <div class="vocal-tract-panels">
-                            <div class="vocal-tract-panel">
-                                <div class="vocal-tract-header">
-                                    <span class="vocal-tract-title">What you're doing</span>
-                                    <span id="left-phoneme" class="vocal-tract-phoneme">-</span>
-                                </div>
-                                <div class="vocal-tract-canvas-wrapper">
-                                    <canvas id="vocal-tract-left" width="400" height="300"></canvas>
-                                </div>
-                                <div id="left-description" class="vocal-tract-features">
-                                    No error selected
-                                </div>
-                                <div class="vocal-tract-actions">
-                                    <button class="vocal-tract-button" onclick="window.animateLeft()">Animate</button>
-                                </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <!-- Left Panel (Incorrect) -->
+                        <div class="text-center">
+                            <div class="bg-gray-100 rounded-lg p-2 mb-2">
+                                <div class="text-sm font-medium text-gray-700 mb-1">What you're doing</div>
+                                <div id="left-phoneme" class="text-lg font-bold text-red-600">-</div>
                             </div>
+                            <canvas id="vocal-tract-left" width="600" height="500" class="bg-white rounded shadow w-full"></canvas>
+                            <div id="left-description" class="mt-2 text-sm text-gray-600">
+                                No error selected
+                            </div>
+                            <button onclick="window.animateLeft()" class="mt-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition">
+                                Animate
+                            </button>
+                        </div>
 
-                            <div class="vocal-tract-panel">
-                                <div class="vocal-tract-header">
-                                    <span class="vocal-tract-title">What you should do</span>
-                                    <span id="right-phoneme" class="vocal-tract-phoneme">-</span>
-                                </div>
-                                <div class="vocal-tract-canvas-wrapper">
-                                    <canvas id="vocal-tract-right" width="400" height="300"></canvas>
-                                </div>
-                                <div id="right-description" class="vocal-tract-features">
-                                    No error selected
-                                </div>
-                                <div class="vocal-tract-actions">
-                                    <button class="vocal-tract-button" onclick="window.animateRight()">Animate</button>
-                                </div>
+                        <!-- Right Panel (Correct) -->
+                        <div class="text-center">
+                            <div class="bg-gray-100 rounded-lg p-2 mb-2">
+                                <div class="text-sm font-medium text-gray-700 mb-1">What you should do</div>
+                                <div id="right-phoneme" class="text-lg font-bold text-green-600">-</div>
                             </div>
+                            <canvas id="vocal-tract-right" width="600" height="500" class="bg-white rounded shadow w-full"></canvas>
+                            <div id="right-description" class="mt-2 text-sm text-gray-600">
+                                No error selected
+                            </div>
+                            <button onclick="window.animateRight()" class="mt-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition">
+                                Animate
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -280,11 +276,106 @@
     <!-- JavaScript for Animation Lab -->
     <script src="/static/js/pink_trombone_core.js"></script>
     <script src="/static/js/mock_processor.js"></script>
-    <script src="/static/js/animation_lab.js"></script>
-    <script src="/static/js/vocal_tract.js"></script>
     <script src="/static/js/recorder.js"></script>
 
     <script>
+        // Pink Trombone Error Visualization
+        window.leftTractProcessor = null;
+        window.rightTractProcessor = null;
+        window.leftTractUI = null;
+        window.rightTractUI = null;
+        window.currentAnimationParams = { left: {}, right: {} };
+        window.currentHighlightParams = { zone: null };
+
+        // Initialize Pink Trombone for error visualization
+        document.addEventListener('DOMContentLoaded', function() {
+            const leftCanvas = document.getElementById('vocal-tract-left');
+            const rightCanvas = document.getElementById('vocal-tract-right');
+            
+            if (leftCanvas && typeof MockProcessor !== 'undefined' && typeof TractUI !== 'undefined') {
+                window.leftTractProcessor = new MockProcessor();
+                window.leftTractUI = new TractUI(leftCanvas, window.leftTractProcessor);
+                window.leftTractUI.draw();
+            }
+            
+            if (rightCanvas && typeof MockProcessor !== 'undefined' && typeof TractUI !== 'undefined') {
+                window.rightTractProcessor = new MockProcessor();
+                window.rightTractUI = new TractUI(rightCanvas, window.rightTractProcessor);
+                window.rightTractUI.draw();
+            }
+        });
+
+        // Update vocal tract descriptions and animation params
+        window.updateVocalTractDescriptions = function(incorrectHtml, correctHtml, animationJson, highlightJson) {
+            // Update text descriptions
+            const leftDesc = document.getElementById('left-description');
+            const rightDesc = document.getElementById('right-description');
+            const leftPhoneme = document.getElementById('left-phoneme');
+            const rightPhoneme = document.getElementById('right-phoneme');
+            
+            if (leftDesc) leftDesc.innerHTML = incorrectHtml || "No error selected";
+            if (rightDesc) rightDesc.innerHTML = correctHtml || "No error selected";
+            
+            // Extract phonemes from HTML
+            const leftMatch = incorrectHtml ? incorrectHtml.match(/\/([^\/]+)\//) : null;
+            const rightMatch = correctHtml ? correctHtml.match(/\/([^\/]+)\//) : null;
+            
+            if (leftMatch && leftPhoneme) leftPhoneme.textContent = leftMatch[1];
+            if (rightMatch && rightPhoneme) rightPhoneme.textContent = rightMatch[1];
+            
+            // Parse animation params
+            try {
+                if (animationJson && typeof animationJson === 'string' && animationJson.trim().length > 0) {
+                    const params = JSON.parse(animationJson);
+                    if (params && params.left) window.currentAnimationParams.left = params.left;
+                    if (params && params.right) window.currentAnimationParams.right = params.right;
+                }
+            } catch (e) {
+                console.error('Failed to parse animation JSON:', e);
+            }
+            
+            // Parse highlight params
+            try {
+                if (highlightJson && typeof highlightJson === 'string' && highlightJson.trim().length > 0) {
+                    const highlight = JSON.parse(highlightJson);
+                    if (highlight && highlight.zone) window.currentHighlightParams.zone = highlight.zone;
+                }
+            } catch (e) {
+                console.error('Failed to parse highlight JSON:', e);
+            }
+            
+            // Update tracts immediately
+            if (window.leftTractProcessor && window.currentAnimationParams.left) {
+                window.leftTractProcessor.updateFromParams(window.currentAnimationParams.left);
+                if (window.leftTractUI) window.leftTractUI.draw();
+            }
+            if (window.rightTractProcessor && window.currentAnimationParams.right) {
+                window.rightTractProcessor.updateFromParams(window.currentAnimationParams.right);
+                if (window.rightTractUI) window.rightTractUI.draw();
+            }
+        };
+
+        // Animation triggers
+        window.animateLeft = function() {
+            if (window.leftTractProcessor && window.currentAnimationParams.left) {
+                window.leftTractProcessor.updateFromParams(window.currentAnimationParams.left);
+                if (window.leftTractUI) {
+                    window.leftTractUI._highlightZone = null;
+                    window.leftTractUI.draw();
+                }
+            }
+        };
+
+        window.animateRight = function() {
+            if (window.rightTractProcessor && window.currentAnimationParams.right) {
+                window.rightTractProcessor.updateFromParams(window.currentAnimationParams.right);
+                if (window.rightTractUI) {
+                    window.rightTractUI._highlightZone = window.currentHighlightParams.zone;
+                    window.rightTractUI.draw();
+                }
+            }
+        };
+
         // Animation Lab control functions
         function updateAnimation() {
             const tongueIndex = parseFloat(document.getElementById('tongue-idx').value);
@@ -355,7 +446,7 @@
                 });
                 const data = await response.json();
                 
-                // Update visualization
+                // Update visualization using Pink Trombone
                 if (window.updateVocalTractDescriptions) {
                     window.updateVocalTractDescriptions(
                         data.incorrect_desc,
