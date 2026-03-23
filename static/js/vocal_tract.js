@@ -317,6 +317,56 @@ function startHighlightAnimation(tract) {
     animateHighlight();
 }
 
+// Global state for vocal tract visualization
+window.leftTract = null;
+window.rightTract = null;
+window.currentAnimationParams = { left: {}, right: {} };
+window.currentHighlightParams = { zone: null };
+
+// Update vocal tract descriptions and animation params
+window.updateVocalTractDescriptions = function(incorrectHtml, correctHtml, animationJson, highlightJson) {
+    // Update text descriptions
+    const leftDesc = document.getElementById('left-description');
+    const rightDesc = document.getElementById('right-description');
+    const leftPhoneme = document.getElementById('left-phoneme');
+    const rightPhoneme = document.getElementById('right-phoneme');
+    
+    if (leftDesc) leftDesc.innerHTML = incorrectHtml || "No error selected";
+    if (rightDesc) rightDesc.innerHTML = correctHtml || "No error selected";
+    
+    // Extract phonemes from HTML
+    const leftMatch = incorrectHtml ? incorrectHtml.match(/\/([^\/]+)\//) : null;
+    const rightMatch = correctHtml ? correctHtml.match(/\/([^\/]+)\//) : null;
+    
+    if (leftMatch && leftPhoneme) leftPhoneme.textContent = leftMatch[1];
+    if (rightMatch && rightPhoneme) rightPhoneme.textContent = rightMatch[1];
+    
+    // Parse animation params
+    try {
+        if (animationJson && typeof animationJson === 'string' && animationJson.trim().length > 0) {
+            const params = JSON.parse(animationJson);
+            if (params && params.left) window.currentAnimationParams.left = params.left;
+            if (params && params.right) window.currentAnimationParams.right = params.right;
+        }
+    } catch (e) {
+        console.error('Failed to parse animation JSON:', e);
+    }
+    
+    // Parse highlight params
+    try {
+        if (highlightJson && typeof highlightJson === 'string' && highlightJson.trim().length > 0) {
+            const highlight = JSON.parse(highlightJson);
+            if (highlight && highlight.zone) window.currentHighlightParams.zone = highlight.zone;
+        }
+    } catch (e) {
+        console.error('Failed to parse highlight JSON:', e);
+    }
+    
+    // Draw updated tracts
+    if (window.leftTract) window.leftTract.draw();
+    if (window.rightTract) window.rightTract.draw();
+};
+
 // Animation triggers for vocal tract panels
 window.animateLeft = function() {
     if (window.leftTract && window.currentAnimationParams.left) {
@@ -333,6 +383,22 @@ window.animateRight = function() {
         window.rightTract.startAnimation();
     }
 };
+
+// Initialize vocal tracts when DOM is ready
+document.addEventListener('DOMContentLoaded', function() {
+    const leftCanvas = document.getElementById('vocal-tract-left');
+    const rightCanvas = document.getElementById('vocal-tract-right');
+    
+    if (leftCanvas && typeof VocalTract !== 'undefined') {
+        window.leftTract = new VocalTract(leftCanvas);
+        window.leftTract.draw();
+    }
+    
+    if (rightCanvas && typeof VocalTract !== 'undefined') {
+        window.rightTract = new VocalTract(rightCanvas);
+        window.rightTract.draw();
+    }
+});
 
 // Export for Gradio integration
 window.VocalTract = VocalTract;
