@@ -317,6 +317,23 @@ function startHighlightAnimation(tract) {
     animateHighlight();
 }
 
+// Animation triggers for vocal tract panels
+window.animateLeft = function() {
+    if (window.leftTract && window.currentAnimationParams.left) {
+        window.leftTract.setHighlightZone(null);
+        window.leftTract.setParameters(window.currentAnimationParams.left);
+        window.leftTract.startAnimation();
+    }
+};
+
+window.animateRight = function() {
+    if (window.rightTract && window.currentAnimationParams.right) {
+        window.rightTract.setHighlightZone(window.currentHighlightParams.zone);
+        window.rightTract.setParameters(window.currentAnimationParams.right);
+        window.rightTract.startAnimation();
+    }
+};
+
 // Export for Gradio integration
 window.VocalTract = VocalTract;
 window.startHighlightAnimation = startHighlightAnimation;
