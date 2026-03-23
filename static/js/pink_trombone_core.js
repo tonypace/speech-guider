@@ -302,6 +302,71 @@ class TractUI {
     if (moveTo) this._context.moveTo(x, y);
     else this._context.lineTo(x, y);
   }
+
+  // Animation support
+  setParameters(params) {
+    // Store target parameters for interpolation
+    this._targetParams = params;
+    this._animationProgress = 0;
+    this._isAnimating = false;
+    
+    // Store current params as starting point
+    this._startParams = {
+      tongueIndex: this._processor._params.tongueIndex,
+      tongueDiameter: this._processor._params.tongueDiameter,
+      lipRounding: this._processor._params.lipRounding,
+      voicing: this._processor._params.voicing
+    };
+  }
+
+  startAnimation() {
+    if (this._isAnimating) return;
+    if (!this._targetParams) return;
+    
+    this._isAnimating = true;
+    this._animationProgress = 0;
+    this._animate();
+  }
+
+  _animate() {
+    if (!this._isAnimating) return;
+    
+    const duration = 30; // frames (60fps = 0.5 seconds)
+    
+    if (this._animationProgress < duration) {
+      this._animationProgress++;
+      
+      // Ease-in-out function
+      const t = this._animationProgress / duration;
+      const easedT = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+      
+      // Interpolate parameters
+      const currentParams = {
+        tongueIndex: this._lerp(this._startParams.tongueIndex, this._targetParams.tongueIndex, easedT),
+        tongueDiameter: this._lerp(this._startParams.tongueDiameter, this._targetParams.tongueDiameter, easedT),
+        lipRounding: this._lerp(this._startParams.lipRounding, this._targetParams.lipRounding, easedT),
+        voicing: this._lerp(this._startParams.voicing, this._targetParams.voicing, easedT)
+      };
+      
+      // Update processor
+      this._processor.updateFromParams(currentParams);
+      
+      // Draw
+      this.draw();
+      
+      // Continue animation
+      requestAnimationFrame(() => this._animate());
+    } else {
+      // Animation complete
+      this._isAnimating = false;
+      this._processor.updateFromParams(this._targetParams);
+      this.draw();
+    }
+  }
+
+  _lerp(start, end, t) {
+    return start + (end - start) * t;
+  }
 }
 
 // Export for Gradio

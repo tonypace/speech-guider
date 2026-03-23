@@ -355,24 +355,24 @@
             }
         };
 
-        // Animation triggers
+        // Animation triggers - animate continuously
         window.animateLeft = function() {
-            if (window.leftTractProcessor && window.currentAnimationParams.left) {
-                window.leftTractProcessor.updateFromParams(window.currentAnimationParams.left);
-                if (window.leftTractUI) {
-                    window.leftTractUI._highlightZone = null;
-                    window.leftTractUI.draw();
-                }
+            if (window.leftTractProcessor && window.currentAnimationParams.left && window.leftTractUI) {
+                // Set target params
+                window.leftTractProcessor.setParameters(window.currentAnimationParams.left);
+                window.leftTractUI._highlightZone = null;
+                // Start animation
+                window.leftTractUI.startAnimation();
             }
         };
 
         window.animateRight = function() {
-            if (window.rightTractProcessor && window.currentAnimationParams.right) {
-                window.rightTractProcessor.updateFromParams(window.currentAnimationParams.right);
-                if (window.rightTractUI) {
-                    window.rightTractUI._highlightZone = window.currentHighlightParams.zone;
-                    window.rightTractUI.draw();
-                }
+            if (window.rightTractProcessor && window.currentAnimationParams.right && window.rightTractUI) {
+                // Set target params
+                window.rightTractProcessor.setParameters(window.currentAnimationParams.right);
+                window.rightTractUI._highlightZone = window.currentHighlightParams.zone;
+                // Start animation
+                window.rightTractUI.startAnimation();
             }
         };
 
@@ -443,11 +443,13 @@
             const buttons = errorList.querySelectorAll('button');
             buttons.forEach((btn, idx) => {
                 if (idx === index) {
-                    btn.classList.add('bg-blue-100', 'border-blue-300');
-                    btn.classList.remove('hover:bg-gray-50');
+                    btn.style.backgroundColor = '#dbeafe'; // blue-100
+                    btn.style.borderColor = '#93c5fd'; // blue-300
+                    btn.style.borderWidth = '2px';
                 } else {
-                    btn.classList.remove('bg-blue-100', 'border-blue-300');
-                    btn.classList.add('hover:bg-gray-50');
+                    btn.style.backgroundColor = '';
+                    btn.style.borderColor = '';
+                    btn.style.borderWidth = '';
                 }
             });
             

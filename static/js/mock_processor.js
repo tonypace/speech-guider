@@ -56,6 +56,12 @@ class MockProcessor {
     };
   }
 
+  // Set parameters for animation (stores target)
+  setParameters(params) {
+    // Just store the params - animation system will call updateFromParams
+    this._targetParams = params;
+  }
+
   // Update tract shape from our 4 articulatory parameters
   updateFromParams(params) {
     // Store params
