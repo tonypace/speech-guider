@@ -315,26 +315,34 @@
             }
         }
 
+        // Store errors globally for access by selectError
+        window.currentErrors = [];
+
         function populateErrors(errors) {
+            // Store errors globally
+            window.currentErrors = errors;
+            
             const errorList = document.getElementById('error-list');
             errorList.innerHTML = '';
             
             errors.forEach((error, index) => {
                 const btn = document.createElement('button');
-                btn.className = 'w-full text-left px-4 py-2 border border-gray-200 rounded hover:bg-gray-50 transition';
-                btn.textContent = `${index + 1}. '${error.word_context}': /${error.target_phoneme}/ → /${error.predicted_phoneme}/`;
+                btn.className = 'w-full text-left px-4 py-3 border border-gray-200 rounded hover:bg-gray-50 transition mb-2';
+                btn.innerHTML = `
+                    <span class="font-medium">${index + 1}.</span>
+                    <span class="text-gray-700">'${error.word_context}':</span>
+                    <span class="text-red-600">/${error.target_phoneme}/</span>
+                    <span class="text-gray-400">→</span>
+                    <span class="text-blue-600">/${error.predicted_phoneme}/</span>
+                `;
                 btn.onclick = () => selectError(index);
                 errorList.appendChild(btn);
             });
         }
 
         async function selectError(index) {
-            // Get current errors from the page state
-            const errors = [];
-            document.querySelectorAll('#error-list button').forEach(btn => {
-                // Parse error info from button text
-                errors.push({});
-            });
+            // Use stored errors instead of parsing from DOM
+            const errors = window.currentErrors || [];
             
             try {
                 const response = await fetch('/api/select-error', {
