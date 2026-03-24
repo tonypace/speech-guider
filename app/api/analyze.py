@@ -100,11 +100,23 @@ async def run_analysis_blocking(audio_path: str, target_text: str, job_id: str):
 
         word_timestamps = [(word.word, word.start_time, word.end_time) for word in alignment.words]
 
+        print(f"[analyze] vowel_timestamps ({len(vowel_timestamps)}): {vowel_timestamps}")
+        print(f"[analyze] word_timestamps ({len(word_timestamps)}): {word_timestamps}")
+
         prosody_metrics = prosody_analyzer.analyze_complete(
             vowel_timestamps=vowel_timestamps, word_timestamps=word_timestamps
         )
     else:
+        print("[analyze] No alignment, running prosody analysis without timestamps")
         prosody_metrics = prosody_analyzer.analyze_complete()
+
+    print(f"[analyze] prosody_metrics type: {type(prosody_metrics)}")
+    print(f"[analyze] prosody_metrics: {prosody_metrics}")
+    if prosody_metrics:
+        print(f"[analyze] prosody_metrics.pitch: {prosody_metrics.pitch}")
+        print(f"[analyze] prosody_metrics.rhythm: {prosody_metrics.rhythm}")
+        if prosody_metrics.rhythm:
+            print(f"[analyze] nPVI value: {prosody_metrics.rhythm.npvi}")
 
     # Step 4: Generate feedback
     await send_progress_update(job_id, 0.9, "Generating feedback...", "feedback")
@@ -116,8 +128,20 @@ async def run_analysis_blocking(audio_path: str, target_text: str, job_id: str):
 
     await send_progress_update(job_id, 1.0, "Analysis complete!", "complete")
 
+    # Filter out identical phoneme pairs (e.g., /d/ -> /d/)
+    filtered_errors = (
+        [serialize_error(e) for e in errors if e.target_phoneme != e.predicted_phoneme]
+        if errors
+        else []
+    )
+
+    if len(filtered_errors) < len(errors):
+        print(
+            f"[analyze] Filtered out {len(errors) - len(filtered_errors)} identical phoneme pairs"
+        )
+
     return {
-        "errors": [serialize_error(e) for e in errors] if errors else [],
+        "errors": filtered_errors,
         "feedback": feedback,
         "alignment": serialize_alignment(alignment) if alignment else None,
         "prosody": serialize_prosody(prosody_metrics) if prosody_metrics else None,
@@ -168,40 +192,63 @@ def serialize_alignment(alignment):
 
 def serialize_prosody(prosody):
     """Convert ProsodyMetrics to dict."""
+    print(f"[serialize_prosody] Called with: {prosody}")
+    print(
+        f"[serialize_prosody] prosody.pitch: {prosody.pitch if prosody else 'prosody is None/False'}"
+    )
+    print(
+        f"[serialize_prosody] prosody.rhythm: {prosody.rhythm if prosody else 'prosody is None/False'}"
+    )
+    if prosody and prosody.rhythm:
+        print(f"[serialize_prosody] nPVI: {prosody.rhythm.npvi}")
+    elif prosody:
+        print(f"[serialize_prosody] rhythm is None, nPVI will be 0")
+
     return {
-        "pitch_mean": prosody.pitch.mean_f0 if prosody.pitch else 0,
-        "pitch_range": prosody.pitch.f0_range if prosody.pitch else 0,
-        "pitch_variability": prosody.pitch.std_f0 if prosody.pitch else 0,
-        "npvi": prosody.rhythm.npvi if prosody.rhythm else 0,
-        "stress_pattern": prosody.stress.primary_stress_word if prosody.stress else None,
+        "pitch_mean": prosody.pitch.mean_f0 if prosody and prosody.pitch else 0,
+        "pitch_range": prosody.pitch.f0_range if prosody and prosody.pitch else 0,
+        "pitch_variability": prosody.pitch.std_f0 if prosody and prosody.pitch else 0,
+        "npvi": prosody.rhythm.npvi if prosody and prosody.rhythm else 0,
+        "stress_pattern": prosody.stress.primary_stress_word
+        if prosody and prosody.stress
+        else None,
     }
 
 
 def _generate_comprehensive_feedback(errors, alignment, prosody_metrics, mapper):
     """Generate comprehensive feedback text."""
+    print(f"[feedback] Generating feedback for {len(errors) if errors else 0} errors")
+    print(f"[feedback] alignment: {alignment}")
+    print(f"[feedback] prosody_metrics: {prosody_metrics}")
+
     # Simplified feedback generation
     sections = []
 
     # Pronunciation summary
     if errors:
-        sections.append(f"**Pronunciation:** Found {len(errors)} error(s)")
+        sections.append(f"<strong>Pronunciation:</strong> Found {len(errors)} error(s)")
         for i, error in enumerate(errors[:5], 1):
             sections.append(
                 f"{i}. '{error.word_context}': /{error.target_phoneme}/ → /{error.predicted_phoneme}/"
             )
     else:
-        sections.append("**Pronunciation:** No errors detected")
+        sections.append("<strong>Pronunciation:</strong> No errors detected")
 
     # Prosody summary
     if prosody_metrics:
-        sections.append(f"\\n**Prosody:**")
+        sections.append(f"<br><strong>Prosody:</strong>")
         if prosody_metrics.pitch:
             sections.append(f"- Pitch range: {prosody_metrics.pitch.f0_range:.1f} Hz")
             sections.append(f"- Mean pitch: {prosody_metrics.pitch.mean_f0:.1f} Hz")
         if prosody_metrics.rhythm:
             sections.append(f"- Rhythm (nPVI): {prosody_metrics.rhythm.npvi:.2f}")
+            print(f"[feedback] nPVI value being used: {prosody_metrics.rhythm.npvi:.2f}")
 
-    return "\\n".join(sections)
+    result = "<br>".join(sections)
+    print(f"[feedback] Final feedback string:")
+    print(result)
+    print(f"[feedback] Feedback repr: {repr(result)}")
+    return result
 
 
 @router.post("/api/analyze")

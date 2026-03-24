@@ -140,7 +140,14 @@ class ProsodyAnalyzer:
         Returns:
             RhythmMetrics with nPVI score and classification
         """
-        if len(vowel_timestamps) < 2:
+        print(
+            f"[analyze_rhythm] Called with {len(vowel_timestamps) if vowel_timestamps else 0} timestamps"
+        )
+        if vowel_timestamps:
+            print(f"[analyze_rhythm] vowel_timestamps: {vowel_timestamps}")
+
+        if not vowel_timestamps or len(vowel_timestamps) < 2:
+            print("[analyze_rhythm] Insufficient vowel timestamps, returning 0 nPVI")
             return RhythmMetrics(
                 npvi=0.0,
                 vowel_durations=[],
@@ -149,6 +156,7 @@ class ProsodyAnalyzer:
 
         # Calculate vowel durations
         vowel_durations = [end - start for start, end in vowel_timestamps]
+        print(f"[analyze_rhythm] vowel_durations: {vowel_durations}")
 
         # Calculate nPVI
         num_vowels = len(vowel_durations)
@@ -160,6 +168,8 @@ class ProsodyAnalyzer:
 
         # nPVI formula
         npvi = 100 * np.sum(differences / means) / (num_vowels - 1)
+
+        print(f"[analyze_rhythm] Calculated nPVI: {npvi}")
 
         # Classify based on nPVI threshold
         # English (stress-timed) typically has nPVI > 40

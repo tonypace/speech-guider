@@ -287,26 +287,87 @@
         window.currentAnimationParams = { left: {}, right: {} };
         window.currentHighlightParams = { zone: null };
 
-        // Initialize Pink Trombone for error visualization
+        // Animation Lab instances
+        window.animLabProcessor = null;
+        window.animLabUI = null;
+
+        // Initialize Pink Trombone for error visualization AND Animation Lab
         document.addEventListener('DOMContentLoaded', function() {
+            console.log('[DOMContentLoaded] Initializing vocal tract visualizations...');
+            
             const leftCanvas = document.getElementById('vocal-tract-left');
             const rightCanvas = document.getElementById('vocal-tract-right');
+            const animLabCanvas = document.getElementById('pink-trombone-canvas');
+            
+            console.log('[DOMContentLoaded] leftCanvas found:', !!leftCanvas);
+            console.log('[DOMContentLoaded] rightCanvas found:', !!rightCanvas);
+            console.log('[DOMContentLoaded] animLabCanvas found:', !!animLabCanvas);
+            console.log('[DOMContentLoaded] MockProcessor defined:', typeof MockProcessor !== 'undefined');
+            console.log('[DOMContentLoaded] TractUI defined:', typeof TractUI !== 'undefined');
             
             if (leftCanvas && typeof MockProcessor !== 'undefined' && typeof TractUI !== 'undefined') {
                 window.leftTractProcessor = new MockProcessor();
                 window.leftTractUI = new TractUI(leftCanvas, window.leftTractProcessor);
                 window.leftTractUI.draw();
+                console.log('[DOMContentLoaded] leftTractProcessor created:', !!window.leftTractProcessor);
+                console.log('[DOMContentLoaded] leftTractUI created:', !!window.leftTractUI);
+            } else {
+                console.error('[DOMContentLoaded] Failed to create left TractUI - missing dependencies');
             }
             
             if (rightCanvas && typeof MockProcessor !== 'undefined' && typeof TractUI !== 'undefined') {
                 window.rightTractProcessor = new MockProcessor();
                 window.rightTractUI = new TractUI(rightCanvas, window.rightTractProcessor);
                 window.rightTractUI.draw();
+                console.log('[DOMContentLoaded] rightTractProcessor created:', !!window.rightTractProcessor);
+                console.log('[DOMContentLoaded] rightTractUI created:', !!window.rightTractUI);
+            } else {
+                console.error('[DOMContentLoaded] Failed to create right TractUI - missing dependencies');
+            }
+            
+            // Initialize Animation Lab
+            if (animLabCanvas && typeof MockProcessor !== 'undefined' && typeof TractUI !== 'undefined') {
+                window.animLabProcessor = new MockProcessor();
+                window.animLabUI = new TractUI(animLabCanvas, window.animLabProcessor);
+                window.animLabUI.draw();
+                console.log('[DOMContentLoaded] animLabProcessor created:', !!window.animLabProcessor);
+                console.log('[DOMContentLoaded] animLabUI created:', !!window.animLabUI);
+            } else {
+                console.error('[DOMContentLoaded] Failed to create Animation Lab TractUI - missing dependencies');
+                console.error('[DOMContentLoaded] animLabCanvas:', !!animLabCanvas, 'MockProcessor:', typeof MockProcessor, 'TractUI:', typeof TractUI);
             }
         });
 
+        // Animation Lab update function - updates the Animation Lab processor
+        window.updateAnimationParams = function(tongueIndex, tongueDiameter, lipRounding, voicing) {
+            console.log('[updateAnimationParams] Called with:', { tongueIndex, tongueDiameter, lipRounding, voicing });
+            
+            if (window.animLabProcessor) {
+                const params = {
+                    tongueIndex: tongueIndex,
+                    tongueDiameter: tongueDiameter,
+                    lipRounding: lipRounding,
+                    voicing: voicing
+                };
+                console.log('[updateAnimationParams] Updating animLabProcessor with:', params);
+                window.animLabProcessor.updateFromParams(params);
+                
+                if (window.animLabUI) {
+                    window.animLabUI.draw();
+                }
+            } else {
+                console.error('[updateAnimationParams] animLabProcessor is not initialized!');
+            }
+        };
+
         // Update vocal tract descriptions and animation params
         window.updateVocalTractDescriptions = function(incorrectHtml, correctHtml, animationJson, highlightJson) {
+            console.log('[updateVocalTractDescriptions] Called');
+            console.log('[updateVocalTractDescriptions] incorrectHtml:', incorrectHtml);
+            console.log('[updateVocalTractDescriptions] correctHtml:', correctHtml);
+            console.log('[updateVocalTractDescriptions] animationJson:', animationJson);
+            console.log('[updateVocalTractDescriptions] highlightJson:', highlightJson);
+            
             // Update text descriptions
             const leftDesc = document.getElementById('left-description');
             const rightDesc = document.getElementById('right-description');
@@ -327,11 +388,16 @@
             try {
                 if (animationJson && typeof animationJson === 'string' && animationJson.trim().length > 0) {
                     const params = JSON.parse(animationJson);
+                    console.log('[updateVocalTractDescriptions] Parsed animation params:', params);
                     if (params && params.left) window.currentAnimationParams.left = params.left;
                     if (params && params.right) window.currentAnimationParams.right = params.right;
+                    console.log('[updateVocalTractDescriptions] Parsed left params:', window.currentAnimationParams.left);
+                    console.log('[updateVocalTractDescriptions] Parsed right params:', window.currentAnimationParams.right);
+                } else {
+                    console.warn('[updateVocalTractDescriptions] animationJson is empty or invalid');
                 }
             } catch (e) {
-                console.error('Failed to parse animation JSON:', e);
+                console.error('[updateVocalTractDescriptions] Failed to parse animation JSON:', e);
             }
             
             // Parse highlight params
@@ -341,52 +407,94 @@
                     if (highlight && highlight.zone) window.currentHighlightParams.zone = highlight.zone;
                 }
             } catch (e) {
-                console.error('Failed to parse highlight JSON:', e);
+                console.error('[updateVocalTractDescriptions] Failed to parse highlight JSON:', e);
             }
             
             // Update tracts immediately
+            console.log('[updateVocalTractDescriptions] leftTractProcessor exists:', !!window.leftTractProcessor);
+            console.log('[updateVocalTractDescriptions] rightTractProcessor exists:', !!window.rightTractProcessor);
+            console.log('[updateVocalTractDescriptions] leftTractUI exists:', !!window.leftTractUI);
+            console.log('[updateVocalTractDescriptions] rightTractUI exists:', !!window.rightTractUI);
+            
             if (window.leftTractProcessor && window.currentAnimationParams.left) {
+                console.log('[updateVocalTractDescriptions] Updating left tract with params:', window.currentAnimationParams.left);
                 window.leftTractProcessor.updateFromParams(window.currentAnimationParams.left);
                 if (window.leftTractUI) window.leftTractUI.draw();
             }
             if (window.rightTractProcessor && window.currentAnimationParams.right) {
+                console.log('[updateVocalTractDescriptions] Updating right tract with params:', window.currentAnimationParams.right);
                 window.rightTractProcessor.updateFromParams(window.currentAnimationParams.right);
                 if (window.rightTractUI) window.rightTractUI.draw();
             }
         };
 
-        // Animation triggers - just update and draw
+        // Animation triggers - use TractUI animation system
         window.animateLeft = function() {
-            if (window.leftTractProcessor && window.currentAnimationParams.left && window.leftTractUI) {
-                window.leftTractProcessor.updateFromParams(window.currentAnimationParams.left);
-                window.leftTractUI.draw();
+            console.log('[animateLeft] Called');
+            console.log('[animateLeft] leftTractUI:', !!window.leftTractUI);
+            console.log('[animateLeft] currentAnimationParams.left:', window.currentAnimationParams.left);
+            
+            if (window.leftTractUI && window.currentAnimationParams.left) {
+                console.log('[animateLeft] Starting animation with params:', window.currentAnimationParams.left);
+                window.leftTractUI.setParameters(window.currentAnimationParams.left);
+                window.leftTractUI.startAnimation();
+            } else {
+                console.warn('[animateLeft] Missing leftTractUI or params!');
+                // Fallback: just update and draw once
+                if (window.leftTractProcessor && window.currentAnimationParams.left) {
+                    window.leftTractProcessor.updateFromParams(window.currentAnimationParams.left);
+                }
+                if (window.leftTractUI) window.leftTractUI.draw();
             }
         };
 
         window.animateRight = function() {
-            if (window.rightTractProcessor && window.currentAnimationParams.right && window.rightTractUI) {
-                window.rightTractProcessor.updateFromParams(window.currentAnimationParams.right);
-                window.rightTractUI.draw();
+            console.log('[animateRight] Called');
+            console.log('[animateRight] rightTractUI:', !!window.rightTractUI);
+            console.log('[animateRight] currentAnimationParams.right:', window.currentAnimationParams.right);
+            
+            if (window.rightTractUI && window.currentAnimationParams.right) {
+                console.log('[animateRight] Starting animation with params:', window.currentAnimationParams.right);
+                window.rightTractUI.setParameters(window.currentAnimationParams.right);
+                window.rightTractUI.startAnimation();
+            } else {
+                console.warn('[animateRight] Missing rightTractUI or params!');
+                // Fallback: just update and draw once
+                if (window.rightTractProcessor && window.currentAnimationParams.right) {
+                    window.rightTractProcessor.updateFromParams(window.currentAnimationParams.right);
+                }
+                if (window.rightTractUI) window.rightTractUI.draw();
             }
         };
 
         // Animation Lab control functions
         function updateAnimation() {
+            console.log('[updateAnimation] Called');
             const tongueIndex = parseFloat(document.getElementById('tongue-idx').value);
             const tongueDiameter = parseFloat(document.getElementById('tongue-dia').value);
             const lipRounding = parseFloat(document.getElementById('lip-round').value);
             const voicing = parseFloat(document.getElementById('voicing').value);
             
+            console.log('[updateAnimation] Params:', { tongueIndex, tongueDiameter, lipRounding, voicing });
+            console.log('[updateAnimation] window.updateAnimationParams exists:', typeof window.updateAnimationParams === 'function');
+            
             if (window.updateAnimationParams) {
                 window.updateAnimationParams(tongueIndex, tongueDiameter, lipRounding, voicing);
+            } else {
+                console.error('[updateAnimation] window.updateAnimationParams is NOT DEFINED!');
             }
         }
 
         async function setPreset(phoneme) {
+            console.log('[setPreset] Called with phoneme:', phoneme);
             try {
                 const response = await fetch('/api/presets');
+                console.log('[setPreset] Response status:', response.status);
                 const data = await response.json();
+                console.log('[setPreset] Presets data keys:', Object.keys(data));
+                console.log('[setPreset] Selected preset phoneme:', phoneme);
                 const preset = data.phonemes[phoneme];
+                console.log('[setPreset] Selected preset:', preset);
                 
                 if (preset && preset.params) {
                     // Update sliders
@@ -397,9 +505,11 @@
                     
                     // Update animation
                     updateAnimation();
+                } else {
+                    console.error('[setPreset] No preset found for phoneme:', phoneme);
                 }
             } catch (error) {
-                console.error('Failed to load preset:', error);
+                console.error('[setPreset] Failed:', error);
             }
         }
 
@@ -429,17 +539,34 @@
         }
 
         async function selectError(index) {
+            console.log('[selectError] Called with index:', index);
             // Use stored errors instead of parsing from DOM
             const errors = window.currentErrors || [];
+            console.log('[selectError] Current errors count:', errors.length);
+            console.log('[selectError] Current errors:', JSON.stringify(errors));
+            
+            // Validate before making request
+            if (!errors || errors.length === 0) {
+                console.error('[selectError] No errors available!');
+                return;
+            }
+            if (index < 0 || index >= errors.length) {
+                console.error(`[selectError] Invalid index ${index} for ${errors.length} errors`);
+                return;
+            }
             
             // Highlight selected error button
             const errorList = document.getElementById('error-list');
             const buttons = errorList.querySelectorAll('button');
+            console.log('[selectError] Number of buttons found:', buttons.length);
+            
             buttons.forEach((btn, idx) => {
+                console.log(`[selectError] Button ${idx}: current bg=${btn.style.backgroundColor}, border=${btn.style.borderColor}`);
                 if (idx === index) {
                     btn.style.backgroundColor = '#dbeafe'; // blue-100
                     btn.style.borderColor = '#93c5fd'; // blue-300
                     btn.style.borderWidth = '2px';
+                    console.log(`[selectError] Applied highlight to button ${idx}`);
                 } else {
                     btn.style.backgroundColor = '';
                     btn.style.borderColor = '';
@@ -447,25 +574,36 @@
                 }
             });
             
+            console.log('[selectError] Fetching from /api/select-error...');
+            console.log('[selectError] Request body:', JSON.stringify({error_index: index, errors: errors}));
             try {
                 const response = await fetch('/api/select-error', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({error_index: index, errors: errors})
                 });
+                console.log('[selectError] Response status:', response.status);
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('[selectError] Error response:', errorText);
+                }
                 const data = await response.json();
+                console.log('[selectError] Response data:', JSON.stringify(data));
                 
                 // Update visualization using Pink Trombone
                 if (window.updateVocalTractDescriptions) {
+                    console.log('[selectError] Calling updateVocalTractDescriptions');
                     window.updateVocalTractDescriptions(
                         data.incorrect_desc,
                         data.correct_desc,
                         JSON.stringify(data.animation_params),
                         JSON.stringify(data.highlight_params)
                     );
+                } else {
+                    console.error('[selectError] window.updateVocalTractDescriptions is NOT defined!');
                 }
             } catch (error) {
-                console.error('Failed to select error:', error);
+                console.error('[selectError] Failed:', error);
             }
         }
     </script>

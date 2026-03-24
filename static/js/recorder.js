@@ -447,10 +447,16 @@ class IntercomRecorder {
     }
 
     displayResults(result) {
-        // Update feedback container
+        console.log('[displayResults] Called');
+        console.log('[displayResults] result.success:', result.success);
+        console.log('[displayResults] result.feedback:', result.feedback);
+        console.log('[displayResults] result.errors:', result.errors);
+        
+        // Update feedback container - server now sends HTML directly
         const feedbackContainer = document.getElementById('feedback-container');
         if (feedbackContainer) {
             if (result.success) {
+                console.log('[displayResults] Inserting feedback HTML...');
                 feedbackContainer.innerHTML = `
                     <div class="bg-white rounded-lg shadow-md p-6">
                         <div class="prose max-w-none">
@@ -458,6 +464,7 @@ class IntercomRecorder {
                         </div>
                     </div>
                 `;
+                console.log('[displayResults] Feedback HTML inserted');
             } else {
                 feedbackContainer.innerHTML = `
                     <div class="bg-red-50 border border-red-200 rounded-lg p-6">
@@ -478,8 +485,18 @@ class IntercomRecorder {
     }
 
     populateErrors(errors) {
+        console.log('[populateErrors] Called with', errors.length, 'errors');
+        console.log('[populateErrors] Errors data:', JSON.stringify(errors, null, 2));
+        
+        // Store errors globally for window.selectError to use
+        window.currentErrors = errors;
+        console.log('[populateErrors] Set window.currentErrors to', errors.length, 'errors');
+        
         const errorList = document.getElementById('error-list');
-        if (!errorList) return;
+        if (!errorList) {
+            console.error('[populateErrors] error-list element not found!');
+            return;
+        }
 
         errorList.innerHTML = '';
         
@@ -493,33 +510,10 @@ class IntercomRecorder {
                 <span class="text-gray-400">→</span>
                 <span class="text-blue-600">/${error.predicted_phoneme}/</span>
             `;
-            btn.onclick = () => this.selectError(index, errors);
+            btn.onclick = () => window.selectError(index);
             errorList.appendChild(btn);
+            console.log(`[populateErrors] Created button ${index} for error:`, error);
         });
-    }
-
-    async selectError(index, errors) {
-        try {
-            const response = await fetch('/api/select-error', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ error_index: index, errors: errors })
-            });
-
-            const data = await response.json();
-
-            // Update vocal tract visualization
-            if (window.updateVocalTractDescriptions) {
-                window.updateVocalTractDescriptions(
-                    data.incorrect_desc,
-                    data.correct_desc,
-                    JSON.stringify(data.animation_params),
-                    JSON.stringify(data.highlight_params)
-                );
-            }
-        } catch (error) {
-            console.error('Failed to select error:', error);
-        }
     }
 }
 

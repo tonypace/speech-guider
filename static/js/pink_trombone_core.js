@@ -4,6 +4,7 @@
 
 class TractUI {
   constructor(canvas, processor) {
+    console.log('[TractUI.constructor] Creating with canvas:', canvas, 'processor:', processor);
     this._canvas = canvas;
     this._context = canvas.getContext('2d');
     this._processor = processor;
@@ -21,21 +22,29 @@ class TractUI {
     };
     
     this._isDrawing = false;
+    console.log('[TractUI.constructor] Initial processor._params:', processor._params);
+    console.log('[TractUI.constructor] Initial processor.tract.tongue:', processor.tract.tongue);
   }
 
   draw() {
-    if (this._isDrawing) return;
+    console.log('[TractUI.draw] Called, _isDrawing:', this._isDrawing);
+    if (this._isDrawing) {
+      console.log('[TractUI.draw] Already drawing, returning');
+      return;
+    }
     this._isDrawing = true;
     
     this._context.clearRect(0, 0, this._canvas.width, this._canvas.height);
     this._context.lineCap = this._context.lineJoin = 'round';
     
+    console.log('[TractUI.draw] Drawing tongue control, tract, nose, amplitudes');
     this._drawTongueControl();
     this._drawTract();
     this._drawNose();
     this._drawAmplitudes();
     
     this._isDrawing = false;
+    console.log('[TractUI.draw] Complete');
   }
 
   _drawTract() {
@@ -47,14 +56,14 @@ class TractUI {
     ctx.lineWidth = 2;
     ctx.strokeStyle = ctx.fillStyle = 'pink';
     
-    // Upper wall
+    // Upper wall - starts at (1, 0) and goes outward following diameters
     this._moveTo(1, 0);
     for (let index = 1; index < processor.tract.length; index++) {
       this._lineTo(index, processor.tract.diameter[index]);
     }
     
-    // Lower wall (back to center)
-    for (let index = processor.tract.length - 1; index >= 2; index--) {
+    // Lower wall - goes back down to (1, 0) to close the shape
+    for (let index = processor.tract.length - 1; index >= 1; index--) {
       this._lineTo(index, 0);
     }
     
@@ -305,6 +314,7 @@ class TractUI {
 
   // Animation support
   setParameters(params) {
+    console.log('[TractUI.setParameters] Called with:', params);
     // Store target parameters for interpolation
     this._targetParams = params;
     this._animationProgress = 0;
@@ -317,24 +327,40 @@ class TractUI {
       lipRounding: this._processor._params.lipRounding,
       voicing: this._processor._params.voicing
     };
+    console.log('[TractUI.setParameters] startParams:', this._startParams);
+    console.log('[TractUI.setParameters] _targetParams:', this._targetParams);
   }
 
   startAnimation() {
-    if (this._isAnimating) return;
-    if (!this._targetParams) return;
+    console.log('[TractUI.startAnimation] Called');
+    console.log('[TractUI.startAnimation] _isAnimating:', this._isAnimating);
+    console.log('[TractUI.startAnimation] _targetParams:', this._targetParams);
+    if (this._isAnimating) {
+      console.log('[TractUI.startAnimation] Already animating, returning');
+      return;
+    }
+    if (!this._targetParams) {
+      console.log('[TractUI.startAnimation] No target params, returning');
+      return;
+    }
     
     this._isAnimating = true;
     this._animationProgress = 0;
+    console.log('[TractUI.startAnimation] Starting animation loop');
     this._animate();
   }
 
   _animate() {
-    if (!this._isAnimating) return;
+    if (!this._isAnimating) {
+      console.log('[TractUI._animate] Animation stopped');
+      return;
+    }
     
     const duration = 30; // frames (60fps = 0.5 seconds)
     
     if (this._animationProgress < duration) {
       this._animationProgress++;
+      console.log(`[TractUI._animate] Frame ${this._animationProgress}/${duration}`);
       
       // Ease-in-out function
       const t = this._animationProgress / duration;
@@ -348,6 +374,8 @@ class TractUI {
         voicing: this._lerp(this._startParams.voicing, this._targetParams.voicing, easedT)
       };
       
+      console.log(`[TractUI._animate] Interpolated params:`, currentParams);
+      
       // Update processor
       this._processor.updateFromParams(currentParams);
       
@@ -358,6 +386,7 @@ class TractUI {
       requestAnimationFrame(() => this._animate());
     } else {
       // Animation complete
+      console.log('[TractUI._animate] Animation complete, final draw');
       this._isAnimating = false;
       this._processor.updateFromParams(this._targetParams);
       this.draw();
