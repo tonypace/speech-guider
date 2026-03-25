@@ -4,8 +4,8 @@ Welcome! You are an AI agent operating in the `speech-guider` repository. This f
 
 ## 1. Project Overview & Architecture
 This is a Pronunciation & Prosody Evaluator application.
-- **Frontend**: Gradio (Python-based UI)
-- **Backend**: Local Python pipeline optimized for 12GB VRAM (RTX 3060) or Apple Silicon MPS
+- **Frontend**: HTML5/Tailwind CSS with vanilla JavaScript
+- **Backend**: FastAPI with Server-Sent Events (SSE) for real-time updates
 - **Audio Processing**: PyTorch, Torchaudio, Parselmouth (Praat), Transformers (Wav2Vec2)
 - **Synthesis Engine**: Local/Remote LLM (Ollama, Gemini, OpenAI)
 
@@ -18,7 +18,7 @@ The audio pipeline follows a strict 4-step architecture:
 ### Project Status
 - [x] Project initialization (AGENTS.md, directory structure)
 - [x] Requirements files (CPU-only and CUDA variants)
-- [x] Basic Gradio app.py prototype with UI
+- [x] FastAPI backend with SSE
 - [x] Parselmouth pitch (F0) extraction
 - [x] Test fixtures for dummy audio generation
 - [x] CI/CD tooling (ruff, mypy, pytest)
@@ -27,7 +27,7 @@ The audio pipeline follows a strict 4-step architecture:
 - [x] Phonetic Error Detection with IPA and G2P integration
 - [x] Goodness of Pronunciation (PyGOP) scoring system
 - [x] Targeted error Classification (voicing, substitutions)
-- [x] Gradio UI integration with detailed feedback
+- [x] HTML5/Tailwind frontend with vocal tract visualization
 - [x] Prosody metrics (nPVI, stress patterns) - COMPLETED
 - [x] Visual articulatory feedback (pyclts + Pink Trombone) - COMPLETED
 - [ ] Model loading/management optimizations
@@ -37,18 +37,22 @@ The audio pipeline follows a strict 4-step architecture:
 ### Expected Directory Structure
 ```text
 speech-guider/
-├── app.py                 # Main Gradio entrypoint
-├── src/
-│   ├── audio/             # Parselmouth/Praat prosody processing
-│   ├── models/            # PyTorch Wav2Vec2 models & alignment
-│   │   └── articulatory.py # pyclts mapping & Pink Trombone params
-│   └── ui/
-│       └── assets/        # Static JS/CSS for vocal tract visualization
-│           ├── vocal_tract.js
-│           └── vocal_tract.css
-├── tests/                 # Pytest test suite
-├── requirements.txt       # Dependencies
-└── AGENTS.md              # You are here
+├── app/                   # FastAPI application
+│   ├── main.py           # FastAPI entrypoint
+│   ├── api/              # API endpoints (analysis, presets, errors, sse)
+│   ├── services/         # Business logic (state, concurrency)
+│   ├── utils/            # Utilities (audio)
+│   └── templates/        # Jinja2 HTML templates
+│       └── index.html    # Main UI
+├── static/               # Static assets
+│   ├── js/               # JavaScript files (pink_trombone, recorder, tooltips)
+│   └── css/              # CSS files (vocal_tract, etc.)
+├── src/                  # Python source modules
+│   ├── audio/            # Parselmouth/Praat prosody processing
+│   └── models/           # PyTorch Wav2Vec2 models & alignment
+├── tests/                # Pytest test suite
+├── requirements.txt      # Dependencies
+└── AGENTS.md             # You are here
 ```
 
 ## 2. Environment & Commands
@@ -73,10 +77,12 @@ npm install
 ```
 
 ### Running the App
-To run the main Gradio application locally:
+To run the main FastAPI application locally:
 ```bash
 # Activate venv first, then:
-python app.py
+python -m app.main
+# or
+uvicorn app.main:app --reload
 ```
 
 ### Testing
@@ -140,12 +146,12 @@ pytest -s -v
 ### Imports
 Organize imports into three distinct blocks separated by a blank line:
 1. Standard library imports (e.g., `os`, `pathlib`, `typing`)
-2. Third-party imports (e.g., `gradio as gr`, `torch`, `numpy as np`, `parselmouth`)
+2. Third-party imports (e.g., `fastapi`, `torch`, `numpy as np`, `parselmouth`)
 3. Local application imports (e.g., `from src.audio import processor`)
 
 ### Error Handling
 - Use specific exception blocks. Never use bare `except:`.
-- In Gradio UI components, use `raise gr.Error("Message")` to gracefully display errors to the user instead of crashing the backend.
+- In FastAPI, raise appropriate HTTP exceptions with `raise HTTPException(status_code=..., detail="...")`
 - Always log critical audio processing failures (e.g., unreadable wav files).
 
 ### Audio & Tensor Management
@@ -153,14 +159,12 @@ Organize imports into three distinct blocks separated by a blank line:
 - **Device Detection**: Models auto-detect best available device (MPS > CPU). Priority: Apple Silicon GPU > CPU.
 - **Audio Formats**: Standardize on 16kHz, mono `.wav` files for all processing unless explicitly required otherwise by a specific model.
 
-### UI & Gradio Best Practices
-- Prefer `gr.Blocks()` over `gr.Interface()` for anything more complex than a basic prototype. It allows custom layouts, state management, and better modularity.
-- Handle long-running tasks gracefully. Use Gradio's progress bars (`gr.Progress`) for the multi-step pipeline (Alignment -> Phonemes -> Prosody -> LLM) so the user is aware of the processing status.
-
-### UI & Gradio Best Practices (Gradio 5.x)
-- **CSS Injection**: NEVER use `<style>` tags inside `gr.HTML()` components. Gradio 5's Svelte frontend strictly sanitizes and strips these tags, causing your UI to collapse. Always inject CSS globally using the `css_paths` argument in the Blocks constructor: `gr.Blocks(css_paths="path/to/style.css")`.
-- **JavaScript Scope & Execution**: When injecting custom JS via the `head` parameter in `gr.Blocks`, be aware that Gradio's event callbacks (e.g., `.change(js="...")`) run in isolated closures. For your injected scripts to communicate with Gradio events, you MUST attach all states and functions explicitly to the global `window` object (e.g., `window.myFunction = function(...) {}` and `window.myState = {}`). Standard `let` or `function` declarations in the head will be invisible to the Gradio callback hooks.
-- **DOM Polling**: Gradio renders components asynchronously. If your `head` script needs to target a specific `canvas` or `div` inside a Gradio component, you cannot rely purely on `DOMContentLoaded`. You must use a polling mechanism (e.g., `setInterval` or recursive `setTimeout`) to wait for the element to appear in the DOM before initializing it.
+### Frontend Best Practices
+- Use vanilla JavaScript with global `window` object for state management
+- Attach functions to `window` for accessibility from HTML event handlers: `window.myFunction = function(...) {}`
+- Use CSS classes from Tailwind CSS for styling
+- Inject custom CSS via `<style>` tags in the HTML template
+- All JavaScript variables should be accessible globally or via event listeners
 
 ## 4. General AI Agent & Cursor/Copilot Instructions
 If you are Cursor, GitHub Copilot, or an autonomous agent:

@@ -223,66 +223,123 @@ class MockProcessor {
   }
 }
 
-// Phoneme preset definitions - Based on Research: IPA to Pink Trombone Parameter Mapping
-// tongueIndex: 0.0 (Back/Velar) ↔ 1.0 (Front/Alveolar)
-// tongueDiameter: 0.0 (Open/Low) ↔ 1.0 (Closed/High Constriction)
-// lipRounding: 0.0 (Spread) ↔ 1.0 (Rounded)
-// voicing: 0.0 (Voiceless) ↔ 1.0 (Voiced)
+// Phoneme preset definitions - Extended 9-Variable Articulatory System
+// 9 articulatory variables for comprehensive phoneme representation:
+//
+// tongueIndex:     0.0 (Back/Velar) ↔ 1.0 (Front/Alveolar)
+// tongueDiameter:  0.0 (Open/Low) ↔ 1.0 (Closed/High Constriction)
+// tongueCurl:      0.0 (Flat) ↔ 1.0 (Retroflex curled)
+// tongueRoot:      0.0 (Advanced) ↔ 1.0 (Retracted/Pharyngeal)
+// lipRounding:     0.0 (Spread) ↔ 1.0 (Rounded/Protruded)
+// lipClosure:      0.0 (Open) ↔ 1.0 (Sealed)
+// nasality:        0.0 (Oral) ↔ 1.0 (Nasal)
+// voicing:         0.0 (Voiceless) ↔ 1.0 (Voiced)
+// aspiration:      0.0 (Unaspirated) ↔ 1.0 (Aspirated)
 
 const PhonemePresets = {
-  // VOWELS
+  // === VOWELS ===
   // High Front
-  'i': { name: 'beat', params: { tongueIndex: 1.00, tongueDiameter: 0.85, lipRounding: 0.00, voicing: 1.0 } },
-  'ɪ': { name: 'kit', params: { tongueIndex: 0.85, tongueDiameter: 0.70, lipRounding: 0.00, voicing: 1.0 } },
+  'i': { name: 'beat', params: { tongueIndex: 1.00, tongueDiameter: 0.15, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.00, lipClosure: 0.0, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
+  'ɪ': { name: 'kit', params: { tongueIndex: 0.90, tongueDiameter: 0.30, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.00, lipClosure: 0.0, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
   
   // Mid Front
-  'e': { name: 'dress', params: { tongueIndex: 0.80, tongueDiameter: 0.40, lipRounding: 0.00, voicing: 1.0 } },
-  'ɛ': { name: 'dress', params: { tongueIndex: 0.78, tongueDiameter: 0.40, lipRounding: 0.00, voicing: 1.0 } },
-  
-  // Low Front
-  'æ': { name: 'trap', params: { tongueIndex: 1.00, tongueDiameter: 0.10, lipRounding: 0.00, voicing: 1.0 } },
-  'a': { name: 'father', params: { tongueIndex: 0.00, tongueDiameter: 0.10, lipRounding: 0.00, voicing: 1.0 } },
+  'e': { name: 'dress', params: { tongueIndex: 0.85, tongueDiameter: 0.60, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.00, lipClosure: 0.0, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
+  'ɛ': { name: 'dress', params: { tongueIndex: 0.78, tongueDiameter: 0.60, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.00, lipClosure: 0.0, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
+  'æ': { name: 'trap', params: { tongueIndex: 0.95, tongueDiameter: 0.90, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.00, lipClosure: 0.0, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
   
   // Central
-  'ə': { name: 'about', params: { tongueIndex: 0.50, tongueDiameter: 0.50, lipRounding: 0.10, voicing: 1.0 } },
+  'ə': { name: 'about', params: { tongueIndex: 0.50, tongueDiameter: 0.50, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.10, lipClosure: 0.0, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
+  'ɜ': { name: 'nurse', params: { tongueIndex: 0.45, tongueDiameter: 0.55, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.00, lipClosure: 0.0, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
+  'ɨ': { name: 'roses', params: { tongueIndex: 0.60, tongueDiameter: 0.45, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.00, lipClosure: 0.0, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
   
   // Back
-  'ʌ': { name: 'strut', params: { tongueIndex: 0.30, tongueDiameter: 0.35, lipRounding: 0.00, voicing: 1.0 } },
-  'ɑ': { name: 'hot', params: { tongueIndex: 0.00, tongueDiameter: 0.10, lipRounding: 0.00, voicing: 1.0 } },
-  'ɔ': { name: 'thought', params: { tongueIndex: 0.10, tongueDiameter: 0.35, lipRounding: 0.60, voicing: 1.0 } },
+  'ʌ': { name: 'strut', params: { tongueIndex: 0.20, tongueDiameter: 0.65, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.00, lipClosure: 0.0, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
+  'ɑ': { name: 'hot', params: { tongueIndex: 0.10, tongueDiameter: 0.90, tongueCurl: 0.0, tongueRoot: 0.1, lipRounding: 0.00, lipClosure: 0.0, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
+  'ɒ': { name: 'lot', params: { tongueIndex: 0.05, tongueDiameter: 0.85, tongueCurl: 0.0, tongueRoot: 0.1, lipRounding: 0.20, lipClosure: 0.0, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
+  'ɔ': { name: 'thought', params: { tongueIndex: 0.15, tongueDiameter: 0.65, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.60, lipClosure: 0.0, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
   
-  // High Back Rounded
-  'ʊ': { name: 'foot', params: { tongueIndex: 0.15, tongueDiameter: 0.70, lipRounding: 0.70, voicing: 1.0 } },
-  'u': { name: 'goose', params: { tongueIndex: 0.00, tongueDiameter: 0.85, lipRounding: 1.00, voicing: 1.0 } },
-  'o': { name: 'boat', params: { tongueIndex: 0.15, tongueDiameter: 0.70, lipRounding: 0.90, voicing: 1.0 } },
+  // High Back
+  'ʊ': { name: 'foot', params: { tongueIndex: 0.25, tongueDiameter: 0.30, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.70, lipClosure: 0.0, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
+  'u': { name: 'goose', params: { tongueIndex: 0.00, tongueDiameter: 0.15, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 1.00, lipClosure: 0.0, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
+  'o': { name: 'goat', params: { tongueIndex: 0.20, tongueDiameter: 0.30, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.90, lipClosure: 0.0, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
   
-  // Rhotic
-  'ɝ': { name: 'bird', params: { tongueIndex: 0.52, tongueDiameter: 0.50, lipRounding: 0.40, voicing: 1.0 } },
+  // Rhotic vowels
+  'ɝ': { name: 'bird', params: { tongueIndex: 0.48, tongueDiameter: 0.50, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.40, lipClosure: 0.0, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
+  'ɚ': { name: 'butter', params: { tongueIndex: 0.52, tongueDiameter: 0.50, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.40, lipClosure: 0.0, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
   
-  // PLOSIVES (Stops) - tongueDiameter = 1.0 for complete closure
-  'p': { name: 'pat', params: { tongueIndex: 0.50, tongueDiameter: 1.00, lipRounding: 1.00, voicing: 0.0 } },
-  'b': { name: 'bat', params: { tongueIndex: 0.50, tongueDiameter: 1.00, lipRounding: 1.00, voicing: 1.0 } },
-  't': { name: 'tap', params: { tongueIndex: 1.00, tongueDiameter: 1.00, lipRounding: 0.00, voicing: 0.0 } },
-  'd': { name: 'dad', params: { tongueIndex: 1.00, tongueDiameter: 1.00, lipRounding: 0.00, voicing: 1.0 } },
-  'k': { name: 'cat', params: { tongueIndex: 0.00, tongueDiameter: 1.00, lipRounding: 0.00, voicing: 0.0 } },
-  'g': { name: 'go', params: { tongueIndex: 0.00, tongueDiameter: 1.00, lipRounding: 0.00, voicing: 1.0 } },
+  // Long vowels
+  'iː': { name: 'fleece', params: { tongueIndex: 1.00, tongueDiameter: 0.15, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.00, lipClosure: 0.0, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
+  'uː': { name: 'goose', params: { tongueIndex: 0.00, tongueDiameter: 0.15, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 1.00, lipClosure: 0.0, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
+  'eː': { name: 'face', params: { tongueIndex: 0.85, tongueDiameter: 0.60, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.00, lipClosure: 0.0, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
+  'oː': { name: 'force', params: { tongueIndex: 0.15, tongueDiameter: 0.30, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.90, lipClosure: 0.0, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
+  'ɔː': { name: 'thought', params: { tongueIndex: 0.10, tongueDiameter: 0.65, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.60, lipClosure: 0.0, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
+  'ɑː': { name: 'father', params: { tongueIndex: 0.05, tongueDiameter: 0.90, tongueCurl: 0.0, tongueRoot: 0.1, lipRounding: 0.00, lipClosure: 0.0, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
+  'æː': { name: 'trap (long)', params: { tongueIndex: 0.95, tongueDiameter: 0.90, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.00, lipClosure: 0.0, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
   
-  // FRICATIVES - tongueDiameter 0.90-0.96 for turbulence
-  'f': { name: 'fin', params: { tongueIndex: 0.70, tongueDiameter: 0.95, lipRounding: 0.80, voicing: 0.0 } },
-  'v': { name: 'van', params: { tongueIndex: 0.70, tongueDiameter: 0.95, lipRounding: 0.80, voicing: 1.0 } },
-  's': { name: 'sip', params: { tongueIndex: 1.00, tongueDiameter: 0.95, lipRounding: 0.00, voicing: 0.0 } },
-  'z': { name: 'zip', params: { tongueIndex: 1.00, tongueDiameter: 0.95, lipRounding: 0.00, voicing: 1.0 } },
-  'ʃ': { name: 'ship', params: { tongueIndex: 0.80, tongueDiameter: 0.93, lipRounding: 0.40, voicing: 0.0 } },
-  'ʒ': { name: 'measure', params: { tongueIndex: 0.80, tongueDiameter: 0.93, lipRounding: 0.40, voicing: 1.0 } },
-  'h': { name: 'hat', params: { tongueIndex: 0.00, tongueDiameter: 0.50, lipRounding: 0.00, voicing: 0.0 } },
+  // === DIPHTHONGS ===
+  'aɪ': { name: 'price', params: { tongueIndex: 0.60, tongueDiameter: 0.50, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.00, lipClosure: 0.0, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
+  'eɪ': { name: 'face', params: { tongueIndex: 0.75, tongueDiameter: 0.50, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.00, lipClosure: 0.0, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
+  'ɔɪ': { name: 'choice', params: { tongueIndex: 0.35, tongueDiameter: 0.45, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.60, lipClosure: 0.0, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
+  'aʊ': { name: 'mouth', params: { tongueIndex: 0.40, tongueDiameter: 0.50, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.60, lipClosure: 0.0, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
+  'oʊ': { name: 'goat', params: { tongueIndex: 0.25, tongueDiameter: 0.40, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.80, lipClosure: 0.0, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
   
-  // APPROXIMANTS
-  'w': { name: 'wet', params: { tongueIndex: 0.00, tongueDiameter: 0.80, lipRounding: 1.00, voicing: 1.0 } },
-  'j': { name: 'yes', params: { tongueIndex: 0.85, tongueDiameter: 0.80, lipRounding: 0.00, voicing: 1.0 } },
-  'l': { name: 'let', params: { tongueIndex: 1.00, tongueDiameter: 0.85, lipRounding: 0.00, voicing: 1.0 } },
-  'r': { name: 'red', params: { tongueIndex: 0.70, tongueDiameter: 0.80, lipRounding: 0.50, voicing: 1.0 } },
+  // === PLOSIVES (Stops) ===
+  'p': { name: 'pat', params: { tongueIndex: 0.50, tongueDiameter: 1.00, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.00, lipClosure: 1.0, nasality: 0.0, voicing: 0.0, aspiration: 0.0 } },
+  'pʰ': { name: 'pat (aspirated)', params: { tongueIndex: 0.50, tongueDiameter: 1.00, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.00, lipClosure: 1.0, nasality: 0.0, voicing: 0.0, aspiration: 1.0 } },
+  'b': { name: 'bat', params: { tongueIndex: 0.50, tongueDiameter: 1.00, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.00, lipClosure: 1.0, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
+  't': { name: 'tap', params: { tongueIndex: 1.00, tongueDiameter: 1.00, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.00, lipClosure: 0.0, nasality: 0.0, voicing: 0.0, aspiration: 0.0 } },
+  'tʰ': { name: 'tap (aspirated)', params: { tongueIndex: 1.00, tongueDiameter: 1.00, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.00, lipClosure: 0.0, nasality: 0.0, voicing: 0.0, aspiration: 1.0 } },
+  'd': { name: 'dad', params: { tongueIndex: 1.00, tongueDiameter: 1.00, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.00, lipClosure: 0.0, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
+  'k': { name: 'cat', params: { tongueIndex: 0.00, tongueDiameter: 1.00, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.00, lipClosure: 0.0, nasality: 0.0, voicing: 0.0, aspiration: 0.0 } },
+  'kʰ': { name: 'cat (aspirated)', params: { tongueIndex: 0.00, tongueDiameter: 1.00, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.00, lipClosure: 0.0, nasality: 0.0, voicing: 0.0, aspiration: 1.0 } },
+  'g': { name: 'go', params: { tongueIndex: 0.00, tongueDiameter: 1.00, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.00, lipClosure: 0.0, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
+  'ʔ': { name: 'uh-oh', params: { tongueIndex: 0.50, tongueDiameter: 0.50, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.00, lipClosure: 0.0, nasality: 0.0, voicing: 0.0, aspiration: 0.0 } },
+  
+  // === RETROFLEX PLOSIVES ===
+  'ʈ': { name: 'ṭa (Hindi)', params: { tongueIndex: 0.85, tongueDiameter: 1.00, tongueCurl: 1.0, tongueRoot: 0.0, lipRounding: 0.00, lipClosure: 0.0, nasality: 0.0, voicing: 0.0, aspiration: 0.0 } },
+  'ɖ': { name: 'ḍa (Hindi)', params: { tongueIndex: 0.85, tongueDiameter: 1.00, tongueCurl: 1.0, tongueRoot: 0.0, lipRounding: 0.00, lipClosure: 0.0, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
+  
+  // === FRICATIVES ===
+  'f': { name: 'fin', params: { tongueIndex: 0.70, tongueDiameter: 0.95, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.50, lipClosure: 0.3, nasality: 0.0, voicing: 0.0, aspiration: 0.0 } },
+  'v': { name: 'van', params: { tongueIndex: 0.70, tongueDiameter: 0.95, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.50, lipClosure: 0.3, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
+  'θ': { name: 'thin', params: { tongueIndex: 0.90, tongueDiameter: 0.95, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.00, lipClosure: 0.0, nasality: 0.0, voicing: 0.0, aspiration: 0.0 } },
+  'ð': { name: 'that', params: { tongueIndex: 0.90, tongueDiameter: 0.95, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.00, lipClosure: 0.0, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
+  's': { name: 'sip', params: { tongueIndex: 1.00, tongueDiameter: 0.95, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.00, lipClosure: 0.0, nasality: 0.0, voicing: 0.0, aspiration: 0.0 } },
+  'z': { name: 'zip', params: { tongueIndex: 1.00, tongueDiameter: 0.95, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.00, lipClosure: 0.0, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
+  'ʃ': { name: 'ship', params: { tongueIndex: 0.85, tongueDiameter: 0.93, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.40, lipClosure: 0.0, nasality: 0.0, voicing: 0.0, aspiration: 0.0 } },
+  'ʒ': { name: 'measure', params: { tongueIndex: 0.85, tongueDiameter: 0.93, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.40, lipClosure: 0.0, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
+  'h': { name: 'hat', params: { tongueIndex: 0.00, tongueDiameter: 0.50, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.00, lipClosure: 0.0, nasality: 0.0, voicing: 0.0, aspiration: 0.0 } },
+  
+  // Retroflex fricatives
+  'ʂ': { name: 'ṣa (Hindi)', params: { tongueIndex: 0.85, tongueDiameter: 0.93, tongueCurl: 1.0, tongueRoot: 0.0, lipRounding: 0.00, lipClosure: 0.0, nasality: 0.0, voicing: 0.0, aspiration: 0.0 } },
+  'ʐ': { name: 'zha (Mandarin)', params: { tongueIndex: 0.85, tongueDiameter: 0.93, tongueCurl: 1.0, tongueRoot: 0.0, lipRounding: 0.00, lipClosure: 0.0, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
+  
+  // Pharyngeal fricatives
+  'ħ': { name: 'ḥa (Arabic)', params: { tongueIndex: 0.00, tongueDiameter: 0.70, tongueCurl: 0.0, tongueRoot: 1.0, lipRounding: 0.00, lipClosure: 0.0, nasality: 0.0, voicing: 0.0, aspiration: 0.0 } },
+  'ʕ': { name: 'ayn (Arabic)', params: { tongueIndex: 0.00, tongueDiameter: 0.70, tongueCurl: 0.0, tongueRoot: 1.0, lipRounding: 0.00, lipClosure: 0.0, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
+  
+  // === AFFRICATES ===
+  'tʃ': { name: 'church', params: { tongueIndex: 0.80, tongueDiameter: 1.00, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.40, lipClosure: 0.0, nasality: 0.0, voicing: 0.0, aspiration: 0.0 } },
+  'dʒ': { name: 'judge', params: { tongueIndex: 0.80, tongueDiameter: 1.00, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.40, lipClosure: 0.0, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
+  'ts': { name: 'tsunami', params: { tongueIndex: 0.95, tongueDiameter: 1.00, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.00, lipClosure: 0.0, nasality: 0.0, voicing: 0.0, aspiration: 0.0 } },
+  
+  // === NASALS ===
+  'm': { name: 'mom', params: { tongueIndex: 0.50, tongueDiameter: 1.00, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.00, lipClosure: 1.0, nasality: 1.0, voicing: 1.0, aspiration: 0.0 } },
+  'n': { name: 'no', params: { tongueIndex: 1.00, tongueDiameter: 1.00, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.00, lipClosure: 0.0, nasality: 1.0, voicing: 1.0, aspiration: 0.0 } },
+  'ŋ': { name: 'sing', params: { tongueIndex: 0.00, tongueDiameter: 1.00, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.00, lipClosure: 0.0, nasality: 1.0, voicing: 1.0, aspiration: 0.0 } },
+  'ɲ': { name: 'ñ (Spanish)', params: { tongueIndex: 0.70, tongueDiameter: 1.00, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.00, lipClosure: 0.0, nasality: 1.0, voicing: 1.0, aspiration: 0.0 } },
+  
+  // === APPROXIMANTS ===
+  'w': { name: 'wet', params: { tongueIndex: 0.20, tongueDiameter: 0.50, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.90, lipClosure: 0.0, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
+  'j': { name: 'yes', params: { tongueIndex: 0.75, tongueDiameter: 0.50, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.00, lipClosure: 0.0, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
+  'l': { name: 'let', params: { tongueIndex: 1.00, tongueDiameter: 0.60, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.00, lipClosure: 0.0, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
+  'r': { name: 'red', params: { tongueIndex: 0.70, tongueDiameter: 0.70, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.50, lipClosure: 0.0, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
+  'ɹ': { name: 'run', params: { tongueIndex: 0.65, tongueDiameter: 0.70, tongueCurl: 0.0, tongueRoot: 0.0, lipRounding: 0.50, lipClosure: 0.0, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
+  
+  // Retroflex approximant
+  'ɻ': { name: 'retroflex r', params: { tongueIndex: 0.80, tongueDiameter: 0.70, tongueCurl: 1.0, tongueRoot: 0.0, lipRounding: 0.50, lipClosure: 0.0, nasality: 0.0, voicing: 1.0, aspiration: 0.0 } },
 };
 
-// Export for Gradio
+// Export for web application
 window.MockProcessor = MockProcessor;
 window.PhonemePresets = PhonemePresets;

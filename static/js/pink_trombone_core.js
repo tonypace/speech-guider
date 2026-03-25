@@ -1,6 +1,6 @@
 // Pink Trombone Core - Ported from original by Neil Thapen
-// Adapted for Gradio 5.x integration
 // Audio synthesis removed - pure visual demonstration
+// For FastAPI web application with interactive UI
 
 class TractUI {
   constructor(canvas, processor) {

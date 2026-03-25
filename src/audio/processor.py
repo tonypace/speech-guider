@@ -10,6 +10,10 @@ from typing import Optional
 import numpy as np
 import parselmouth
 
+# Temporary debug flag for nPVI calculation verification
+# TODO: Remove after confirming nPVI works correctly
+DEBUG_NPVI = True
+
 
 @dataclass
 class PitchContour:
@@ -140,6 +144,13 @@ class ProsodyAnalyzer:
         Returns:
             RhythmMetrics with nPVI score and classification
         """
+        if DEBUG_NPVI:
+            print(f"[DEBUG_nPVI] === RHYTHM ANALYSIS ===")
+            print(
+                f"[DEBUG_nPVI] Called with {len(vowel_timestamps) if vowel_timestamps else 0} vowel timestamps"
+            )
+            print(f"[DEBUG_nPVI] Timestamps: {vowel_timestamps}")
+
         print(
             f"[analyze_rhythm] Called with {len(vowel_timestamps) if vowel_timestamps else 0} timestamps"
         )
@@ -147,6 +158,10 @@ class ProsodyAnalyzer:
             print(f"[analyze_rhythm] vowel_timestamps: {vowel_timestamps}")
 
         if not vowel_timestamps or len(vowel_timestamps) < 2:
+            if DEBUG_NPVI:
+                print(
+                    f"[DEBUG_nPVI] INSUFFICIENT DATA - need at least 2 vowels, got {len(vowel_timestamps) if vowel_timestamps else 0}"
+                )
             print("[analyze_rhythm] Insufficient vowel timestamps, returning 0 nPVI")
             return RhythmMetrics(
                 npvi=0.0,
@@ -157,6 +172,11 @@ class ProsodyAnalyzer:
         # Calculate vowel durations
         vowel_durations = [end - start for start, end in vowel_timestamps]
         print(f"[analyze_rhythm] vowel_durations: {vowel_durations}")
+        if DEBUG_NPVI:
+            print(f"[DEBUG_nPVI] Vowel durations: {[round(d, 3) for d in vowel_durations]}")
+            print(f"[DEBUG_nPVI] Sum of durations: {sum(vowel_durations):.3f}s")
+            print(f"[DEBUG_nPVI] Mean duration: {np.mean(vowel_durations):.3f}s")
+            print(f"[DEBUG_nPVI] Std duration: {np.std(vowel_durations):.3f}s")
 
         # Calculate nPVI
         num_vowels = len(vowel_durations)
@@ -166,15 +186,29 @@ class ProsodyAnalyzer:
         differences = np.abs(durations[:-1] - durations[1:])
         means = (durations[:-1] + durations[1:]) / 2
 
+        if DEBUG_NPVI:
+            print(f"[DEBUG_nPVI] Pairwise differences: {[round(d, 3) for d in differences]}")
+            print(f"[DEBUG_nPVI] Pairwise means: {[round(m, 3) for m in means]}")
+            print(
+                f"[DEBUG_nPVI] Differences/means: {[round(d / m, 3) for d, m in zip(differences, means)]}"
+            )
+
         # nPVI formula
         npvi = 100 * np.sum(differences / means) / (num_vowels - 1)
 
         print(f"[analyze_rhythm] Calculated nPVI: {npvi}")
+        if DEBUG_NPVI:
+            print(f"[DEBUG_nPVI] Sum(differences/means): {np.sum(differences / means):.3f}")
+            print(
+                f"[DEBUG_nPVI] nPVI = 100 * {np.sum(differences / means):.3f} / {num_vowels - 1} = {npvi:.2f}"
+            )
 
         # Classify based on nPVI threshold
         # English (stress-timed) typically has nPVI > 40
         # Romance languages (syllable-timed) typically have nPVI < 40
         classification = "stress-timed" if npvi > 40 else "syllable-timed"
+        if DEBUG_NPVI:
+            print(f"[DEBUG_nPVI] Classification: {classification} (threshold: 40)")
 
         return RhythmMetrics(
             npvi=float(npvi),

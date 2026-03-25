@@ -242,3 +242,52 @@
     font-family: monospace;
     font-size: 0.875rem;
 }
+
+/* IPA Tooltip Styles */
+.ipa-phoneme {
+    position: relative;
+    display: inline-block;
+    cursor: help;
+    border-bottom: 1px dotted #6b7280;
+}
+
+.ipa-tooltip {
+    display: none;
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: #1f2937;
+    color: #fff;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-weight: normal;
+    white-space: nowrap;
+    z-index: 10000;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    pointer-events: none;
+    line-height: 1.4;
+    min-width: 120px;
+    text-align: center;
+}
+
+.ipa-tooltip::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    margin-left: -5px;
+    border-width: 5px;
+    border-style: solid;
+    border-color: #1f2937 transparent transparent transparent;
+}
+
+.ipa-tooltip.visible {
+    display: block;
+}
+
+.ipa-tooltip strong {
+    font-weight: 700;
+    color: #60a5fa;
+}

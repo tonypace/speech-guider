@@ -209,36 +209,36 @@
                         <!-- Vowels -->
                         <div class="mb-3">
                             <p class="text-sm text-gray-600 mb-2">Vowels</p>
-                            <div class="flex flex-wrap gap-2">
-                                <button onclick="setPreset('i')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition">i</button>
-                                <button onclick="setPreset('ɪ')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition">ɪ</button>
-                                <button onclick="setPreset('e')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition">e</button>
-                                <button onclick="setPreset('æ')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition">æ</button>
-                                <button onclick="setPreset('a')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition">a</button>
-                                <button onclick="setPreset('ɑ')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition">ɑ</button>
-                                <button onclick="setPreset('ɔ')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition">ɔ</button>
-                                <button onclick="setPreset('o')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition">o</button>
-                                <button onclick="setPreset('ʊ')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition">ʊ</button>
-                                <button onclick="setPreset('u')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition">u</button>
-                                <button onclick="setPreset('ə')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition">ə</button>
-                                <button onclick="setPreset('ɝ')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition">ɝ</button>
+                            <div class="flex flex-wrap gap-2" id="vowel-buttons">
+                                <button onclick="setPreset('i')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="i">i</button>
+                                <button onclick="setPreset('ɪ')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="ɪ">ɪ</button>
+                                <button onclick="setPreset('e')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="e">e</button>
+                                <button onclick="setPreset('æ')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="æ">æ</button>
+                                <button onclick="setPreset('a')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="a">a</button>
+                                <button onclick="setPreset('ɑ')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="ɑ">ɑ</button>
+                                <button onclick="setPreset('ɔ')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="ɔ">ɔ</button>
+                                <button onclick="setPreset('o')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="o">o</button>
+                                <button onclick="setPreset('ʊ')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="ʊ">ʊ</button>
+                                <button onclick="setPreset('u')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="u">u</button>
+                                <button onclick="setPreset('ə')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="ə">ə</button>
+                                <button onclick="setPreset('ɝ')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="ɝ">ɝ</button>
                             </div>
                         </div>
 
                         <!-- Consonants -->
                         <div>
                             <p class="text-sm text-gray-600 mb-2">Consonants</p>
-                            <div class="flex flex-wrap gap-2">
-                                <button onclick="setPreset('p')" class="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition">p</button>
-                                <button onclick="setPreset('b')" class="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition">b</button>
-                                <button onclick="setPreset('t')" class="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition">t</button>
-                                <button onclick="setPreset('d')" class="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition">d</button>
-                                <button onclick="setPreset('k')" class="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition">k</button>
-                                <button onclick="setPreset('g')" class="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition">g</button>
-                                <button onclick="setPreset('s')" class="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition">s</button>
-                                <button onclick="setPreset('ʃ')" class="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition">ʃ</button>
-                                <button onclick="setPreset('f')" class="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition">f</button>
-                                <button onclick="setPreset('h')" class="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition">h</button>
+                            <div class="flex flex-wrap gap-2" id="consonant-buttons">
+                                <button onclick="setPreset('p')" class="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition" data-phoneme="p">p</button>
+                                <button onclick="setPreset('b')" class="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition" data-phoneme="b">b</button>
+                                <button onclick="setPreset('t')" class="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition" data-phoneme="t">t</button>
+                                <button onclick="setPreset('d')" class="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition" data-phoneme="d">d</button>
+                                <button onclick="setPreset('k')" class="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition" data-phoneme="k">k</button>
+                                <button onclick="setPreset('g')" class="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition" data-phoneme="g">g</button>
+                                <button onclick="setPreset('s')" class="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition" data-phoneme="s">s</button>
+                                <button onclick="setPreset('ʃ')" class="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition" data-phoneme="ʃ">ʃ</button>
+                                <button onclick="setPreset('f')" class="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition" data-phoneme="f">f</button>
+                                <button onclick="setPreset('h')" class="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition" data-phoneme="h">h</button>
                             </div>
                         </div>
                     </div>
@@ -276,6 +276,7 @@
     <!-- JavaScript for Animation Lab -->
     <script src="/static/js/pink_trombone_core.js"></script>
     <script src="/static/js/mock_processor.js"></script>
+    <script src="/static/js/ipa_tooltips.js"></script>
     <script src="/static/js/recorder.js"></script>
 
     <script>
@@ -529,9 +530,9 @@
                 btn.innerHTML = `
                     <span class="font-medium">${index + 1}.</span>
                     <span class="text-gray-700">'${error.word_context}':</span>
-                    <span class="text-red-600">/${error.target_phoneme}/</span>
+                    <span class="text-red-600">${window.wrapIPATooltip(error.target_phoneme)}</span>
                     <span class="text-gray-400">→</span>
-                    <span class="text-blue-600">/${error.predicted_phoneme}/</span>
+                    <span class="text-blue-600">${window.wrapIPATooltip(error.predicted_phoneme)}</span>
                 `;
                 btn.onclick = () => selectError(index);
                 errorList.appendChild(btn);
@@ -606,6 +607,38 @@
                 console.error('[selectError] Failed:', error);
             }
         }
+
+        // Initialize tooltips on phoneme preset buttons
+        document.addEventListener('DOMContentLoaded', function() {
+            // Wrap vowel buttons with tooltips
+            document.querySelectorAll('#vowel-buttons button').forEach(function(btn) {
+                const phoneme = btn.getAttribute('data-phoneme');
+                if (phoneme && window.wrapIPATooltip) {
+                    const tooltipHtml = window.wrapIPATooltip(phoneme);
+                    // Extract just the span wrapper, keep the button
+                    const tempDiv = document.createElement('div');
+                    tempDiv.innerHTML = tooltipHtml;
+                    const tooltipSpan = tempDiv.firstChild;
+                    tooltipSpan.innerHTML = btn.innerHTML;
+                    btn.innerHTML = '';
+                    btn.appendChild(tooltipSpan);
+                }
+            });
+
+            // Wrap consonant buttons with tooltips
+            document.querySelectorAll('#consonant-buttons button').forEach(function(btn) {
+                const phoneme = btn.getAttribute('data-phoneme');
+                if (phoneme && window.wrapIPATooltip) {
+                    const tooltipHtml = window.wrapIPATooltip(phoneme);
+                    const tempDiv = document.createElement('div');
+                    tempDiv.innerHTML = tooltipHtml;
+                    const tooltipSpan = tempDiv.firstChild;
+                    tooltipSpan.innerHTML = btn.innerHTML;
+                    btn.innerHTML = '';
+                    btn.appendChild(tooltipSpan);
+                }
+            });
+        });
     </script>
 </body>
 </html>

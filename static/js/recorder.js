@@ -506,9 +506,9 @@ class IntercomRecorder {
             btn.innerHTML = `
                 <span class="font-medium">${index + 1}.</span>
                 <span class="text-gray-700">'${error.word_context}':</span>
-                <span class="text-red-600">/${error.target_phoneme}/</span>
+                <span class="text-red-600">${window.wrapIPATooltip(error.target_phoneme)}</span>
                 <span class="text-gray-400">→</span>
-                <span class="text-blue-600">/${error.predicted_phoneme}/</span>
+                <span class="text-blue-600">${window.wrapIPATooltip(error.predicted_phoneme)}</span>
             `;
             btn.onclick = () => window.selectError(index);
             errorList.appendChild(btn);
