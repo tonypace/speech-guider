@@ -13,8 +13,8 @@ A Python-based application that provides real-time feedback on pronunciation and
 
 ## Tech Stack
 
-- **Frontend**: Gradio (Python-based UI) with custom HTML5 Canvas animations
-- **Backend**: Local Python pipeline
+- **Frontend**: HTML5/Tailwind CSS with vanilla JavaScript
+- **Backend**: FastAPI with Server-Sent Events (SSE) for real-time updates
 - **Audio Processing**: PyTorch, Torchaudio, Parselmouth (Praat), Transformers (Wav2Vec2)
 - **Linguistic Features**: pyclts (Cross-Linguistic Transcription Systems) for IPA feature extraction
 - **Visualization**: Custom Pink Trombone JavaScript (visual-only, no audio synthesis)
@@ -49,7 +49,9 @@ pip install -r requirements.txt
 ```bash
 # Activate venv first, then:
 source speech-guider/bin/activate
-python app.py
+python -m app.main
+# or
+uvicorn app.main:app --reload
 ```
 
 The application will launch a web interface at `http://localhost:7860`.
@@ -103,22 +105,34 @@ For detailed development guidelines, see [AGENTS.md](AGENTS.md).
 
 ```text
 speech-guider/
-├── app.py                 # Main Gradio entrypoint
-├── src/
-│   ├── audio/             # Parselmouth/Praat prosody processing
-│   ├── models/            # PyTorch Wav2Vec2 models & alignment
-│   │   ├── articulatory.py  # pyclts mapping & Pink Trombone params
-│   │   ├── alignment.py     # Forced alignment & GOP scoring
-│   │   ├── g2p.py          # Grapheme-to-phoneme conversion
-│   │   └── wav2vec2.py     # Wav2Vec2 model wrapper
-│   └── ui/
-│       └── assets/        # Static JS/CSS for vocal tract visualization
-│           ├── vocal_tract.js
-│           └── vocal_tract.css
-├── tests/                 # Pytest test suite
-├── requirements.txt       # Dependencies
-├── AGENTS.md              # Agent development guidelines
-└── README.md              # This file
+├── app/                   # FastAPI application
+│   ├── main.py           # FastAPI entrypoint
+│   ├── api/              # API endpoints (analysis, presets, errors, sse)
+│   ├── services/         # Business logic (state, concurrency)
+│   ├── utils/            # Utilities (audio)
+│   └── templates/        # Jinja2 HTML templates
+│       └── index.html    # Main UI
+├── static/               # Static assets
+│   ├── js/               # JavaScript files (pink_trombone, recorder, tooltips)
+│   │   ├── pink_trombone_core.js
+│   │   ├── mock_processor.js
+│   │   ├── recorder.js
+│   │   └── ipa_tooltips.js
+│   └── css/              # CSS files (vocal_tract, etc.)
+│       └── vocal_tract.css
+├── src/                  # Python source modules
+│   ├── audio/            # Parselmouth/Praat prosody processing
+│   │   └── processor.py
+│   └── models/           # PyTorch Wav2Vec2 models & alignment
+│       ├── articulatory.py  # pyclts mapping & Pink Trombone params
+│       ├── alignment.py     # Forced alignment & GOP scoring
+│       ├── g2p.py          # Grapheme-to-phoneme conversion
+│       ├── wav2vec2.py     # Wav2Vec2 model wrapper
+│       └── g2p.py
+├── tests/                # Pytest test suite
+├── requirements.txt      # Dependencies
+├── AGENTS.md             # Agent development guidelines
+└── README.md             # This file
 ```
 
 ## Hardware Recommendations

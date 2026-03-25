@@ -25,7 +25,9 @@ deactivate
 ### Run the App
 ```bash
 source speech-guider/bin/activate
-python app.py
+python -m app.main
+# or
+uvicorn app.main:app --reload
 ```
 
 ### Run Tests
@@ -67,7 +69,7 @@ mypy .
 - **Virtual Environment**: `speech-guider/`
 - **Python**: 3.10.10
 - **PyTorch**: 2.10.0 (with MPS support)
-- **Gradio**: 5.50.0
+- **FastAPI**: 0.115.11
 - **pyclts**: 3.2.0
 - **Location**: `/Users/tonypace/Documents/Code/speech-guider/speech-guider/`
 

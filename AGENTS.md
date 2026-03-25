@@ -30,6 +30,7 @@ The audio pipeline follows a strict 4-step architecture:
 - [x] HTML5/Tailwind frontend with vocal tract visualization
 - [x] Prosody metrics (nPVI, stress patterns) - COMPLETED
 - [x] Visual articulatory feedback (pyclts + Pink Trombone) - COMPLETED
+- [x] IPA phoneme tooltips with hover examples - COMPLETED
 - [ ] Model loading/management optimizations
 - [ ] Voice quality analysis (Jitter, Shimmer, CPPS, Spectral Tilt)
 - [ ] User documentation/help guides
@@ -172,5 +173,5 @@ If you are Cursor, GitHub Copilot, or an autonomous agent:
 - **Read First**: Always use your search tools to examine existing code, utilities, and architectural patterns before modifying or adding files.
 - **Do Not Hallucinate Dependencies**: Only import libraries listed in `requirements.txt` or the standard library.
 - **Comments**: Write concise comments focusing on the *why* rather than the *what*. This is highly important for complex audio processing math or tensor manipulations.
-- **Paths**: Always use absolute paths via `pathlib.Path` relative to the project root to avoid `FileNotFoundError` during Gradio execution.
+- **Paths**: Always use absolute paths via `pathlib.Path` relative to the project root to avoid `FileNotFoundError`.
 - **Test Generation**: When generating tests, use `pytest` fixtures for dummy audio waveforms (e.g., via `numpy` and `scipy.io.wavfile`) rather than assuming hardcoded real files exist.
