@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 from typing import Dict, Any
 
+from src.models.articulatory import normalize_svg_state
+
 
 PRESETS_FILE = Path("presets.json")
 
@@ -17,7 +19,7 @@ def load_presets() -> Dict[str, Dict[str, Any]]:
         Dictionary of phoneme presets
     """
     if not PRESETS_FILE.exists():
-        return get_default_presets()
+        return normalize_presets(get_default_presets())
 
     try:
         with open(PRESETS_FILE, "r") as f:
@@ -27,9 +29,9 @@ def load_presets() -> Dict[str, Dict[str, Any]]:
             for key, value in defaults.items():
                 if key not in data:
                     data[key] = value
-            return data
+            return normalize_presets(data)
     except (json.JSONDecodeError, IOError):
-        return get_default_presets()
+        return normalize_presets(get_default_presets())
 
 
 def save_presets(presets: Dict[str, Dict[str, Any]]) -> None:
@@ -52,8 +54,25 @@ def save_preset(phoneme: str, preset: Dict[str, Any]) -> None:
         preset: Preset data with 'name' and 'params' keys
     """
     presets = load_presets()
-    presets[phoneme] = preset
+    presets[phoneme] = normalize_preset_entry(preset)
     save_presets(presets)
+
+
+def normalize_preset_entry(preset: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize a preset entry to the SVG articulatory schema."""
+
+    params = preset.get("params", {})
+    normalized_params = normalize_svg_state(params) if isinstance(params, dict) else params
+    return {
+        "name": preset.get("name", "custom"),
+        "params": normalized_params,
+    }
+
+
+def normalize_presets(presets: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    """Normalize all presets to the SVG articulatory schema."""
+
+    return {phoneme: normalize_preset_entry(preset) for phoneme, preset in presets.items()}
 
 
 def get_default_presets() -> Dict[str, Dict[str, Any]]:

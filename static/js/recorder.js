@@ -4,7 +4,7 @@
  */
 
 class IntercomRecorder {
-    constructor() {
+    constructor(options = {}) {
         this.mediaRecorder = null;
         this.audioChunks = [];
         this.isRecording = false;
@@ -18,6 +18,7 @@ class IntercomRecorder {
         this.canvasCtx = null;
         this.maxDuration = 60; // 60 seconds max
         this.animationId = null;
+        this.location = options.location || window.location;
         
         this.initElements();
         this.bindEvents();
@@ -39,7 +40,7 @@ class IntercomRecorder {
     bindEvents() {
         // F5 key listener
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'F5') {
+            if (e.key === 'F5' && window.currentTab === 'analysis') {
                 e.preventDefault();
                 if (!this.isRecording) {
                     this.startRecording();
@@ -48,7 +49,7 @@ class IntercomRecorder {
         });
 
         document.addEventListener('keyup', (e) => {
-            if (e.key === 'F5' && this.isRecording) {
+            if (e.key === 'F5' && window.currentTab === 'analysis' && this.isRecording) {
                 e.preventDefault();
                 this.stopRecording();
             }
@@ -76,8 +77,8 @@ class IntercomRecorder {
 
     async init() {
         console.log('Initializing recorder...');
-        console.log('Protocol:', window.location.protocol);
-        console.log('Hostname:', window.location.hostname);
+        console.log('Protocol:', this.location.protocol);
+        console.log('Hostname:', this.location.hostname);
         console.log('navigator.mediaDevices:', navigator.mediaDevices);
         
         // Check if mediaDevices is supported
@@ -89,8 +90,8 @@ class IntercomRecorder {
         }
 
         // Check if running on HTTPS (required for getUserMedia except localhost)
-        const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-        const isHttps = window.location.protocol === 'https:';
+        const isLocalhost = this.location.hostname === 'localhost' || this.location.hostname === '127.0.0.1';
+        const isHttps = this.location.protocol === 'https:';
         
         console.log('Is localhost:', isLocalhost);
         console.log('Is HTTPS:', isHttps);
@@ -518,31 +519,41 @@ class IntercomRecorder {
 }
 
 // Initialize recorder when DOM is ready
-document.addEventListener('DOMContentLoaded', () => {
-    console.log('DOM loaded, initializing recorder...');
-    
-    // Check if required elements exist
-    const recordBtn = document.getElementById('record-btn');
-    const recorderContainer = document.getElementById('recorder');
-    
-    if (!recordBtn) {
-        console.error('Record button not found in DOM');
-        return;
-    }
-    
-    if (!recorderContainer) {
-        console.error('Recorder container not found in DOM');
-        return;
-    }
-    
-    console.log('Found recorder elements, creating instance...');
-    window.recorder = new IntercomRecorder();
-    
-    // Always show the recorder UI first
-    recorderContainer.style.display = 'block';
-    
-    // Then try to initialize microphone
-    window.recorder.init().catch(err => {
-        console.error('Failed to initialize recorder:', err);
+if (typeof document !== 'undefined' && document.addEventListener) {
+    document.addEventListener('DOMContentLoaded', () => {
+        console.log('DOM loaded, initializing recorder...');
+        
+        // Check if required elements exist
+        const recordBtn = document.getElementById('record-btn');
+        const recorderContainer = document.getElementById('recorder');
+        
+        if (!recordBtn) {
+            console.error('Record button not found in DOM');
+            return;
+        }
+        
+        if (!recorderContainer) {
+            console.error('Recorder container not found in DOM');
+            return;
+        }
+        
+        console.log('Found recorder elements, creating instance...');
+        window.recorder = new IntercomRecorder();
+        
+        // Always show the recorder UI first
+        recorderContainer.style.display = 'block';
+        
+        // Then try to initialize microphone
+        window.recorder.init().catch(err => {
+            console.error('Failed to initialize recorder:', err);
+        });
     });
-});
+}
+
+// ES Module exports
+export { IntercomRecorder };
+
+// Maintain backward compatibility
+if (typeof window !== 'undefined') {
+    window.IntercomRecorder = IntercomRecorder;
+}

@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.models.articulatory import (
     ArticulatoryMapper,
     ArticulatoryParameters,
+    default_articulatory_state,
     PhonemeDescription,
     format_with_html_tooltips,
 )
@@ -60,19 +61,18 @@ def test_parameter_mapping():
         tooltips={},
     )
 
-    params = mapper.map_to_parameters(placeholder_description)
+    svg_state = mapper.get_animation_params("/t/")
 
-    assert isinstance(params, ArticulatoryParameters)
-    assert 0.0 <= params.tongue_index <= 1.0
-    assert 0.0 <= params.tongue_diameter <= 1.0
-    assert 0.0 <= params.lip_rounding <= 1.0
-    assert 0.0 <= params.voicing <= 1.0
+    assert isinstance(svg_state, dict)
+    assert "lip_aperture" in svg_state
+    assert "tongue_tip_constriction_location" in svg_state
+    assert "tongue_body_constriction_degree" in svg_state
+
+    neutral = default_articulatory_state()
+    assert neutral.lip_aperture == 10.0
 
     print("✓ Parameter mapping test passed")
-    print(f"  Tongue Index: {params.tongue_index}")
-    print(f"  Tongue Diameter: {params.tongue_diameter}")
-    print(f"  Lip Rounding: {params.lip_rounding}")
-    print(f"  Voicing: {params.voicing}")
+    print(f"  SVG state keys: {list(svg_state.keys())}")
 
 
 def test_delta_calculation():
@@ -80,23 +80,11 @@ def test_delta_calculation():
     mapper = ArticulatoryMapper()
 
     # Create two sets of parameters with known differences
-    target_params = ArticulatoryParameters(
-        tongue_index=0.7,
-        tongue_diameter=0.3,
-        lip_rounding=0.8,
-        voicing=0.9,
-    )
+    target_params = ArticulatoryParameters(0.7, 0.3, 0.0, 0.0, 0.8, 0.1, 0.2, 0.9, 0.0)
 
-    predicted_params = ArticulatoryParameters(
-        tongue_index=0.3,
-        tongue_diameter=0.7,
-        lip_rounding=0.2,
-        voicing=0.1,
-    )
+    predicted_params = ArticulatoryParameters(0.3, 0.7, 0.0, 0.0, 0.2, 0.9, 0.1, 0.1, 0.0)
 
-    delta_description, highlight_zone = mapper.calculate_delta(
-        target_params, predicted_params
-    )
+    delta_description, highlight_zone = mapper.calculate_delta(target_params, predicted_params)
 
     assert delta_description is not None
     assert highlight_zone in [None, "lips", "tongue_tip", "tongue_body", "glottis"]
@@ -140,10 +128,7 @@ def test_feature_definitions():
     required_features = ["place", "manner", "voicing", "rounding"]
 
     for feature in required_features:
-        assert (
-            feature in mapper._feature_definitions
-            or feature in mapper._tooltip_definitions
-        )
+        assert feature in mapper._feature_definitions or feature in mapper._tooltip_definitions
 
     print("✓ Feature definitions test passed")
     print(f"  Features defined: {list(mapper._feature_definitions.keys())}")

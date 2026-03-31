@@ -190,6 +190,95 @@ def serialize_alignment(alignment):
     }
 
 
+def _get_pitch_range_label(range_semitones: float) -> str:
+    """Return a student-friendly pitch range label."""
+    SEMITONE_RATIO = 2 ** (1 / 12)
+    if range_semitones < 6:
+        return "a little flat"
+    elif range_semitones <= 12:
+        return "nice variety"
+    else:
+        return "very expressive"
+
+
+def _get_pitch_range_coaching(range_semitones: float) -> str:
+    """Return coaching text for pitch range."""
+    if range_semitones < 6:
+        return "try adding more movement"
+    elif range_semitones <= 12:
+        return "good contrast"
+    else:
+        return "strong range"
+
+
+def _get_mean_pitch_label(mean_f0_hz: float) -> str:
+    """Return a student-friendly mean pitch label."""
+    if mean_f0_hz < 150:
+        return "low voice"
+    elif mean_f0_hz <= 220:
+        return "middle voice"
+    else:
+        return "high voice"
+
+
+def _get_mean_pitch_coaching(mean_f0_hz: float) -> str:
+    """Return coaching text for mean pitch."""
+    if mean_f0_hz < 150:
+        return "calm and grounded"
+    elif mean_f0_hz <= 220:
+        return "balanced"
+    else:
+        return "bright and energetic"
+
+
+def _get_npvi_label(npvi: float) -> tuple[str, str]:
+    """Return (label, color) for nPVI. Color is 'red', 'amber', or 'green'."""
+    if npvi <= 25:
+        return "more flat", "red"
+    elif npvi <= 45:
+        return "mixed rhythm", "amber"
+    else:
+        return "strong rhythm", "green"
+
+
+def _get_npvi_coaching(npvi: float) -> str:
+    """Return coaching text for nPVI."""
+    if npvi <= 25:
+        return "rhythm is still very even"
+    elif npvi <= 45:
+        return "getting closer to natural stress timing"
+    else:
+        return "nice stress contrast"
+
+
+def _build_npvi_bar_html(npvi: float) -> str:
+    """Build an inline colored nPVI bar HTML."""
+    label, color = _get_npvi_label(npvi)
+    coaching = _get_npvi_coaching(npvi)
+    color_map = {
+        "red": "#ef4444",
+        "amber": "#f59e0b",
+        "green": "#22c55e",
+    }
+    bar_color = color_map.get(color, "#9ca3af")
+    bar_html = (
+        f'<div style="display:flex;align-items:center;gap:8px;margin-top:4px;">'
+        f'<div style="flex:1;height:8px;background:#e5e7eb;border-radius:4px;overflow:hidden;">'
+        f'<div style="width:100%;height:100%;background:{bar_color};border-radius:4px;"></div>'
+        f"</div>"
+        f'<span style="font-size:12px;color:{bar_color};font-weight:600;">{label} — {coaching}</span>'
+        f"</div>"
+    )
+    return bar_html
+
+
+def _f0_to_semitones(f0_hz: float, reference_hz: float = 1.0) -> float:
+    """Convert a frequency in Hz to semitones above a reference frequency."""
+    if f0_hz <= 0 or reference_hz <= 0:
+        return 0.0
+    return 12.0 * (f0_hz / reference_hz) ** (1 / 12) - 12.0
+
+
 def serialize_prosody(prosody):
     """Convert ProsodyMetrics to dict."""
     print(f"[serialize_prosody] Called with: {prosody}")
@@ -204,14 +293,26 @@ def serialize_prosody(prosody):
     elif prosody:
         print(f"[serialize_prosody] rhythm is None, nPVI will be 0")
 
+    pitch_mean = prosody.pitch.mean_f0 if prosody and prosody.pitch else 0
+    pitch_range = prosody.pitch.f0_range if prosody and prosody.pitch else 0
+    npvi = prosody.rhythm.npvi if prosody and prosody.rhythm else 0
+
     return {
-        "pitch_mean": prosody.pitch.mean_f0 if prosody and prosody.pitch else 0,
-        "pitch_range": prosody.pitch.f0_range if prosody and prosody.pitch else 0,
+        "pitch_mean": pitch_mean,
+        "pitch_range": pitch_range,
         "pitch_variability": prosody.pitch.std_f0 if prosody and prosody.pitch else 0,
-        "npvi": prosody.rhythm.npvi if prosody and prosody.rhythm else 0,
+        "npvi": npvi,
         "stress_pattern": prosody.stress.primary_stress_word
         if prosody and prosody.stress
         else None,
+        "pitch_range_label": _get_pitch_range_label(pitch_range),
+        "pitch_range_coaching": _get_pitch_range_coaching(pitch_range),
+        "mean_pitch_label": _get_mean_pitch_label(pitch_mean),
+        "mean_pitch_coaching": _get_mean_pitch_coaching(pitch_mean),
+        "npvi_label": _get_npvi_label(npvi)[0],
+        "npvi_color": _get_npvi_label(npvi)[1],
+        "npvi_coaching": _get_npvi_coaching(npvi),
+        "npvi_bar_html": _build_npvi_bar_html(npvi),
     }
 
 
@@ -221,7 +322,6 @@ def _generate_comprehensive_feedback(errors, alignment, prosody_metrics, mapper)
     print(f"[feedback] alignment: {alignment}")
     print(f"[feedback] prosody_metrics: {prosody_metrics}")
 
-    # Simplified feedback generation
     sections = []
 
     # Pronunciation summary
@@ -234,15 +334,26 @@ def _generate_comprehensive_feedback(errors, alignment, prosody_metrics, mapper)
     else:
         sections.append("<strong>Pronunciation:</strong> No errors detected")
 
-    # Prosody summary
+    # Prosody summary with student-friendly labels
     if prosody_metrics:
         sections.append(f"<br><strong>Prosody:</strong>")
         if prosody_metrics.pitch:
-            sections.append(f"- Pitch range: {prosody_metrics.pitch.f0_range:.1f} Hz")
-            sections.append(f"- Mean pitch: {prosody_metrics.pitch.mean_f0:.1f} Hz")
+            f0_range = prosody_metrics.pitch.f0_range
+            f0_mean = prosody_metrics.pitch.mean_f0
+            range_label = _get_pitch_range_label(f0_range)
+            range_coaching = _get_pitch_range_coaching(f0_range)
+            pitch_label = _get_mean_pitch_label(f0_mean)
+            pitch_coaching = _get_mean_pitch_coaching(f0_mean)
+            sections.append(f"- Pitch range: {range_label} — {range_coaching} ({f0_range:.1f} Hz)")
+            sections.append(f"- Mean pitch: {pitch_label} — {pitch_coaching} ({f0_mean:.1f} Hz)")
         if prosody_metrics.rhythm:
-            sections.append(f"- Rhythm (nPVI): {prosody_metrics.rhythm.npvi:.2f}")
-            print(f"[feedback] nPVI value being used: {prosody_metrics.rhythm.npvi:.2f}")
+            npvi = prosody_metrics.rhythm.npvi
+            npvi_label, npvi_color = _get_npvi_label(npvi)
+            npvi_coaching = _get_npvi_coaching(npvi)
+            sections.append(f"- Rhythm (nPVI {npvi:.2f})")
+            sections.append(f"  {npvi_label} — {npvi_coaching}")
+            sections.append(_build_npvi_bar_html(npvi))
+            print(f"[feedback] nPVI value being used: {npvi:.2f}")
 
     result = "<br>".join(sections)
     print(f"[feedback] Final feedback string:")

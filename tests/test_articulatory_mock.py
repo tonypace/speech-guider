@@ -26,6 +26,8 @@ sys.modules["clts"] = clts_mock
 from src.models.articulatory import (
     ArticulatoryMapper,
     ArticulatoryParameters,
+    ArticulatoryState,
+    default_articulatory_state,
     PhonemeDescription,
     format_with_html_tooltips,
 )
@@ -36,10 +38,9 @@ def test_basic_structure():
     print("\n=== Testing Basic Articulatory Structure (No pyclts) ===")
 
     # Test dataclass instantiation
-    params = ArticulatoryParameters(
-        tongue_index=0.5, tongue_diameter=0.5, lip_rounding=0.5, voicing=0.5
-    )
-    print(f"✓ ArticulatoryParameters created: tongue_index={params.tongue_index}")
+    state = default_articulatory_state()
+    assert isinstance(state, ArticulatoryState)
+    print(f"✓ ArticulatoryState created: lip_aperture={state.lip_aperture}")
 
     description = PhonemeDescription(
         technical_name="Voiced Alveolar Fricative",
@@ -61,11 +62,14 @@ def test_basic_structure():
 
     # Test parameter mapping
     mapped_params = mapper.map_to_parameters(description)
-    print(f"✓ Parameters mapped: tongue_index={mapped_params.tongue_index:.2f}")
+    svg_state = mapper.get_animation_params("/z/")
+    assert "lip_aperture" in svg_state
+    assert "tongue_tip_constriction_location" in svg_state
+    print(f"✓ Parameters mapped to SVG schema: {svg_state}")
 
     # Test delta calculation
-    target_params = ArticulatoryParameters(0.7, 0.3, 0.8, 0.9)
-    predicted_params = ArticulatoryParameters(0.3, 0.7, 0.2, 0.1)
+    target_params = ArticulatoryParameters(0.7, 0.3, 0.2, 0.1, 0.8, 0.1, 0.2, 0.9, 0.0)
+    predicted_params = ArticulatoryParameters(0.3, 0.7, 0.0, 0.0, 0.2, 0.9, 0.1, 0.1, 0.0)
     delta_desc, highlight = mapper.calculate_delta(target_params, predicted_params)
     print(f"✓ Delta calculation: {delta_desc}, highlight={highlight}")
 
@@ -75,15 +79,14 @@ def test_basic_structure():
     print(f"  Contains tooltip: {'tooltip' in html}")
 
     print("\n✅ All basic structure tests passed!")
-    return True
 
 
-def test_javascript_assets():
-    """Test that JavaScript and CSS assets exist."""
+def test_static_assets():
+    """Test that the current static assets exist."""
     print("\n=== Testing Static Assets ===")
 
-    js_path = Path("src/ui/assets/vocal_tract.js")
-    css_path = Path("src/ui/assets/vocal_tract.css")
+    js_path = Path("static/js/app.js")
+    css_path = Path("static/css/vocal_tract.css")
 
     assert js_path.exists(), "JavaScript file not found"
     assert css_path.exists(), "CSS file not found"
@@ -95,20 +98,19 @@ def test_javascript_assets():
     js_content = js_path.read_text()
     css_content = css_path.read_text()
 
-    assert "VocalTract" in js_content, "JavaScript missing VocalTract class"
+    assert "window.switchTab" in js_content, "JavaScript missing app bootstrap"
     assert ".tooltip" in css_content, "CSS missing tooltip styling"
 
-    print("✓ JavaScript contains VocalTract class")
+    print("✓ JavaScript contains app bootstrap")
     print("✓ CSS contains tooltip styling")
 
     print("\n✅ All static asset tests passed!")
-    return True
 
 
 if __name__ == "__main__":
     try:
         test_basic_structure()
-        test_javascript_assets()
+        test_static_assets()
         print("\n" + "=" * 50)
         print("ALL MOCK TESTS PASSED ✅")
         print("=" * 50)

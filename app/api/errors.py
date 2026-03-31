@@ -55,17 +55,17 @@ async def select_error(request: SelectErrorRequest):
         print(f"[select_error] Exception getting animation params: {e}")
         # Fallback to default params
         target_params = {
-            "tongueIndex": 0.5,
-            "tongueDiameter": 0.5,
-            "lipRounding": 0.5,
-            "voicing": 1.0,
+            "lip_aperture": 10.0,
+            "lip_protrusion": 10.0,
+            "tongue_tip_constriction_location": 0.20,
+            "tongue_tip_constriction_degree": 40.0,
+            "lateral_tongue_drop": 0.0,
+            "velic_aperture": 0.0,
+            "tongue_body_constriction_location": 0.70,
+            "tongue_body_constriction_degree": 30.0,
+            "glottal_aperture": 0.0,
         }
-        predicted_params = {
-            "tongueIndex": 0.5,
-            "tongueDiameter": 0.5,
-            "lipRounding": 0.5,
-            "voicing": 1.0,
-        }
+        predicted_params = dict(target_params)
 
     # Determine highlight zone based on error type
     highlight_zone = "tongue_tip"  # Default

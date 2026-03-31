@@ -25,6 +25,28 @@
             <p class="text-gray-600">Record yourself reading the target sentence and receive instant feedback on pronunciation and intonation.</p>
         </header>
 
+        <!-- Tab Navigation -->
+        <div class="flex border-b border-gray-200 mb-6">
+            <button id="tab-btn-analysis" 
+                    onclick="switchTab('analysis')"
+                    class="tab-btn tab-btn-active px-6 py-3 font-medium text-blue-600 border-b-2 border-blue-600 -mb-px">
+                Analysis
+            </button>
+            <button id="tab-btn-animation" 
+                    onclick="switchTab('animation')"
+                    class="tab-btn px-6 py-3 font-medium text-gray-500 hover:text-gray-700">
+                Animation Lab
+            </button>
+            <button id="tab-btn-prosody" 
+                    onclick="switchTab('prosody')"
+                    class="tab-btn px-6 py-3 font-medium text-gray-500 hover:text-gray-700">
+                Prosody Lab
+            </button>
+        </div>
+
+        <!-- Tab Panels -->
+        <div id="tab-panel-analysis" class="tab-panel">
+        
         <!-- Main Analysis Section -->
         <section class="bg-white rounded-lg shadow-md p-6 mb-8">
             <h2 class="text-2xl font-semibold text-gray-800 mb-4">Analysis</h2>
@@ -102,7 +124,7 @@
                     </div>
                 </div>
 
-                <!-- Vocal Tract Visualization (Pink Trombone) -->
+                <!-- Vocal Tract Visualization -->
                 <div class="lg:col-span-2">
                     <div class="grid grid-cols-2 gap-4">
                         <!-- Left Panel (Incorrect) -->
@@ -111,7 +133,7 @@
                                 <div class="text-sm font-medium text-gray-700 mb-1">What you're doing</div>
                                 <div id="left-phoneme" class="text-lg font-bold text-red-600">-</div>
                             </div>
-                            <canvas id="vocal-tract-left" width="600" height="500" class="bg-white rounded shadow w-full"></canvas>
+                            <div id="svg-articulatory-left" class="bg-white rounded shadow w-full"></div>
                             <div id="left-description" class="mt-2 text-sm text-gray-600">
                                 No error selected
                             </div>
@@ -126,7 +148,7 @@
                                 <div class="text-sm font-medium text-gray-700 mb-1">What you should do</div>
                                 <div id="right-phoneme" class="text-lg font-bold text-green-600">-</div>
                             </div>
-                            <canvas id="vocal-tract-right" width="600" height="500" class="bg-white rounded shadow w-full"></canvas>
+                            <div id="svg-articulatory-right" class="bg-white rounded shadow w-full"></div>
                             <div id="right-description" class="mt-2 text-sm text-gray-600">
                                 No error selected
                             </div>
@@ -139,119 +161,410 @@
             </div>
         </section>
 
+        </div><!-- End tab-panel-analysis -->
+
+        <!-- Animation Lab Tab Panel -->
+        <div id="tab-panel-animation" class="tab-panel hidden">
+        
         <!-- Animation Lab Section -->
         <section class="bg-white rounded-lg shadow-md p-6 mb-8">
             <h2 class="text-2xl font-semibold text-gray-800 mb-2">Animation Lab</h2>
-            <p class="text-gray-600 mb-6">Interactive vocal tract visualization. Use the sliders to control articulatory parameters, or click phoneme buttons to see common English sounds.</p>
+            <p class="text-gray-600 mb-6">Interactive vocal tract visualization. Select a phoneme below to see its articulatory configuration, or use the sliders to experiment.</p>
 
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <!-- Controls -->
-                <div class="lg:col-span-1 space-y-6">
-                    <!-- Parameter Sliders -->
-                    <div class="space-y-4">
-                        <div>
-                            <label for="tongue-idx" class="block text-sm font-medium text-gray-700 mb-1">Tongue Position (front ↔ back)</label>
-                            <input type="range" 
-                                   id="tongue-idx" 
-                                   min="0" max="1" step="0.01" value="0.5"
-                                   class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-                                   oninput="updateAnimation()">
-                            <div class="flex justify-between text-xs text-gray-500">
-                                <span>Back</span>
-                                <span>Front</span>
-                            </div>
-                        </div>
+            <!-- Vocal Tract Visualization -->
+            <div class="bg-gray-100 rounded-lg p-4 mb-6">
+                <div id="svg-articulatory-animation" class="bg-white rounded shadow w-full mx-auto"></div>
+            </div>
 
-                        <div>
-                            <label for="tongue-dia" class="block text-sm font-medium text-gray-700 mb-1">Tongue Height (low ↔ high)</label>
-                            <input type="range" 
-                                   id="tongue-dia" 
-                                   min="0" max="1" step="0.01" value="0.5"
-                                   class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-                                   oninput="updateAnimation()">
-                            <div class="flex justify-between text-xs text-gray-500">
-                                <span>Low</span>
-                                <span>High</span>
-                            </div>
-                        </div>
-
-                        <div>
-                            <label for="lip-round" class="block text-sm font-medium text-gray-700 mb-1">Lip Rounding (spread ↔ rounded)</label>
-                            <input type="range" 
-                                   id="lip-round" 
-                                   min="0" max="1" step="0.01" value="0.5"
-                                   class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-                                   oninput="updateAnimation()">
-                            <div class="flex justify-between text-xs text-gray-500">
-                                <span>Spread</span>
-                                <span>Rounded</span>
-                            </div>
-                        </div>
-
-                        <div>
-                            <label for="voicing" class="block text-sm font-medium text-gray-700 mb-1">Voicing (voiceless ↔ voiced)</label>
-                            <input type="range" 
-                                   id="voicing" 
-                                   min="0" max="1" step="0.01" value="0.5"
-                                   class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-                                   oninput="updateAnimation()">
-                            <div class="flex justify-between text-xs text-gray-500">
-                                <span>Voiceless</span>
-                                <span>Voiced</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Phoneme Buttons -->
-                    <div>
-                        <h3 class="text-lg font-medium text-gray-800 mb-3">Phoneme Presets</h3>
-                        
-                        <!-- Vowels -->
-                        <div class="mb-3">
-                            <p class="text-sm text-gray-600 mb-2">Vowels</p>
-                            <div class="flex flex-wrap gap-2" id="vowel-buttons">
-                                <button onclick="setPreset('i')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="i">i</button>
-                                <button onclick="setPreset('ɪ')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="ɪ">ɪ</button>
-                                <button onclick="setPreset('e')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="e">e</button>
-                                <button onclick="setPreset('æ')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="æ">æ</button>
-                                <button onclick="setPreset('a')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="a">a</button>
-                                <button onclick="setPreset('ɑ')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="ɑ">ɑ</button>
-                                <button onclick="setPreset('ɔ')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="ɔ">ɔ</button>
-                                <button onclick="setPreset('o')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="o">o</button>
-                                <button onclick="setPreset('ʊ')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="ʊ">ʊ</button>
-                                <button onclick="setPreset('u')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="u">u</button>
-                                <button onclick="setPreset('ə')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="ə">ə</button>
-                                <button onclick="setPreset('ɝ')" class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="ɝ">ɝ</button>
-                            </div>
-                        </div>
-
-                        <!-- Consonants -->
-                        <div>
-                            <p class="text-sm text-gray-600 mb-2">Consonants</p>
-                            <div class="flex flex-wrap gap-2" id="consonant-buttons">
-                                <button onclick="setPreset('p')" class="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition" data-phoneme="p">p</button>
-                                <button onclick="setPreset('b')" class="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition" data-phoneme="b">b</button>
-                                <button onclick="setPreset('t')" class="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition" data-phoneme="t">t</button>
-                                <button onclick="setPreset('d')" class="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition" data-phoneme="d">d</button>
-                                <button onclick="setPreset('k')" class="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition" data-phoneme="k">k</button>
-                                <button onclick="setPreset('g')" class="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition" data-phoneme="g">g</button>
-                                <button onclick="setPreset('s')" class="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition" data-phoneme="s">s</button>
-                                <button onclick="setPreset('ʃ')" class="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition" data-phoneme="ʃ">ʃ</button>
-                                <button onclick="setPreset('f')" class="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition" data-phoneme="f">f</button>
-                                <button onclick="setPreset('h')" class="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition" data-phoneme="h">h</button>
-                            </div>
-                        </div>
-                    </div>
+            <!-- 9 Parameter Sliders in 3x3 grid -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <div>
+                    <label for="la-slider" class="block text-sm font-medium text-gray-700 mb-1">Lip Aperture (LA)</label>
+                    <input type="range" id="la-slider" min="0" max="40" step="1" value="10"
+                           class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                           oninput="window.updateAnimationFromSliders()">
+                    <div class="flex justify-between text-xs text-gray-500"><span>Closed</span><span>Open</span></div>
                 </div>
-
-                <!-- Canvas -->
-                <div class="lg:col-span-2">
-                    <div class="bg-gray-100 rounded-lg p-4">
-                        <canvas id="pink-trombone-canvas" width="600" height="500" class="bg-white rounded shadow w-full"></canvas>
-                    </div>
+                <div>
+                    <label for="lp-slider" class="block text-sm font-medium text-gray-700 mb-1">Lip Protrusion (LP)</label>
+                    <input type="range" id="lp-slider" min="0" max="14" step="1" value="10"
+                           class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                           oninput="window.updateAnimationFromSliders()">
+                    <div class="flex justify-between text-xs text-gray-500"><span>Spread</span><span>Protruded</span></div>
+                </div>
+                <div>
+                    <label for="ttcl-slider" class="block text-sm font-medium text-gray-700 mb-1">Tongue Tip Constriction Location (TTCL)</label>
+                    <input type="range" id="ttcl-slider" min="0" max="1" step="0.01" value="0.20"
+                           class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                           oninput="window.updateAnimationFromSliders()">
+                    <div class="flex justify-between text-xs text-gray-500"><span>Front</span><span>Back</span></div>
+                </div>
+                <div>
+                    <label for="ttcd-slider" class="block text-sm font-medium text-gray-700 mb-1">Tongue Tip Constriction Degree (TTCD)</label>
+                    <input type="range" id="ttcd-slider" min="0" max="150" step="1" value="40"
+                           class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                           oninput="window.updateAnimationFromSliders()">
+                    <div class="flex justify-between text-xs text-gray-500"><span>Open</span><span>Closed</span></div>
+                </div>
+                <div>
+                    <label for="lat-slider" class="block text-sm font-medium text-gray-700 mb-1">Lateral Tongue Drop (LAT)</label>
+                    <input type="range" id="lat-slider" min="0" max="40" step="1" value="0"
+                           class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                           oninput="window.updateAnimationFromSliders()">
+                    <div class="flex justify-between text-xs text-gray-500"><span>None</span><span>Max</span></div>
+                </div>
+                <div>
+                    <label for="vel-slider" class="block text-sm font-medium text-gray-700 mb-1">Velic Aperture (VEL)</label>
+                    <input type="range" id="vel-slider" min="0" max="40" step="1" value="0"
+                           class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                           oninput="window.updateAnimationFromSliders()">
+                    <div class="flex justify-between text-xs text-gray-500"><span>Closed</span><span>Open</span></div>
+                </div>
+                <div>
+                    <label for="tbcl-slider" class="block text-sm font-medium text-gray-700 mb-1">Tongue Body Constriction Location (TBCL)</label>
+                    <input type="range" id="tbcl-slider" min="0" max="1" step="0.01" value="0.70"
+                           class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                           oninput="window.updateAnimationFromSliders()">
+                    <div class="flex justify-between text-xs text-gray-500"><span>Front</span><span>Back</span></div>
+                </div>
+                <div>
+                    <label for="tbcd-slider" class="block text-sm font-medium text-gray-700 mb-1">Tongue Body Constriction Degree (TBCD)</label>
+                    <input type="range" id="tbcd-slider" min="0" max="150" step="1" value="30"
+                           class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                           oninput="window.updateAnimationFromSliders()">
+                    <div class="flex justify-between text-xs text-gray-500"><span>Open</span><span>Closed</span></div>
+                </div>
+                <div>
+                    <label for="glo-slider" class="block text-sm font-medium text-gray-700 mb-1">Glottal Aperture (GLO)</label>
+                    <input type="range" id="glo-slider" min="0" max="30" step="1" value="0"
+                           class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                           oninput="window.updateAnimationFromSliders()">
+                    <div class="flex justify-between text-xs text-gray-500"><span>Closed</span><span>Open</span></div>
                 </div>
             </div>
+
+            <!-- Phoneme Grid with Collapsible Categories -->
+            <div class="mb-6">
+                <h3 class="text-lg font-medium text-gray-800 mb-3">Phoneme Presets</h3>
+                <div id="phoneme-grid" class="space-y-2">
+                    
+                    <!-- Vowels (Short) - Open by default -->
+                    <details open>
+                        <summary class="cursor-pointer px-3 py-2 bg-gray-100 rounded-t font-medium text-gray-700 hover:bg-gray-200">Vowels (Short)</summary>
+                        <div class="flex flex-wrap gap-2 p-3 border border-t-0 border-gray-200 rounded-b bg-white">
+                            <button onclick="window.selectPhoneme('i')" class="phoneme-btn px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="i">i</button>
+                            <button onclick="window.selectPhoneme('ɪ')" class="phoneme-btn px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="ɪ">ɪ</button>
+                            <button onclick="window.selectPhoneme('e')" class="phoneme-btn px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="e">e</button>
+                            <button onclick="window.selectPhoneme('ɛ')" class="phoneme-btn px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="ɛ">ɛ</button>
+                            <button onclick="window.selectPhoneme('æ')" class="phoneme-btn px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="æ">æ</button>
+                            <button onclick="window.selectPhoneme('ə')" class="phoneme-btn px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="ə">ə</button>
+                            <button onclick="window.selectPhoneme('ɜ')" class="phoneme-btn px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="ɜ">ɜ</button>
+                            <button onclick="window.selectPhoneme('ɨ')" class="phoneme-btn px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="ɨ">ɨ</button>
+                            <button onclick="window.selectPhoneme('ʌ')" class="phoneme-btn px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="ʌ">ʌ</button>
+                            <button onclick="window.selectPhoneme('ɑ')" class="phoneme-btn px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="ɑ">ɑ</button>
+                            <button onclick="window.selectPhoneme('ɒ')" class="phoneme-btn px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="ɒ">ɒ</button>
+                            <button onclick="window.selectPhoneme('ɔ')" class="phoneme-btn px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="ɔ">ɔ</button>
+                            <button onclick="window.selectPhoneme('ʊ')" class="phoneme-btn px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="ʊ">ʊ</button>
+                            <button onclick="window.selectPhoneme('u')" class="phoneme-btn px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="u">u</button>
+                            <button onclick="window.selectPhoneme('o')" class="phoneme-btn px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="o">o</button>
+                            <button onclick="window.selectPhoneme('ɝ')" class="phoneme-btn px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="ɝ">ɝ</button>
+                            <button onclick="window.selectPhoneme('ɚ')" class="phoneme-btn px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="ɚ">ɚ</button>
+                        </div>
+                    </details>
+
+                    <!-- Vowels (Long) -->
+                    <details>
+                        <summary class="cursor-pointer px-3 py-2 bg-gray-100 rounded-t font-medium text-gray-700 hover:bg-gray-200">Vowels (Long)</summary>
+                        <div class="flex flex-wrap gap-2 p-3 border border-t-0 border-gray-200 rounded-b bg-white">
+                            <button onclick="window.selectPhoneme('iː')" class="phoneme-btn px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="iː">iː</button>
+                            <button onclick="window.selectPhoneme('uː')" class="phoneme-btn px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="uː">uː</button>
+                            <button onclick="window.selectPhoneme('eː')" class="phoneme-btn px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="eː">eː</button>
+                            <button onclick="window.selectPhoneme('oː')" class="phoneme-btn px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="oː">oː</button>
+                            <button onclick="window.selectPhoneme('ɔː')" class="phoneme-btn px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="ɔː">ɔː</button>
+                            <button onclick="window.selectPhoneme('ɑː')" class="phoneme-btn px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="ɑː">ɑː</button>
+                            <button onclick="window.selectPhoneme('æː')" class="phoneme-btn px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="æː">æː</button>
+                        </div>
+                    </details>
+
+                    <!-- Diphthongs -->
+                    <details>
+                        <summary class="cursor-pointer px-3 py-2 bg-gray-100 rounded-t font-medium text-gray-700 hover:bg-gray-200">Diphthongs</summary>
+                        <div class="flex flex-wrap gap-2 p-3 border border-t-0 border-gray-200 rounded-b bg-white">
+                            <button onclick="window.selectPhoneme('aɪ')" class="phoneme-btn px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="aɪ">aɪ</button>
+                            <button onclick="window.selectPhoneme('eɪ')" class="phoneme-btn px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="eɪ">eɪ</button>
+                            <button onclick="window.selectPhoneme('ɔɪ')" class="phoneme-btn px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="ɔɪ">ɔɪ</button>
+                            <button onclick="window.selectPhoneme('aʊ')" class="phoneme-btn px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="aʊ">aʊ</button>
+                            <button onclick="window.selectPhoneme('oʊ')" class="phoneme-btn px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition" data-phoneme="oʊ">oʊ</button>
+                        </div>
+                    </details>
+
+                    <!-- Bilabial Plosives -->
+                    <details>
+                        <summary class="cursor-pointer px-3 py-2 bg-gray-100 rounded-t font-medium text-gray-700 hover:bg-gray-200">Bilabial Plosives</summary>
+                        <div class="flex flex-wrap gap-2 p-3 border border-t-0 border-gray-200 rounded-b bg-white">
+                            <button onclick="window.selectPhoneme('p')" class="phoneme-btn px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition" data-phoneme="p">p</button>
+                            <button onclick="window.selectPhoneme('pʰ')" class="phoneme-btn px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition" data-phoneme="pʰ">pʰ</button>
+                            <button onclick="window.selectPhoneme('b')" class="phoneme-btn px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition" data-phoneme="b">b</button>
+                        </div>
+                    </details>
+
+                    <!-- Alveolar Plosives -->
+                    <details>
+                        <summary class="cursor-pointer px-3 py-2 bg-gray-100 rounded-t font-medium text-gray-700 hover:bg-gray-200">Alveolar Plosives</summary>
+                        <div class="flex flex-wrap gap-2 p-3 border border-t-0 border-gray-200 rounded-b bg-white">
+                            <button onclick="window.selectPhoneme('t')" class="phoneme-btn px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition" data-phoneme="t">t</button>
+                            <button onclick="window.selectPhoneme('tʰ')" class="phoneme-btn px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition" data-phoneme="tʰ">tʰ</button>
+                            <button onclick="window.selectPhoneme('d')" class="phoneme-btn px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition" data-phoneme="d">d</button>
+                        </div>
+                    </details>
+
+                    <!-- Velar Plosives -->
+                    <details>
+                        <summary class="cursor-pointer px-3 py-2 bg-gray-100 rounded-t font-medium text-gray-700 hover:bg-gray-200">Velar Plosives</summary>
+                        <div class="flex flex-wrap gap-2 p-3 border border-t-0 border-gray-200 rounded-b bg-white">
+                            <button onclick="window.selectPhoneme('k')" class="phoneme-btn px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition" data-phoneme="k">k</button>
+                            <button onclick="window.selectPhoneme('kʰ')" class="phoneme-btn px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition" data-phoneme="kʰ">kʰ</button>
+                            <button onclick="window.selectPhoneme('g')" class="phoneme-btn px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition" data-phoneme="g">g</button>
+                        </div>
+                    </details>
+
+                    <!-- Glottal Stop -->
+                    <details>
+                        <summary class="cursor-pointer px-3 py-2 bg-gray-100 rounded-t font-medium text-gray-700 hover:bg-gray-200">Glottal Stop</summary>
+                        <div class="flex flex-wrap gap-2 p-3 border border-t-0 border-gray-200 rounded-b bg-white">
+                            <button onclick="window.selectPhoneme('ʔ')" class="phoneme-btn px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition" data-phoneme="ʔ">ʔ</button>
+                        </div>
+                    </details>
+
+                    <!-- Retroflex Plosives -->
+                    <details>
+                        <summary class="cursor-pointer px-3 py-2 bg-gray-100 rounded-t font-medium text-gray-700 hover:bg-gray-200">Retroflex Plosives</summary>
+                        <div class="flex flex-wrap gap-2 p-3 border border-t-0 border-gray-200 rounded-b bg-white">
+                            <button onclick="window.selectPhoneme('ʈ')" class="phoneme-btn px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition" data-phoneme="ʈ">ʈ</button>
+                            <button onclick="window.selectPhoneme('ɖ')" class="phoneme-btn px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition" data-phoneme="ɖ">ɖ</button>
+                        </div>
+                    </details>
+
+                    <!-- Labiodental Fricatives -->
+                    <details>
+                        <summary class="cursor-pointer px-3 py-2 bg-gray-100 rounded-t font-medium text-gray-700 hover:bg-gray-200">Labiodental Fricatives</summary>
+                        <div class="flex flex-wrap gap-2 p-3 border border-t-0 border-gray-200 rounded-b bg-white">
+                            <button onclick="window.selectPhoneme('f')" class="phoneme-btn px-3 py-1 bg-yellow-100 text-yellow-700 rounded hover:bg-yellow-200 transition" data-phoneme="f">f</button>
+                            <button onclick="window.selectPhoneme('v')" class="phoneme-btn px-3 py-1 bg-yellow-100 text-yellow-700 rounded hover:bg-yellow-200 transition" data-phoneme="v">v</button>
+                        </div>
+                    </details>
+
+                    <!-- Dental Fricatives -->
+                    <details>
+                        <summary class="cursor-pointer px-3 py-2 bg-gray-100 rounded-t font-medium text-gray-700 hover:bg-gray-200">Dental Fricatives</summary>
+                        <div class="flex flex-wrap gap-2 p-3 border border-t-0 border-gray-200 rounded-b bg-white">
+                            <button onclick="window.selectPhoneme('θ')" class="phoneme-btn px-3 py-1 bg-yellow-100 text-yellow-700 rounded hover:bg-yellow-200 transition" data-phoneme="θ">θ</button>
+                            <button onclick="window.selectPhoneme('ð')" class="phoneme-btn px-3 py-1 bg-yellow-100 text-yellow-700 rounded hover:bg-yellow-200 transition" data-phoneme="ð">ð</button>
+                        </div>
+                    </details>
+
+                    <!-- Alveolar Fricatives -->
+                    <details>
+                        <summary class="cursor-pointer px-3 py-2 bg-gray-100 rounded-t font-medium text-gray-700 hover:bg-gray-200">Alveolar Fricatives</summary>
+                        <div class="flex flex-wrap gap-2 p-3 border border-t-0 border-gray-200 rounded-b bg-white">
+                            <button onclick="window.selectPhoneme('s')" class="phoneme-btn px-3 py-1 bg-yellow-100 text-yellow-700 rounded hover:bg-yellow-200 transition" data-phoneme="s">s</button>
+                            <button onclick="window.selectPhoneme('z')" class="phoneme-btn px-3 py-1 bg-yellow-100 text-yellow-700 rounded hover:bg-yellow-200 transition" data-phoneme="z">z</button>
+                        </div>
+                    </details>
+
+                    <!-- Postalveolar Fricatives -->
+                    <details>
+                        <summary class="cursor-pointer px-3 py-2 bg-gray-100 rounded-t font-medium text-gray-700 hover:bg-gray-200">Postalveolar Fricatives</summary>
+                        <div class="flex flex-wrap gap-2 p-3 border border-t-0 border-gray-200 rounded-b bg-white">
+                            <button onclick="window.selectPhoneme('ʃ')" class="phoneme-btn px-3 py-1 bg-yellow-100 text-yellow-700 rounded hover:bg-yellow-200 transition" data-phoneme="ʃ">ʃ</button>
+                            <button onclick="window.selectPhoneme('ʒ')" class="phoneme-btn px-3 py-1 bg-yellow-100 text-yellow-700 rounded hover:bg-yellow-200 transition" data-phoneme="ʒ">ʒ</button>
+                        </div>
+                    </details>
+
+                    <!-- Glottal Fricative -->
+                    <details>
+                        <summary class="cursor-pointer px-3 py-2 bg-gray-100 rounded-t font-medium text-gray-700 hover:bg-gray-200">Glottal Fricative</summary>
+                        <div class="flex flex-wrap gap-2 p-3 border border-t-0 border-gray-200 rounded-b bg-white">
+                            <button onclick="window.selectPhoneme('h')" class="phoneme-btn px-3 py-1 bg-yellow-100 text-yellow-700 rounded hover:bg-yellow-200 transition" data-phoneme="h">h</button>
+                        </div>
+                    </details>
+
+                    <!-- Retroflex Fricatives -->
+                    <details>
+                        <summary class="cursor-pointer px-3 py-2 bg-gray-100 rounded-t font-medium text-gray-700 hover:bg-gray-200">Retroflex Fricatives</summary>
+                        <div class="flex flex-wrap gap-2 p-3 border border-t-0 border-gray-200 rounded-b bg-white">
+                            <button onclick="window.selectPhoneme('ʂ')" class="phoneme-btn px-3 py-1 bg-yellow-100 text-yellow-700 rounded hover:bg-yellow-200 transition" data-phoneme="ʂ">ʂ</button>
+                            <button onclick="window.selectPhoneme('ʐ')" class="phoneme-btn px-3 py-1 bg-yellow-100 text-yellow-700 rounded hover:bg-yellow-200 transition" data-phoneme="ʐ">ʐ</button>
+                        </div>
+                    </details>
+
+                    <!-- Pharyngeal Fricatives -->
+                    <details>
+                        <summary class="cursor-pointer px-3 py-2 bg-gray-100 rounded-t font-medium text-gray-700 hover:bg-gray-200">Pharyngeal Fricatives</summary>
+                        <div class="flex flex-wrap gap-2 p-3 border border-t-0 border-gray-200 rounded-b bg-white">
+                            <button onclick="window.selectPhoneme('ħ')" class="phoneme-btn px-3 py-1 bg-yellow-100 text-yellow-700 rounded hover:bg-yellow-200 transition" data-phoneme="ħ">ħ</button>
+                            <button onclick="window.selectPhoneme('ʕ')" class="phoneme-btn px-3 py-1 bg-yellow-100 text-yellow-700 rounded hover:bg-yellow-200 transition" data-phoneme="ʕ">ʕ</button>
+                        </div>
+                    </details>
+
+                    <!-- Affricates -->
+                    <details>
+                        <summary class="cursor-pointer px-3 py-2 bg-gray-100 rounded-t font-medium text-gray-700 hover:bg-gray-200">Affricates</summary>
+                        <div class="flex flex-wrap gap-2 p-3 border border-t-0 border-gray-200 rounded-b bg-white">
+                            <button onclick="window.selectPhoneme('tʃ')" class="phoneme-btn px-3 py-1 bg-orange-100 text-orange-700 rounded hover:bg-orange-200 transition" data-phoneme="tʃ">tʃ</button>
+                            <button onclick="window.selectPhoneme('dʒ')" class="phoneme-btn px-3 py-1 bg-orange-100 text-orange-700 rounded hover:bg-orange-200 transition" data-phoneme="dʒ">dʒ</button>
+                            <button onclick="window.selectPhoneme('ts')" class="phoneme-btn px-3 py-1 bg-orange-100 text-orange-700 rounded hover:bg-orange-200 transition" data-phoneme="ts">ts</button>
+                        </div>
+                    </details>
+
+                    <!-- Nasals -->
+                    <details>
+                        <summary class="cursor-pointer px-3 py-2 bg-gray-100 rounded-t font-medium text-gray-700 hover:bg-gray-200">Nasals</summary>
+                        <div class="flex flex-wrap gap-2 p-3 border border-t-0 border-gray-200 rounded-b bg-white">
+                            <button onclick="window.selectPhoneme('m')" class="phoneme-btn px-3 py-1 bg-purple-100 text-purple-700 rounded hover:bg-purple-200 transition" data-phoneme="m">m</button>
+                            <button onclick="window.selectPhoneme('n')" class="phoneme-btn px-3 py-1 bg-purple-100 text-purple-700 rounded hover:bg-purple-200 transition" data-phoneme="n">n</button>
+                            <button onclick="window.selectPhoneme('ŋ')" class="phoneme-btn px-3 py-1 bg-purple-100 text-purple-700 rounded hover:bg-purple-200 transition" data-phoneme="ŋ">ŋ</button>
+                            <button onclick="window.selectPhoneme('ɲ')" class="phoneme-btn px-3 py-1 bg-purple-100 text-purple-700 rounded hover:bg-purple-200 transition" data-phoneme="ɲ">ɲ</button>
+                        </div>
+                    </details>
+
+                    <!-- Approximants -->
+                    <details>
+                        <summary class="cursor-pointer px-3 py-2 bg-gray-100 rounded-t font-medium text-gray-700 hover:bg-gray-200">Approximants</summary>
+                        <div class="flex flex-wrap gap-2 p-3 border border-t-0 border-gray-200 rounded-b bg-white">
+                            <button onclick="window.selectPhoneme('w')" class="phoneme-btn px-3 py-1 bg-teal-100 text-teal-700 rounded hover:bg-teal-200 transition" data-phoneme="w">w</button>
+                            <button onclick="window.selectPhoneme('j')" class="phoneme-btn px-3 py-1 bg-teal-100 text-teal-700 rounded hover:bg-teal-200 transition" data-phoneme="j">j</button>
+                            <button onclick="window.selectPhoneme('l')" class="phoneme-btn px-3 py-1 bg-teal-100 text-teal-700 rounded hover:bg-teal-200 transition" data-phoneme="l">l</button>
+                            <button onclick="window.selectPhoneme('r')" class="phoneme-btn px-3 py-1 bg-teal-100 text-teal-700 rounded hover:bg-teal-200 transition" data-phoneme="r">r</button>
+                            <button onclick="window.selectPhoneme('ɹ')" class="phoneme-btn px-3 py-1 bg-teal-100 text-teal-700 rounded hover:bg-teal-200 transition" data-phoneme="ɹ">ɹ</button>
+                            <button onclick="window.selectPhoneme('ɻ')" class="phoneme-btn px-3 py-1 bg-teal-100 text-teal-700 rounded hover:bg-teal-200 transition" data-phoneme="ɻ">ɻ</button>
+                        </div>
+                    </details>
+
+                </div>
+            </div>
+
+            <!-- Selected Phoneme + Save Button -->
+            <div class="flex items-center gap-4">
+                <div class="flex items-center gap-2">
+                    <span class="text-sm font-medium text-gray-700">Selected:</span>
+                    <span id="selected-phoneme" class="px-3 py-1 bg-blue-500 text-white rounded font-bold">-</span>
+                </div>
+                <button id="save-position-btn" onclick="window.savePhonemePosition()" disabled
+                        class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition disabled:bg-gray-400 disabled:cursor-not-allowed">
+                    Save Position
+                </button>
+                <span id="save-status" class="text-sm text-green-600 font-medium"></span>
+            </div>
+
         </section>
+
+        </div><!-- End tab-panel-animation -->
+
+        <!-- Prosody Lab Tab Panel -->
+        <div id="tab-panel-prosody" class="tab-panel hidden">
+            <section class="bg-white rounded-lg shadow-md p-6 mb-8">
+                <h2 class="text-2xl font-semibold text-gray-800 mb-2">Prosody Lab</h2>
+                <p class="text-gray-600 mb-6">Record a short sample, then inspect rhythm timing, syllable density, and pitch movement with a stretchable Plotly chart.</p>
+
+                <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                    <div>
+                        <div id="prosody-recorder" class="mb-6 text-center">
+                            <div class="recorder-status mb-3">
+                                <div class="text-2xl font-mono font-bold text-gray-700 mb-2" id="prosody-rec-timer">00:00</div>
+                                <canvas id="prosody-waveform" width="300" height="60" class="mx-auto rounded bg-gray-100 border border-gray-200"></canvas>
+                            </div>
+
+                            <button id="prosody-record-btn"
+                                    type="button"
+                                    class="w-32 h-32 rounded-full bg-emerald-600 text-white font-semibold text-lg shadow-lg hover:bg-emerald-700 focus:outline-none focus:ring-4 focus:ring-emerald-300 transition-all transform hover:scale-105 active:scale-95"
+                                    style="display: inline-flex; flex-direction: column; align-items: center; justify-content: center;">
+                                <span class="text-3xl mb-1">🎙</span>
+                                <span class="text-sm">Hold to Record</span>
+                            </button>
+
+                            <div class="mt-3 text-sm text-gray-500">
+                                or hold <kbd class="bg-gray-100 px-2 py-1 rounded border border-gray-300 font-mono">F5</kbd>
+                            </div>
+
+                            <div id="prosody-status" class="mt-4 text-sm text-gray-600">Ready to record a short sample.</div>
+                        </div>
+
+                        <div class="bg-gray-50 rounded-lg p-4 mb-6">
+                            <h3 class="text-lg font-medium text-gray-800 mb-3">Prosody Feedback</h3>
+                            <div id="prosody-feedback" class="space-y-2 text-sm text-gray-700">
+                                <p class="text-gray-500">Your analysis will appear here after a recording.</p>
+                            </div>
+                        </div>
+
+                        <div class="bg-gray-50 rounded-lg p-4">
+                            <div class="flex items-center justify-between mb-3">
+                                <h3 class="text-lg font-medium text-gray-800">Recent Recordings</h3>
+                                <p class="text-xs text-gray-500">Last three are kept</p>
+                            </div>
+                            <div id="prosody-history" class="space-y-3"></div>
+                        </div>
+                    </div>
+
+                    <div class="space-y-6">
+                        <div class="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+                            <div class="flex items-center justify-between mb-3">
+                                <h3 class="text-lg font-medium text-gray-800">Current Recording</h3>
+                                <span id="prosody-current-label" class="text-xs font-medium text-gray-500">No recording yet</span>
+                            </div>
+                            <div class="flex items-center gap-4 mb-4">
+                                <button id="prosody-lock-btn"
+                                        type="button"
+                                        class="px-3 py-1.5 rounded border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50 transition">
+                                    Lock to beat
+                                </button>
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xs text-gray-600">Density:</span>
+                                    <select id="prosody-beats-select"
+                                            class="text-xs border border-gray-300 rounded px-2 py-1 text-gray-700">
+                                        <option value="auto">Auto</option>
+                                        <option value="4">4 beats/bar</option>
+                                        <option value="8">8 beats/bar</option>
+                                    </select>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xs text-gray-600">Zoom:</span>
+                                    <input type="range" id="prosody-zoom-slider"
+                                           min="0.25" max="4" step="0.25" value="1"
+                                           class="w-20 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                                    <span id="prosody-zoom-label" class="text-xs text-gray-600">1.0x</span>
+                                </div>
+                            </div>
+                            <div id="prosody-current-summary" class="grid grid-cols-2 gap-3 text-sm"></div>
+                            <div id="prosody-current-plot" class="mt-4 min-h-[420px]"></div>
+                        </div>
+
+                        <div class="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+                            <div class="flex items-center justify-between mb-3">
+                                <h3 class="text-lg font-medium text-gray-800">Teacher vs Student</h3>
+                                <span class="text-xs text-gray-500">Select samples from history</span>
+                            </div>
+                            <div class="space-y-6">
+                                <div>
+                                    <div class="flex items-center justify-between mb-2">
+                                        <span class="text-sm font-semibold text-gray-700">Teacher</span>
+                                        <span id="prosody-teacher-label" class="text-xs text-gray-500">None selected</span>
+                                    </div>
+                                    <div id="prosody-teacher-plot" class="min-h-[300px]"></div>
+                                </div>
+                                <div>
+                                    <div class="flex items-center justify-between mb-2">
+                                        <span class="text-sm font-semibold text-gray-700">Student</span>
+                                        <span id="prosody-student-label" class="text-xs text-gray-500">None selected</span>
+                                    </div>
+                                    <div id="prosody-student-plot" class="min-h-[300px]"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div><!-- End tab-panel-prosody -->
 
         <!-- Instructions -->
         <section class="prose max-w-none">
@@ -262,7 +575,8 @@
                 <li>Click "Analyze Pronunciation" to receive feedback</li>
                 <li>Select an error to see articulatory visualization</li>
                 <li>Click "Animate" to see mouth/tongue positions</li>
-                <li>Visit Animation Lab to experiment with vocal tract shapes</li>
+                <li>Switch to "Animation Lab" tab to experiment with vocal tract shapes</li>
+                <li>Switch to "Prosody Lab" to compare rhythm and intonation across recordings</li>
             </ol>
             
             <div class="mt-4 p-4 bg-blue-50 rounded-md">
@@ -273,372 +587,13 @@
         </section>
     </div>
 
-    <!-- JavaScript for Animation Lab -->
-    <script src="/static/js/pink_trombone_core.js"></script>
-    <script src="/static/js/mock_processor.js"></script>
-    <script src="/static/js/ipa_tooltips.js"></script>
-    <script src="/static/js/recorder.js"></script>
-
     <script>
-        // Pink Trombone Error Visualization
-        window.leftTractProcessor = null;
-        window.rightTractProcessor = null;
-        window.leftTractUI = null;
-        window.rightTractUI = null;
-        window.currentAnimationParams = { left: {}, right: {} };
-        window.currentHighlightParams = { zone: null };
-
-        // Animation Lab instances
-        window.animLabProcessor = null;
-        window.animLabUI = null;
-
-        // Initialize Pink Trombone for error visualization AND Animation Lab
-        document.addEventListener('DOMContentLoaded', function() {
-            console.log('[DOMContentLoaded] Initializing vocal tract visualizations...');
-            
-            const leftCanvas = document.getElementById('vocal-tract-left');
-            const rightCanvas = document.getElementById('vocal-tract-right');
-            const animLabCanvas = document.getElementById('pink-trombone-canvas');
-            
-            console.log('[DOMContentLoaded] leftCanvas found:', !!leftCanvas);
-            console.log('[DOMContentLoaded] rightCanvas found:', !!rightCanvas);
-            console.log('[DOMContentLoaded] animLabCanvas found:', !!animLabCanvas);
-            console.log('[DOMContentLoaded] MockProcessor defined:', typeof MockProcessor !== 'undefined');
-            console.log('[DOMContentLoaded] TractUI defined:', typeof TractUI !== 'undefined');
-            
-            if (leftCanvas && typeof MockProcessor !== 'undefined' && typeof TractUI !== 'undefined') {
-                window.leftTractProcessor = new MockProcessor();
-                window.leftTractUI = new TractUI(leftCanvas, window.leftTractProcessor);
-                window.leftTractUI.draw();
-                console.log('[DOMContentLoaded] leftTractProcessor created:', !!window.leftTractProcessor);
-                console.log('[DOMContentLoaded] leftTractUI created:', !!window.leftTractUI);
-            } else {
-                console.error('[DOMContentLoaded] Failed to create left TractUI - missing dependencies');
-            }
-            
-            if (rightCanvas && typeof MockProcessor !== 'undefined' && typeof TractUI !== 'undefined') {
-                window.rightTractProcessor = new MockProcessor();
-                window.rightTractUI = new TractUI(rightCanvas, window.rightTractProcessor);
-                window.rightTractUI.draw();
-                console.log('[DOMContentLoaded] rightTractProcessor created:', !!window.rightTractProcessor);
-                console.log('[DOMContentLoaded] rightTractUI created:', !!window.rightTractUI);
-            } else {
-                console.error('[DOMContentLoaded] Failed to create right TractUI - missing dependencies');
-            }
-            
-            // Initialize Animation Lab
-            if (animLabCanvas && typeof MockProcessor !== 'undefined' && typeof TractUI !== 'undefined') {
-                window.animLabProcessor = new MockProcessor();
-                window.animLabUI = new TractUI(animLabCanvas, window.animLabProcessor);
-                window.animLabUI.draw();
-                console.log('[DOMContentLoaded] animLabProcessor created:', !!window.animLabProcessor);
-                console.log('[DOMContentLoaded] animLabUI created:', !!window.animLabUI);
-            } else {
-                console.error('[DOMContentLoaded] Failed to create Animation Lab TractUI - missing dependencies');
-                console.error('[DOMContentLoaded] animLabCanvas:', !!animLabCanvas, 'MockProcessor:', typeof MockProcessor, 'TractUI:', typeof TractUI);
-            }
-        });
-
-        // Animation Lab update function - updates the Animation Lab processor
-        window.updateAnimationParams = function(tongueIndex, tongueDiameter, lipRounding, voicing) {
-            console.log('[updateAnimationParams] Called with:', { tongueIndex, tongueDiameter, lipRounding, voicing });
-            
-            if (window.animLabProcessor) {
-                const params = {
-                    tongueIndex: tongueIndex,
-                    tongueDiameter: tongueDiameter,
-                    lipRounding: lipRounding,
-                    voicing: voicing
-                };
-                console.log('[updateAnimationParams] Updating animLabProcessor with:', params);
-                window.animLabProcessor.updateFromParams(params);
-                
-                if (window.animLabUI) {
-                    window.animLabUI.draw();
-                }
-            } else {
-                console.error('[updateAnimationParams] animLabProcessor is not initialized!');
-            }
-        };
-
-        // Update vocal tract descriptions and animation params
-        window.updateVocalTractDescriptions = function(incorrectHtml, correctHtml, animationJson, highlightJson) {
-            console.log('[updateVocalTractDescriptions] Called');
-            console.log('[updateVocalTractDescriptions] incorrectHtml:', incorrectHtml);
-            console.log('[updateVocalTractDescriptions] correctHtml:', correctHtml);
-            console.log('[updateVocalTractDescriptions] animationJson:', animationJson);
-            console.log('[updateVocalTractDescriptions] highlightJson:', highlightJson);
-            
-            // Update text descriptions
-            const leftDesc = document.getElementById('left-description');
-            const rightDesc = document.getElementById('right-description');
-            const leftPhoneme = document.getElementById('left-phoneme');
-            const rightPhoneme = document.getElementById('right-phoneme');
-            
-            if (leftDesc) leftDesc.innerHTML = incorrectHtml || "No error selected";
-            if (rightDesc) rightDesc.innerHTML = correctHtml || "No error selected";
-            
-            // Extract phonemes from HTML
-            const leftMatch = incorrectHtml ? incorrectHtml.match(/\/([^\/]+)\//) : null;
-            const rightMatch = correctHtml ? correctHtml.match(/\/([^\/]+)\//) : null;
-            
-            if (leftMatch && leftPhoneme) leftPhoneme.textContent = leftMatch[1];
-            if (rightMatch && rightPhoneme) rightPhoneme.textContent = rightMatch[1];
-            
-            // Parse animation params
-            try {
-                if (animationJson && typeof animationJson === 'string' && animationJson.trim().length > 0) {
-                    const params = JSON.parse(animationJson);
-                    console.log('[updateVocalTractDescriptions] Parsed animation params:', params);
-                    if (params && params.left) window.currentAnimationParams.left = params.left;
-                    if (params && params.right) window.currentAnimationParams.right = params.right;
-                    console.log('[updateVocalTractDescriptions] Parsed left params:', window.currentAnimationParams.left);
-                    console.log('[updateVocalTractDescriptions] Parsed right params:', window.currentAnimationParams.right);
-                } else {
-                    console.warn('[updateVocalTractDescriptions] animationJson is empty or invalid');
-                }
-            } catch (e) {
-                console.error('[updateVocalTractDescriptions] Failed to parse animation JSON:', e);
-            }
-            
-            // Parse highlight params
-            try {
-                if (highlightJson && typeof highlightJson === 'string' && highlightJson.trim().length > 0) {
-                    const highlight = JSON.parse(highlightJson);
-                    if (highlight && highlight.zone) window.currentHighlightParams.zone = highlight.zone;
-                }
-            } catch (e) {
-                console.error('[updateVocalTractDescriptions] Failed to parse highlight JSON:', e);
-            }
-            
-            // Update tracts immediately
-            console.log('[updateVocalTractDescriptions] leftTractProcessor exists:', !!window.leftTractProcessor);
-            console.log('[updateVocalTractDescriptions] rightTractProcessor exists:', !!window.rightTractProcessor);
-            console.log('[updateVocalTractDescriptions] leftTractUI exists:', !!window.leftTractUI);
-            console.log('[updateVocalTractDescriptions] rightTractUI exists:', !!window.rightTractUI);
-            
-            if (window.leftTractProcessor && window.currentAnimationParams.left) {
-                console.log('[updateVocalTractDescriptions] Updating left tract with params:', window.currentAnimationParams.left);
-                window.leftTractProcessor.updateFromParams(window.currentAnimationParams.left);
-                if (window.leftTractUI) window.leftTractUI.draw();
-            }
-            if (window.rightTractProcessor && window.currentAnimationParams.right) {
-                console.log('[updateVocalTractDescriptions] Updating right tract with params:', window.currentAnimationParams.right);
-                window.rightTractProcessor.updateFromParams(window.currentAnimationParams.right);
-                if (window.rightTractUI) window.rightTractUI.draw();
-            }
-        };
-
-        // Animation triggers - use TractUI animation system
-        window.animateLeft = function() {
-            console.log('[animateLeft] Called');
-            console.log('[animateLeft] leftTractUI:', !!window.leftTractUI);
-            console.log('[animateLeft] currentAnimationParams.left:', window.currentAnimationParams.left);
-            
-            if (window.leftTractUI && window.currentAnimationParams.left) {
-                console.log('[animateLeft] Starting animation with params:', window.currentAnimationParams.left);
-                window.leftTractUI.setParameters(window.currentAnimationParams.left);
-                window.leftTractUI.startAnimation();
-            } else {
-                console.warn('[animateLeft] Missing leftTractUI or params!');
-                // Fallback: just update and draw once
-                if (window.leftTractProcessor && window.currentAnimationParams.left) {
-                    window.leftTractProcessor.updateFromParams(window.currentAnimationParams.left);
-                }
-                if (window.leftTractUI) window.leftTractUI.draw();
-            }
-        };
-
-        window.animateRight = function() {
-            console.log('[animateRight] Called');
-            console.log('[animateRight] rightTractUI:', !!window.rightTractUI);
-            console.log('[animateRight] currentAnimationParams.right:', window.currentAnimationParams.right);
-            
-            if (window.rightTractUI && window.currentAnimationParams.right) {
-                console.log('[animateRight] Starting animation with params:', window.currentAnimationParams.right);
-                window.rightTractUI.setParameters(window.currentAnimationParams.right);
-                window.rightTractUI.startAnimation();
-            } else {
-                console.warn('[animateRight] Missing rightTractUI or params!');
-                // Fallback: just update and draw once
-                if (window.rightTractProcessor && window.currentAnimationParams.right) {
-                    window.rightTractProcessor.updateFromParams(window.currentAnimationParams.right);
-                }
-                if (window.rightTractUI) window.rightTractUI.draw();
-            }
-        };
-
-        // Animation Lab control functions
-        function updateAnimation() {
-            console.log('[updateAnimation] Called');
-            const tongueIndex = parseFloat(document.getElementById('tongue-idx').value);
-            const tongueDiameter = parseFloat(document.getElementById('tongue-dia').value);
-            const lipRounding = parseFloat(document.getElementById('lip-round').value);
-            const voicing = parseFloat(document.getElementById('voicing').value);
-            
-            console.log('[updateAnimation] Params:', { tongueIndex, tongueDiameter, lipRounding, voicing });
-            console.log('[updateAnimation] window.updateAnimationParams exists:', typeof window.updateAnimationParams === 'function');
-            
-            if (window.updateAnimationParams) {
-                window.updateAnimationParams(tongueIndex, tongueDiameter, lipRounding, voicing);
-            } else {
-                console.error('[updateAnimation] window.updateAnimationParams is NOT DEFINED!');
-            }
-        }
-
-        async function setPreset(phoneme) {
-            console.log('[setPreset] Called with phoneme:', phoneme);
-            try {
-                const response = await fetch('/api/presets');
-                console.log('[setPreset] Response status:', response.status);
-                const data = await response.json();
-                console.log('[setPreset] Presets data keys:', Object.keys(data));
-                console.log('[setPreset] Selected preset phoneme:', phoneme);
-                const preset = data.phonemes[phoneme];
-                console.log('[setPreset] Selected preset:', preset);
-                
-                if (preset && preset.params) {
-                    // Update sliders
-                    document.getElementById('tongue-idx').value = preset.params.tongueIndex;
-                    document.getElementById('tongue-dia').value = preset.params.tongueDiameter;
-                    document.getElementById('lip-round').value = preset.params.lipRounding;
-                    document.getElementById('voicing').value = preset.params.voicing;
-                    
-                    // Update animation
-                    updateAnimation();
-                } else {
-                    console.error('[setPreset] No preset found for phoneme:', phoneme);
-                }
-            } catch (error) {
-                console.error('[setPreset] Failed:', error);
-            }
-        }
-
-        // Store errors globally for access by selectError
-        window.currentErrors = [];
-
-        function populateErrors(errors) {
-            // Store errors globally
-            window.currentErrors = errors;
-            
-            const errorList = document.getElementById('error-list');
-            errorList.innerHTML = '';
-            
-            errors.forEach((error, index) => {
-                const btn = document.createElement('button');
-                btn.className = 'w-full text-left px-4 py-3 border border-gray-200 rounded hover:bg-gray-50 transition mb-2';
-                btn.innerHTML = `
-                    <span class="font-medium">${index + 1}.</span>
-                    <span class="text-gray-700">'${error.word_context}':</span>
-                    <span class="text-red-600">${window.wrapIPATooltip(error.target_phoneme)}</span>
-                    <span class="text-gray-400">→</span>
-                    <span class="text-blue-600">${window.wrapIPATooltip(error.predicted_phoneme)}</span>
-                `;
-                btn.onclick = () => selectError(index);
-                errorList.appendChild(btn);
-            });
-        }
-
-        async function selectError(index) {
-            console.log('[selectError] Called with index:', index);
-            // Use stored errors instead of parsing from DOM
-            const errors = window.currentErrors || [];
-            console.log('[selectError] Current errors count:', errors.length);
-            console.log('[selectError] Current errors:', JSON.stringify(errors));
-            
-            // Validate before making request
-            if (!errors || errors.length === 0) {
-                console.error('[selectError] No errors available!');
-                return;
-            }
-            if (index < 0 || index >= errors.length) {
-                console.error(`[selectError] Invalid index ${index} for ${errors.length} errors`);
-                return;
-            }
-            
-            // Highlight selected error button
-            const errorList = document.getElementById('error-list');
-            const buttons = errorList.querySelectorAll('button');
-            console.log('[selectError] Number of buttons found:', buttons.length);
-            
-            buttons.forEach((btn, idx) => {
-                console.log(`[selectError] Button ${idx}: current bg=${btn.style.backgroundColor}, border=${btn.style.borderColor}`);
-                if (idx === index) {
-                    btn.style.backgroundColor = '#dbeafe'; // blue-100
-                    btn.style.borderColor = '#93c5fd'; // blue-300
-                    btn.style.borderWidth = '2px';
-                    console.log(`[selectError] Applied highlight to button ${idx}`);
-                } else {
-                    btn.style.backgroundColor = '';
-                    btn.style.borderColor = '';
-                    btn.style.borderWidth = '';
-                }
-            });
-            
-            console.log('[selectError] Fetching from /api/select-error...');
-            console.log('[selectError] Request body:', JSON.stringify({error_index: index, errors: errors}));
-            try {
-                const response = await fetch('/api/select-error', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({error_index: index, errors: errors})
-                });
-                console.log('[selectError] Response status:', response.status);
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    console.error('[selectError] Error response:', errorText);
-                }
-                const data = await response.json();
-                console.log('[selectError] Response data:', JSON.stringify(data));
-                
-                // Update visualization using Pink Trombone
-                if (window.updateVocalTractDescriptions) {
-                    console.log('[selectError] Calling updateVocalTractDescriptions');
-                    window.updateVocalTractDescriptions(
-                        data.incorrect_desc,
-                        data.correct_desc,
-                        JSON.stringify(data.animation_params),
-                        JSON.stringify(data.highlight_params)
-                    );
-                } else {
-                    console.error('[selectError] window.updateVocalTractDescriptions is NOT defined!');
-                }
-            } catch (error) {
-                console.error('[selectError] Failed:', error);
-            }
-        }
-
-        // Initialize tooltips on phoneme preset buttons
-        document.addEventListener('DOMContentLoaded', function() {
-            // Wrap vowel buttons with tooltips
-            document.querySelectorAll('#vowel-buttons button').forEach(function(btn) {
-                const phoneme = btn.getAttribute('data-phoneme');
-                if (phoneme && window.wrapIPATooltip) {
-                    const tooltipHtml = window.wrapIPATooltip(phoneme);
-                    // Extract just the span wrapper, keep the button
-                    const tempDiv = document.createElement('div');
-                    tempDiv.innerHTML = tooltipHtml;
-                    const tooltipSpan = tempDiv.firstChild;
-                    tooltipSpan.innerHTML = btn.innerHTML;
-                    btn.innerHTML = '';
-                    btn.appendChild(tooltipSpan);
-                }
-            });
-
-            // Wrap consonant buttons with tooltips
-            document.querySelectorAll('#consonant-buttons button').forEach(function(btn) {
-                const phoneme = btn.getAttribute('data-phoneme');
-                if (phoneme && window.wrapIPATooltip) {
-                    const tooltipHtml = window.wrapIPATooltip(phoneme);
-                    const tempDiv = document.createElement('div');
-                    tempDiv.innerHTML = tooltipHtml;
-                    const tooltipSpan = tempDiv.firstChild;
-                    tooltipSpan.innerHTML = btn.innerHTML;
-                    btn.innerHTML = '';
-                    btn.appendChild(tooltipSpan);
-                }
-            });
-        });
+        window.__FEATURE_FLAGS__ = {{ feature_flags | tojson }};
+        window.__PHONEME_PRESETS__ = {{ phoneme_presets | tojson }};
     </script>
+    <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+    <script type="module" src="/static/js/app.js"></script>
+    <script type="module" src="/static/js/prosody_lab.js"></script>
+
 </body>
 </html>
