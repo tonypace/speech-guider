@@ -1,6 +1,7 @@
 """Error selection endpoint for articulatory feedback."""
 
 from fastapi import APIRouter, HTTPException
+
 from app.models.schemas import SelectErrorRequest, SelectErrorResponse
 from src.models.articulatory import ArticulatoryMapper
 
@@ -58,11 +59,11 @@ async def select_error(request: SelectErrorRequest):
             "lip_aperture": 10.0,
             "lip_protrusion": 10.0,
             "tongue_tip_constriction_location": 0.20,
-            "tongue_tip_constriction_degree": 40.0,
+            "tongue_tip_constriction_degree": 1.0,
             "lateral_tongue_drop": 0.0,
             "velic_aperture": 0.0,
             "tongue_body_constriction_location": 0.70,
-            "tongue_body_constriction_degree": 30.0,
+            "tongue_body_constriction_degree": 1.0,
             "glottal_aperture": 0.0,
         }
         predicted_params = dict(target_params)

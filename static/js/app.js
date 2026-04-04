@@ -8,14 +8,14 @@ window.IPATooltips = IPATooltips;
 window.IntercomRecorder = IntercomRecorder;
 
 const DEFAULT_SVG_STATE = window.SvgArticulatoryDefaultState || {
-  lip_aperture: 10,
-  lip_protrusion: 10,
+  lip_aperture: 0.25,
+  lip_protrusion: 0.71,
   tongue_tip_constriction_location: 0.2,
-  tongue_tip_constriction_degree: 40,
+  tongue_tip_constriction_degree: 1,
   lateral_tongue_drop: 0,
   velic_aperture: 0,
   tongue_body_constriction_location: 0.7,
-  tongue_body_constriction_degree: 30,
+  tongue_body_constriction_degree: 1,
   glottal_aperture: 0,
 };
 
@@ -30,8 +30,52 @@ window.svgRightRenderer = null;
 const SvgPhonemePresets = window.__PHONEME_PRESETS__ || {};
 window.SvgPhonemePresets = SvgPhonemePresets;
 
-function getSvgControlState() {
+function normalizeTongueDegree(value, legacyRestDistance) {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) return 1;
+  if (numericValue <= 1) return Math.max(0, Math.min(1, numericValue));
+  return Math.max(0, Math.min(1, numericValue / legacyRestDistance));
+}
+
+function normalizeScalar(value, legacyMax, fallback) {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) return fallback;
+  if (numericValue <= 1) return Math.max(0, Math.min(1, numericValue));
+  return Math.max(0, Math.min(1, numericValue / legacyMax));
+}
+
+function normalizeSvgState(state = {}) {
   return {
+    ...DEFAULT_SVG_STATE,
+    ...state,
+    lip_aperture: normalizeScalar(
+      state.lip_aperture ?? DEFAULT_SVG_STATE.lip_aperture,
+      40,
+      DEFAULT_SVG_STATE.lip_aperture,
+    ),
+    lip_protrusion: normalizeScalar(
+      state.lip_protrusion ?? DEFAULT_SVG_STATE.lip_protrusion,
+      14,
+      DEFAULT_SVG_STATE.lip_protrusion,
+    ),
+    tongue_tip_constriction_degree: normalizeTongueDegree(
+      state.tongue_tip_constriction_degree ?? DEFAULT_SVG_STATE.tongue_tip_constriction_degree,
+      40,
+    ),
+    velic_aperture: normalizeScalar(
+      state.velic_aperture ?? DEFAULT_SVG_STATE.velic_aperture,
+      40,
+      DEFAULT_SVG_STATE.velic_aperture,
+    ),
+    tongue_body_constriction_degree: normalizeTongueDegree(
+      state.tongue_body_constriction_degree ?? DEFAULT_SVG_STATE.tongue_body_constriction_degree,
+      30,
+    ),
+  };
+}
+
+function getSvgControlState() {
+  return normalizeSvgState({
     lip_aperture: Number(document.getElementById('la-slider')?.value ?? DEFAULT_SVG_STATE.lip_aperture),
     lip_protrusion: Number(document.getElementById('lp-slider')?.value ?? DEFAULT_SVG_STATE.lip_protrusion),
     tongue_tip_constriction_location: Number(document.getElementById('ttcl-slider')?.value ?? DEFAULT_SVG_STATE.tongue_tip_constriction_location),
@@ -41,11 +85,11 @@ function getSvgControlState() {
     tongue_body_constriction_location: Number(document.getElementById('tbcl-slider')?.value ?? DEFAULT_SVG_STATE.tongue_body_constriction_location),
     tongue_body_constriction_degree: Number(document.getElementById('tbcd-slider')?.value ?? DEFAULT_SVG_STATE.tongue_body_constriction_degree),
     glottal_aperture: Number(document.getElementById('glo-slider')?.value ?? DEFAULT_SVG_STATE.glottal_aperture),
-  };
+  });
 }
 
 function applySvgControlState(state) {
-  const ids = {
+  const sliderIds = {
     lip_aperture: 'la-slider',
     lip_protrusion: 'lp-slider',
     tongue_tip_constriction_location: 'ttcl-slider',
@@ -57,10 +101,34 @@ function applySvgControlState(state) {
     glottal_aperture: 'glo-slider',
   };
 
-  for (const [key, id] of Object.entries(ids)) {
+  for (const [key, id] of Object.entries(sliderIds)) {
     const el = document.getElementById(id);
     if (el && Object.prototype.hasOwnProperty.call(state, key)) {
       el.value = String(state[key]);
+    }
+  }
+  updateSliderValueLabels();
+}
+
+const SLIDER_VALUE_IDS = {
+  'la-slider': 'la-val',
+  'lp-slider': 'lp-val',
+  'ttcl-slider': 'ttcl-val',
+  'ttcd-slider': 'ttcd-val',
+  'lat-slider': 'lat-val',
+  'vel-slider': 'vel-val',
+  'tbcl-slider': 'tbcl-val',
+  'tbcd-slider': 'tbcd-val',
+  'glo-slider': 'glo-val',
+};
+
+function updateSliderValueLabels() {
+  for (const [sliderId, labelId] of Object.entries(SLIDER_VALUE_IDS)) {
+    const slider = document.getElementById(sliderId);
+    const label = document.getElementById(labelId);
+    if (slider && label) {
+      const v = parseFloat(slider.value);
+      label.textContent = v > 1 || v < 0 ? String(Math.round(v)) : v.toFixed(2);
     }
   }
 }
@@ -114,9 +182,10 @@ function mountSvgRenderers() {
 }
 
 function setAnimationState(state) {
-  window.currentAnimationParams.left = { ...state };
-  window.currentAnimationParams.right = { ...state };
-  window.svgAnimationRenderer?.setState(state);
+  const normalizedState = normalizeSvgState(state);
+  window.currentAnimationParams.left = { ...normalizedState };
+  window.currentAnimationParams.right = { ...normalizedState };
+  window.svgAnimationRenderer?.setState(normalizedState);
 }
 
 window.switchTab = function switchTab(tabName) {
@@ -169,13 +238,20 @@ window.setPhonemePreset = function setPhonemePreset(phoneme) {
 window.updateAnimationFromSliders = function updateAnimationFromSliders() {
   const state = getSvgControlState();
   setAnimationState(state);
+  updateSliderValueLabels();
 };
 
 window.selectPhoneme = function selectPhoneme(phoneme) {
   const preset = SvgPhonemePresets[phoneme] || window.SvgPhonemePresets?.[phoneme] || {
     name: phoneme,
-    state: DEFAULT_SVG_STATE,
+    params: DEFAULT_SVG_STATE,
   };
+
+  const customPresets = JSON.parse(localStorage.getItem('customPhonemePresets') || '{}');
+  const presetSource = customPresets[phoneme] || preset;
+  const presetParams = normalizeSvgState(
+    presetSource.params !== undefined ? presetSource.params : (presetSource.state || DEFAULT_SVG_STATE),
+  );
 
   window.selectedPhoneme = phoneme;
   const selectedPhonemeEl = document.getElementById('selected-phoneme');
@@ -193,8 +269,8 @@ window.selectPhoneme = function selectPhoneme(phoneme) {
   });
 
   if (USE_SVG_RENDERER) {
-    applySvgControlState(preset.state);
-    setAnimationState(preset.state);
+    applySvgControlState(presetParams);
+    setAnimationState(presetParams);
   }
 };
 
@@ -204,7 +280,7 @@ window.savePhonemePosition = function savePhonemePosition() {
   const customPresets = JSON.parse(localStorage.getItem('customPhonemePresets') || '{}');
   customPresets[window.selectedPhoneme] = {
     name: SvgPhonemePresets[window.selectedPhoneme]?.name || window.selectedPhoneme,
-    params,
+    params: normalizeSvgState(params),
   };
   localStorage.setItem('customPhonemePresets', JSON.stringify(customPresets));
   const statusEl = document.getElementById('save-status');
@@ -218,7 +294,7 @@ window.savePhonemePosition = function savePhonemePosition() {
 
 window.updateAnimationParams = function updateAnimationParams(...args) {
   if (args.length === 1 && typeof args[0] === 'object') {
-    setAnimationState({ ...DEFAULT_SVG_STATE, ...args[0] });
+    setAnimationState(normalizeSvgState(args[0]));
   }
 };
 
@@ -239,8 +315,8 @@ window.updateVocalTractDescriptions = function updateVocalTractDescriptions(inco
   try {
     if (animationJson && typeof animationJson === 'string' && animationJson.trim()) {
       const params = JSON.parse(animationJson);
-      if (params?.left) window.currentAnimationParams.left = { ...params.left };
-      if (params?.right) window.currentAnimationParams.right = { ...params.right };
+      if (params?.left) window.currentAnimationParams.left = normalizeSvgState(params.left);
+      if (params?.right) window.currentAnimationParams.right = normalizeSvgState(params.right);
     }
   } catch (error) {
     console.error('[updateVocalTractDescriptions] Failed to parse animation JSON:', error);
@@ -304,3 +380,16 @@ document.addEventListener('DOMContentLoaded', () => {
   setAnimationState(getSvgControlState());
   window.switchTab(window.currentTab);
 });
+
+window.__testAnalyze__ = function __testAnalyze__(targetText, mockResult) {
+  if (targetText) {
+    const el = document.getElementById('target_text');
+    if (el) el.value = targetText;
+  }
+  if (window.recorder && typeof window.recorder.displayResults === 'function' && mockResult) {
+    const progressContainer = document.getElementById('progress-container');
+    if (progressContainer) progressContainer.classList.remove('hidden');
+    window.recorder.displayResults(mockResult);
+    if (progressContainer) progressContainer.classList.add('hidden');
+  }
+};

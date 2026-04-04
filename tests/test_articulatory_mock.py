@@ -27,8 +27,8 @@ from src.models.articulatory import (
     ArticulatoryMapper,
     ArticulatoryParameters,
     ArticulatoryState,
-    default_articulatory_state,
     PhonemeDescription,
+    default_articulatory_state,
     format_with_html_tooltips,
 )
 
@@ -62,6 +62,7 @@ def test_basic_structure():
 
     # Test parameter mapping
     mapped_params = mapper.map_to_parameters(description)
+    assert mapped_params is not None
     svg_state = mapper.get_animation_params("/z/")
     assert "lip_aperture" in svg_state
     assert "tongue_tip_constriction_location" in svg_state
