@@ -94,3 +94,6 @@ src-tauri/target/
 speech-guider-py310-backup/
 speech-guider-x86-backup/
 pyproject.toml.bak
+
+# Local agent instructions
+AGENTS.md
