@@ -1,0 +1,37 @@
+{
+  "productName": "Speech Guider",
+  "version": "1.0.0",
+  "identifier": "com.speechguider.app",
+  "build": {
+    "beforeDevCommand": "",
+    "devUrl": "http://127.0.0.1:7860",
+    "beforeBuildCommand": "",
+    "frontendDist": "../app/templates"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Speech Guider",
+        "width": 1200,
+        "height": 900,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/icon.png"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "10.13",
+      "entitlements": "Entitlements.plist",
+      "infoPlist": "Info.plist"
+    }
+  }
+}

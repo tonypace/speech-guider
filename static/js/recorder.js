@@ -30,7 +30,8 @@ class IntercomRecorder {
         this.waveformCanvas = document.getElementById('waveform');
         this.recorderContainer = document.getElementById('recorder');
         this.fileUploadSection = document.getElementById('file-upload-section');
-        
+        this.audioInput = document.getElementById('audio');
+
         if (this.waveformCanvas) {
             this.canvas = this.waveformCanvas;
             this.canvasCtx = this.canvas.getContext('2d');
@@ -38,22 +39,24 @@ class IntercomRecorder {
     }
 
     bindEvents() {
-        // F5 key listener
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'F5' && window.currentTab === 'analysis') {
-                e.preventDefault();
-                if (!this.isRecording) {
-                    this.startRecording();
+        // F5 key listener (disabled in Tauri mode - Tauri uses Tab instead)
+        if (!window.__TAURI__) {
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'F5' && window.currentTab === 'analysis') {
+                    e.preventDefault();
+                    if (!this.isRecording) {
+                        this.startRecording();
+                    }
                 }
-            }
-        });
+            });
 
-        document.addEventListener('keyup', (e) => {
-            if (e.key === 'F5' && window.currentTab === 'analysis' && this.isRecording) {
-                e.preventDefault();
-                this.stopRecording();
-            }
-        });
+            document.addEventListener('keyup', (e) => {
+                if (e.key === 'F5' && window.currentTab === 'analysis' && this.isRecording) {
+                    e.preventDefault();
+                    this.stopRecording();
+                }
+            });
+        }
 
         // Mouse/Touch events
         if (this.recordBtn) {
@@ -71,6 +74,16 @@ class IntercomRecorder {
             this.recordBtn.addEventListener('touchend', (e) => {
                 e.preventDefault();
                 this.stopRecording();
+            });
+        }
+
+        // File upload input
+        if (this.audioInput) {
+            this.audioInput.addEventListener('change', (e) => {
+                const file = e.target.files && e.target.files[0];
+                if (file) {
+                    this.handleFileUpload(file);
+                }
             });
         }
     }
@@ -317,34 +330,37 @@ class IntercomRecorder {
         }
 
         const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' });
-        
+
         try {
-            // Convert to 16kHz WAV
             const wavBlob = await this.convertToWav(audioBlob);
-            
-            // Get target text
-            const targetTextInput = document.getElementById('target_text');
-            const targetText = targetTextInput ? targetTextInput.value : '';
-
-            if (!targetText.trim()) {
-                alert('Please enter the target sentence first');
-                return;
+            await this.submitAudioBlob(wavBlob, 'recording.wav');
+        } finally {
+            if (this.recTimer) {
+                this.recTimer.textContent = '00:00';
             }
+        }
+    }
 
-            // Create FormData
-            const formData = new FormData();
-            formData.append('audio', wavBlob, 'recording.wav');
-            formData.append('target_text', targetText);
+    async submitAudioBlob(wavBlob, filename) {
+        const targetTextInput = document.getElementById('target_text');
+        const targetText = targetTextInput ? targetTextInput.value : '';
 
-            // Show progress
-            if (document.getElementById('progress-container')) {
-                document.getElementById('progress-container').classList.remove('hidden');
-            }
+        if (!targetText.trim()) {
+            alert('Please enter the target sentence first');
+            return;
+        }
 
-            // Submit for analysis
+        const formData = new FormData();
+        formData.append('audio', wavBlob, filename);
+        formData.append('target_text', targetText);
+
+        const progressContainer = document.getElementById('progress-container');
+        if (progressContainer) progressContainer.classList.remove('hidden');
+
+        try {
             const response = await fetch('/api/analyze', {
                 method: 'POST',
-                body: formData
+                body: formData,
             });
 
             if (!response.ok) {
@@ -352,18 +368,37 @@ class IntercomRecorder {
             }
 
             const result = await response.json();
-
-            // Display results
             this.displayResults(result);
-
         } catch (error) {
             console.error('Analysis failed:', error);
             alert('Analysis failed: ' + error.message);
+        }
+    }
+
+    async handleFileUpload(file) {
+        const targetTextInput = document.getElementById('target_text');
+        const targetText = targetTextInput ? targetTextInput.value : '';
+
+        if (!targetText.trim()) {
+            alert('Please enter the target sentence first');
+            this._clearFileInput();
+            return;
+        }
+
+        try {
+            const wavBlob = await this.convertToWav(file);
+            await this.submitAudioBlob(wavBlob, file.name);
+        } catch (error) {
+            console.error('File upload failed:', error);
+            alert('Failed to process audio file: ' + error.message);
         } finally {
-            // Reset timer display
-            if (this.recTimer) {
-                this.recTimer.textContent = '00:00';
-            }
+            this._clearFileInput();
+        }
+    }
+
+    _clearFileInput() {
+        if (this.audioInput) {
+            this.audioInput.value = '';
         }
     }
 

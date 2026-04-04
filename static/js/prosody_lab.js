@@ -303,21 +303,24 @@ class ProsodyLabRecorder {
   }
 
   bindEvents() {
-    document.addEventListener('keydown', (event) => {
-      if (event.key === 'F5' && window.currentTab === 'prosody') {
-        event.preventDefault();
-        if (!this.isRecording) {
-          this.startRecording();
+    // F5 key listener (disabled in Tauri mode - Tauri uses Tab instead)
+    if (!window.__TAURI__) {
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'F5' && window.currentTab === 'prosody') {
+          event.preventDefault();
+          if (!this.isRecording) {
+            this.startRecording();
+          }
         }
-      }
-    });
+      });
 
-    document.addEventListener('keyup', (event) => {
-      if (event.key === 'F5' && window.currentTab === 'prosody' && this.isRecording) {
-        event.preventDefault();
-        this.stopRecording();
-      }
-    });
+      document.addEventListener('keyup', (event) => {
+        if (event.key === 'F5' && window.currentTab === 'prosody' && this.isRecording) {
+          event.preventDefault();
+          this.stopRecording();
+        }
+      });
+    }
 
     if (this.recordBtn) {
       this.recordBtn.addEventListener('mousedown', () => this.startRecording());
