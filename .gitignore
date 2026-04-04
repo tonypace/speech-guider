@@ -75,6 +75,8 @@ models/
 # Documentation
 ARTICULATORY_IMPLEMENTATION_SUMMARY.md
 PROSODY_IMPLEMENTATION_SUMMARY.md
+ARM64_SETUP_COMPLETE.md
+PROJECT.md
 
 # Playwright test artifacts
 test-results/
@@ -94,6 +96,10 @@ src-tauri/target/
 speech-guider-py310-backup/
 speech-guider-x86-backup/
 pyproject.toml.bak
+generate_test_audio.py
+
+# Local archived OpenSpec history
+openspec/changes/archive/2026-03-30-replace-pink-trombone-with-svg-articulatory-model/
 
 # Local agent instructions
 AGENTS.md

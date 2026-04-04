@@ -41,11 +41,11 @@ numpy==2.0.2
 orjson==3.10.15
 packaging==24.2
 pandas==2.2.3
-parselmouth==0.4.5
 pillow==11.1.0
 platformdirs==4.3.6
 pooch==1.8.2
-praat-parselmouth==0.4.5
+praat-parselmouth==0.4.7
+my-voice-analysis==0.7
 pycparser==2.22
 pydantic==2.10.6
 pydantic_core==2.27.2
@@ -77,8 +77,8 @@ threadpoolctl==3.5.0
 tokenizers==0.21.0
 tomli==2.2.1
 tomlkit==0.13.2
-torch==2.6.0
-torchaudio==2.6.0
+torch==2.5.1
+torchaudio==2.5.1
 tqdm==4.67.1
 transformers==4.49.0
 typing_extensions==4.12.2

@@ -2,11 +2,11 @@
 name = "speech-guider"
 version = "0.1.0"
 description = "Pronunciation & Prosody Evaluator for ESL students"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py312"
 exclude = [
     "speech-guider/*",
     ".git",
@@ -24,7 +24,7 @@ select = ["E", "F", "W", "I", "N"]
 ignore = ["E501"]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.12"
 exclude = [
     "speech-guider/.*",
     "speech-guider/lib/.*",
