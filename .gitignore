@@ -75,3 +75,22 @@ models/
 # Documentation
 ARTICULATORY_IMPLEMENTATION_SUMMARY.md
 PROSODY_IMPLEMENTATION_SUMMARY.md
+
+# Playwright test artifacts
+test-results/
+playwright-report/
+playwright/.cache/
+coverage/
+
+# Test videos and screenshots
+*.webm
+*.png
+!test-results/.gitkeep
+
+# Tauri build artifacts
+src-tauri/target/
+
+# Local backups and one-off files
+speech-guider-py310-backup/
+speech-guider-x86-backup/
+pyproject.toml.bak
