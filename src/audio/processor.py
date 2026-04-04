@@ -145,7 +145,7 @@ class ProsodyAnalyzer:
             RhythmMetrics with nPVI score and classification
         """
         if DEBUG_NPVI:
-            print(f"[DEBUG_nPVI] === RHYTHM ANALYSIS ===")
+            print("[DEBUG_nPVI] === RHYTHM ANALYSIS ===")
             print(
                 f"[DEBUG_nPVI] Called with {len(vowel_timestamps) if vowel_timestamps else 0} vowel timestamps"
             )

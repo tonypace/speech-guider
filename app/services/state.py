@@ -1,12 +1,10 @@
 """State persistence for presets and other saved data."""
 
 import json
-import os
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any, Dict
 
 from src.models.articulatory import normalize_svg_state
-
 
 PRESETS_FILE = Path("presets.json")
 

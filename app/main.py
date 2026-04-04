@@ -1,14 +1,14 @@
 """Main FastAPI application entry point."""
 
 import os
-from fastapi import FastAPI, Request
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse
 from pathlib import Path
+
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from app.api import analyze, presets, errors, sse, prosody_lab
+from app.api import analyze, errors, presets, prosody_lab, sse
 from app.services.state import load_presets
 
 # Create FastAPI app
@@ -38,7 +38,7 @@ class Jinja2TemplatesNoCache:
     def __init__(self, env):
         self.env = env
 
-    def TemplateResponse(self, name, context):
+    def TemplateResponse(self, name, context):  # noqa: N802
         from starlette.templating import _TemplateResponse
 
         return _TemplateResponse(

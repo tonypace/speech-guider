@@ -113,7 +113,7 @@ mypy .
 
 # Lint JavaScript files (requires Node.js)
 npm install  # First time setup
-eslint src/ui/assets/*.js
+eslint static/js/*.js
 ```
 
 ### Testing

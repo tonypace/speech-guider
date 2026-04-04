@@ -3,7 +3,8 @@
 import asyncio
 import json
 import uuid
-from typing import Dict, Any
+from typing import Dict
+
 from fastapi import APIRouter
 from sse_starlette.sse import EventSourceResponse
 

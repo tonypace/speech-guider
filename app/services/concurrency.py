@@ -1,9 +1,9 @@
 """Concurrency control for limiting concurrent ML operations."""
 
 import asyncio
-from fastapi import HTTPException
 from typing import Any, Coroutine
 
+from fastapi import HTTPException
 
 # Only 1 analysis at a time to prevent OOM
 currently_processing = False

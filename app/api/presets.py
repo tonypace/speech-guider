@@ -1,7 +1,8 @@
 """Presets API endpoints for Animation Lab."""
 
-from fastapi import APIRouter, HTTPException
-from app.models.schemas import PresetsResponse, PresetSaveRequest, PresetSaveResponse
+from fastapi import APIRouter
+
+from app.models.schemas import PresetSaveRequest, PresetSaveResponse, PresetsResponse
 from app.services.state import load_presets, save_preset
 
 router = APIRouter()

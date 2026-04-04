@@ -1,16 +1,16 @@
 """Main analysis endpoints for pronunciation evaluation."""
 
 import asyncio
-import torch
-import numpy as np
-from scipy.io import wavfile
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException
-from fastapi.responses import JSONResponse
 
-from app.models.schemas import AnalyzeResponse, AnalyzeRequest
-from app.services.concurrency import run_with_semaphore
+import numpy as np
+import torch
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi.responses import JSONResponse
+from scipy.io import wavfile
+
 from app.api.sse import create_job_id, send_progress_update
-from app.utils.audio import save_upload_to_temp, cleanup_temp_file
+from app.services.concurrency import run_with_semaphore
+from app.utils.audio import cleanup_temp_file, save_upload_to_temp
 
 router = APIRouter()
 
@@ -80,7 +80,7 @@ async def run_analysis_blocking(audio_path: str, target_text: str, job_id: str):
         aligner = get_aligner()
         errors, alignment = aligner.analyze_pronunciation(audio_tensor, target_text, sample_rate)
 
-    except Exception as e:
+    except Exception:
         await send_progress_update(job_id, 0.8, "Analysis encountered issues...", "error")
         errors = []
         alignment = None
@@ -121,7 +121,7 @@ async def run_analysis_blocking(audio_path: str, target_text: str, job_id: str):
     # Step 4: Generate feedback
     await send_progress_update(job_id, 0.9, "Generating feedback...", "feedback")
 
-    from src.models.articulatory import ArticulatoryMapper, format_with_html_tooltips
+    from src.models.articulatory import ArticulatoryMapper
 
     mapper = ArticulatoryMapper()
     feedback = _generate_comprehensive_feedback(errors, alignment, prosody_metrics, mapper)
@@ -192,7 +192,6 @@ def serialize_alignment(alignment):
 
 def _get_pitch_range_label(range_semitones: float) -> str:
     """Return a student-friendly pitch range label."""
-    SEMITONE_RATIO = 2 ** (1 / 12)
     if range_semitones < 6:
         return "a little flat"
     elif range_semitones <= 12:
@@ -291,7 +290,7 @@ def serialize_prosody(prosody):
     if prosody and prosody.rhythm:
         print(f"[serialize_prosody] nPVI: {prosody.rhythm.npvi}")
     elif prosody:
-        print(f"[serialize_prosody] rhythm is None, nPVI will be 0")
+        print("[serialize_prosody] rhythm is None, nPVI will be 0")
 
     pitch_mean = prosody.pitch.mean_f0 if prosody and prosody.pitch else 0
     pitch_range = prosody.pitch.f0_range if prosody and prosody.pitch else 0
@@ -336,7 +335,7 @@ def _generate_comprehensive_feedback(errors, alignment, prosody_metrics, mapper)
 
     # Prosody summary with student-friendly labels
     if prosody_metrics:
-        sections.append(f"<br><strong>Prosody:</strong>")
+        sections.append("<br><strong>Prosody:</strong>")
         if prosody_metrics.pitch:
             f0_range = prosody_metrics.pitch.f0_range
             f0_mean = prosody_metrics.pitch.mean_f0
@@ -356,7 +355,7 @@ def _generate_comprehensive_feedback(errors, alignment, prosody_metrics, mapper)
             print(f"[feedback] nPVI value being used: {npvi:.2f}")
 
     result = "<br>".join(sections)
-    print(f"[feedback] Final feedback string:")
+    print("[feedback] Final feedback string:")
     print(result)
     print(f"[feedback] Feedback repr: {repr(result)}")
     return result

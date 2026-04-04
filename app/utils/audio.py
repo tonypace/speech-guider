@@ -1,10 +1,11 @@
 """Utility functions for handling audio file uploads."""
 
-import tempfile
-import os
-from pathlib import Path
-from fastapi import UploadFile
 import io
+import os
+import tempfile
+from pathlib import Path
+
+from fastapi import UploadFile
 
 
 async def save_upload_to_temp(upload_file: UploadFile) -> str:
