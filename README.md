@@ -7,7 +7,7 @@ A Python-based application that provides real-time feedback on pronunciation and
 - **Audio Capture**: Record or upload audio via microphone or file
 - **Pronunciation Analysis**: Detect phoneme errors using Wav2Vec2/PyGOP with IPA precision
 - **Prosody Analysis**: Extract pitch (F0), rhythm (nPVI), and stress patterns
-- **Visual Articulatory Feedback**: Side-by-side vocal tract animations with amber highlighting using Pink Trombone
+- **Visual Articulatory Feedback**: Side-by-side vocal tract animations with amber highlighting using the SVG articulatory renderer
 - **Teacher-Friendly**: Technical linguistic terminology with hover tooltips for explanations
 - **Hardware Optimization**: Automatic device detection (MPS > CPU) - optimized for Apple Silicon (~60x faster than CPU) with CPU fallback. Designed for local classroom use.
 
@@ -17,7 +17,7 @@ A Python-based application that provides real-time feedback on pronunciation and
 - **Backend**: FastAPI with Server-Sent Events (SSE) for real-time updates
 - **Audio Processing**: PyTorch, Torchaudio, Parselmouth (Praat), Transformers (Wav2Vec2)
 - **Linguistic Features**: pyclts (Cross-Linguistic Transcription Systems) for IPA feature extraction
-- **Visualization**: Custom Pink Trombone JavaScript (visual-only, no audio synthesis)
+- **Visualization**: Custom SVG articulatory renderer with vanilla JavaScript controls
 
 ## Installation
 
@@ -101,6 +101,8 @@ pytest -v
 
 For detailed development guidelines, see [AGENTS.md](AGENTS.md).
 
+For the canonical 9-variable articulatory animation contract and dataset translation guidance, see [docs/articulatory-animation-api.md](docs/articulatory-animation-api.md).
+
 ## Project Structure
 
 ```text
@@ -113,10 +115,11 @@ speech-guider/
 │   └── templates/        # Jinja2 HTML templates
 │       └── index.html    # Main UI
 ├── static/               # Static assets
-│   ├── js/               # JavaScript files (pink_trombone, recorder, tooltips)
-│   │   ├── pink_trombone_core.js
-│   │   ├── mock_processor.js
+│   ├── js/               # JavaScript modules (app bootstrap + components)
+│   │   ├── app.js
+│   │   ├── svg_articulatory_renderer.js
 │   │   ├── recorder.js
+│   │   ├── prosody_lab.js
 │   │   └── ipa_tooltips.js
 │   └── css/              # CSS files (vocal_tract, etc.)
 │       └── vocal_tract.css
@@ -124,12 +127,14 @@ speech-guider/
 │   ├── audio/            # Parselmouth/Praat prosody processing
 │   │   └── processor.py
 │   └── models/           # PyTorch Wav2Vec2 models & alignment
-│       ├── articulatory.py  # pyclts mapping & Pink Trombone params
+│       ├── articulatory.py  # pyclts mapping & SVG articulatory state
 │       ├── alignment.py     # Forced alignment & GOP scoring
 │       ├── g2p.py          # Grapheme-to-phoneme conversion
 │       ├── wav2vec2.py     # Wav2Vec2 model wrapper
 │       └── g2p.py
 ├── tests/                # Pytest test suite
+├── docs/                 # Project and integration documentation
+│   └── articulatory-animation-api.md
 ├── requirements.txt      # Dependencies
 ├── AGENTS.md             # Agent development guidelines
 └── README.md             # This file
