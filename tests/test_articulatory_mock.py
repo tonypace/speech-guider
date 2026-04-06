@@ -31,6 +31,7 @@ from src.models.articulatory import (
     default_articulatory_state,
     format_with_html_tooltips,
 )
+from src.models.aai_adapter import parse_aai_animation_payload
 
 
 def test_basic_structure():
@@ -106,6 +107,23 @@ def test_static_assets():
     print("✓ CSS contains tooltip styling")
 
     print("\n✅ All static asset tests passed!")
+
+
+def test_aai_payload_parse_without_pyclts():
+    """AAI adapter should work without pyclts dependency."""
+
+    payload = {
+        "source_dataset": "xrmb",
+        "normalization": "raw",
+        "values": [0.0, 25.0, 0.2, 3.0, 0.7, 4.0, 12.0, 1.0, 1.0],
+    }
+
+    state = parse_aai_animation_payload(payload)
+
+    assert "lip_aperture" in state
+    assert "glottal_aperture" in state
+    assert state["tongue_tip_constriction_location"] == 0.2
+    assert state["tongue_body_constriction_location"] == 0.7
 
 
 if __name__ == "__main__":

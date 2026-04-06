@@ -1,11 +1,31 @@
 """Error selection endpoint for articulatory feedback."""
 
+from typing import Any
+
 from fastapi import APIRouter, HTTPException
 
 from app.models.schemas import SelectErrorRequest, SelectErrorResponse
+from src.models.aai_adapter import parse_aai_animation_payload
 from src.models.articulatory import ArticulatoryMapper
 
 router = APIRouter()
+
+
+def _resolve_animation_params(
+    phoneme: str,
+    fallback_state: dict[str, float] | None,
+    aai_payload: Any,
+    mapper: ArticulatoryMapper,
+) -> dict[str, float]:
+    """Resolve canonical animation params from AAI payload or symbolic fallback."""
+
+    if isinstance(aai_payload, dict):
+        try:
+            return parse_aai_animation_payload(aai_payload, fallback_state=fallback_state)
+        except Exception as exc:
+            print(f"[_resolve_animation_params] Failed to parse AAI payload: {exc}")
+
+    return mapper.get_animation_params(phoneme)
 
 
 @router.post("/api/select-error", response_model=SelectErrorResponse)
@@ -50,6 +70,18 @@ async def select_error(request: SelectErrorRequest):
     try:
         target_params = mapper.get_animation_params(target_phoneme)
         predicted_params = mapper.get_animation_params(predicted_phoneme)
+        target_params = _resolve_animation_params(
+            target_phoneme,
+            target_params,
+            error.get("animation_right"),
+            mapper,
+        )
+        predicted_params = _resolve_animation_params(
+            predicted_phoneme,
+            predicted_params,
+            error.get("animation_left"),
+            mapper,
+        )
         print(f"[select_error] target_params from mapper: {target_params}")
         print(f"[select_error] predicted_params from mapper: {predicted_params}")
     except Exception as e:

@@ -18,6 +18,16 @@ from src.models.articulatory import (
     normalize_svg_state,
     svg_state_to_dict,
 )
+from src.models.aai_adapter import (
+    AAIConversionMetadata,
+    AAINormalizationProfile,
+    AAITractVariables,
+    aai_to_canonical_state,
+    decode_aai_row,
+    denormalize_aai_row,
+    parse_aai_animation_payload,
+    representative_aai_pose,
+)
 
 
 def test_articulatory_mapper_initialization():
@@ -413,6 +423,152 @@ def test_legacy_to_svg_state():
     result2 = legacy_to_svg_state(params)
     assert result2["glottal_aperture"] == 0
     print("✓ legacy_to_svg_state test passed")
+
+
+def test_decode_aai_row_uses_documented_field_order():
+    """AAI rows should decode by named field order, not renderer order."""
+
+    row = [-2.45, 35.21, 0.00, 15.34, 0.83, 7.66, 12.02, 1.00, 0.00]
+    tv = decode_aai_row(row)
+
+    assert tv.lp == -2.45
+    assert tv.la == 35.21
+    assert tv.ttcl == 0.00
+    assert tv.ttcd == 15.34
+    assert tv.tbcl == 0.83
+    assert tv.tbcd == 7.66
+    assert tv.vel == 12.02
+    assert tv.glo == 1.00
+    assert tv.lat == 0.00
+
+
+def test_denormalize_aai_row_with_profile():
+    """Z-scored AAI rows should denormalize using provided stats."""
+
+    profile = AAINormalizationProfile(
+        mean=(-3.035, 33.41, 0.0, 14.96, 0.85, 7.78, 11.64, 1.0, 0.0),
+        std=(0.632, 0.68, 1.0, 0.73, 0.07, 0.20, 0.64, 1.0, 1.0),
+        speaker_id="F1",
+        profile_name="speaker_F1",
+    )
+    row = [0.92, 2.63, 0.0, 0.51, -0.28, -0.59, 0.58, 0.0, 0.0]
+
+    tv = denormalize_aai_row(row, profile)
+
+    assert round(tv.lp, 2) == -2.45
+    assert round(tv.la, 2) == 35.20
+    assert round(tv.ttcd, 2) == 15.33
+    assert round(tv.tbcl, 2) == 0.83
+    assert round(tv.tbcd, 2) == 7.66
+
+
+def test_aai_to_canonical_state_preserves_sign_directions():
+    """AAI conversion should preserve canonical opening and location directions."""
+
+    tv = AAITractVariables(
+        lp=-2.0,
+        la=35.0,
+        ttcl=0.1,
+        ttcd=0.0,
+        tbcl=0.9,
+        tbcd=8.0,
+        vel=0.0,
+        glo=1.0,
+        lat=1.0,
+    )
+
+    state = aai_to_canonical_state(tv)
+
+    assert state["lip_aperture"] > 0
+    assert state["lip_protrusion"] == 0.0
+    assert state["tongue_tip_constriction_location"] == 0.1
+    assert state["tongue_tip_constriction_degree"] == 0.0
+    assert state["tongue_body_constriction_location"] == 0.9
+    assert state["tongue_body_constriction_degree"] > 0
+    assert state["velic_aperture"] == 0.0
+    assert state["glottal_aperture"] == 30.0
+    assert state["lateral_tongue_drop"] == 40.0
+
+
+def test_aai_masked_channels_fall_back_to_existing_state():
+    """Masked XRMB channels should fall back rather than pretending to be observed."""
+
+    tv = AAITractVariables(
+        lp=0.0,
+        la=10.0,
+        ttcl=0.2,
+        ttcd=5.0,
+        tbcl=0.7,
+        tbcd=5.0,
+        vel=12.0,
+        glo=1.0,
+        lat=1.0,
+    )
+    fallback = {
+        "lip_aperture": 0.1,
+        "lip_protrusion": 0.2,
+        "tongue_tip_constriction_location": 0.3,
+        "tongue_tip_constriction_degree": 0.4,
+        "lateral_tongue_drop": 0.0,
+        "velic_aperture": 0.0,
+        "tongue_body_constriction_location": 0.5,
+        "tongue_body_constriction_degree": 0.6,
+        "glottal_aperture": 3.0,
+    }
+    metadata = AAIConversionMetadata(normalization="raw", source_dataset="xrmb")
+
+    state = aai_to_canonical_state(tv, metadata=metadata, fallback_state=fallback)
+
+    assert state["velic_aperture"] == 0.0
+    assert state["glottal_aperture"] == 3.0
+    assert state["lateral_tongue_drop"] == 0.0
+
+
+def test_representative_aai_pose_uses_median_of_trajectory():
+    """Representative AAI pose should reduce trajectories to a stable median pose."""
+
+    frames = [
+        [0.0, 10.0, 0.1, 5.0, 0.4, 4.0, 0.0, 0.0, 0.0],
+        [1.0, 20.0, 0.2, 6.0, 0.5, 5.0, 0.1, 0.5, 0.2],
+        [2.0, 30.0, 0.3, 7.0, 0.6, 6.0, 0.2, 1.0, 0.4],
+    ]
+
+    pose = representative_aai_pose(frames)
+
+    assert pose.lp == 1.0
+    assert pose.la == 20.0
+    assert round(pose.ttcl, 6) == 0.2
+    assert round(pose.glo, 6) == 0.5
+
+
+def test_parse_aai_animation_payload_returns_canonical_state():
+    """AAI payload parsing should produce canonical renderer-facing state."""
+
+    payload = {
+        "source_dataset": "timit",
+        "normalization": "z_score",
+        "stats_reference": {
+            "mean": [-3.035, 33.41, 0.0, 14.96, 0.85, 7.78, 11.64, 1.0, 0.0],
+            "std": [0.632, 0.68, 1.0, 0.73, 0.07, 0.20, 0.64, 1.0, 1.0],
+        },
+        "values": [0.92, 2.63, 0.0, 0.51, -0.28, -0.59, 0.58, 0.0, 0.0],
+    }
+
+    state = parse_aai_animation_payload(payload)
+
+    assert set(state.keys()) == {
+        "lip_aperture",
+        "lip_protrusion",
+        "tongue_tip_constriction_location",
+        "tongue_tip_constriction_degree",
+        "lateral_tongue_drop",
+        "velic_aperture",
+        "tongue_body_constriction_location",
+        "tongue_body_constriction_degree",
+        "glottal_aperture",
+    }
+    assert state["tongue_tip_constriction_location"] == 0.0
+    assert round(state["tongue_body_constriction_location"], 2) == 0.83
 
 
 def test_articulatory_state_dataclass():

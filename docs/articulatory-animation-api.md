@@ -304,6 +304,29 @@ This behavior exists for compatibility. New integrations should emit the canonic
 
 ## Translation Layer Guidance
 
+### AAI tract-variable datasets
+
+If your source is an AAI tract-variable dataset or model output, do not map by position into the canonical renderer API. The documented AAI TV order is:
+
+```text
+LP, LA, TTCL, TTCD, TBCL, TBCD, VEL, GLO, LAT
+```
+
+The canonical renderer-facing API order is:
+
+```text
+LA, LP, TTCL, TTCD, LAT, VEL, TBCL, TBCD, GLO
+```
+
+Always convert by named field.
+
+Additional AAI notes:
+
+- AAI `LP` may be signed, where negative means retracted; this renderer only accepts nonnegative protrusion, so negative values must be mapped intentionally rather than copied directly.
+- AAI `GLO` and `LAT` commonly use `0..1` and must be scaled into renderer ranges `0..30` and `0..40` respectively.
+- Some AAI datasets emit z-scored targets and require speaker or reference `mean`/`std` profiles for denormalization before rendering.
+- XRMB-based data may not supervise `VEL`, `GLO`, or `LAT`; those channels should use explicit fallback behavior rather than being treated as fully observed.
+
 ### If your source system uses closure-style variables
 
 Invert them before mapping into opening-style variables.
