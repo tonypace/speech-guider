@@ -120,6 +120,8 @@ export class SvgArticulatoryRenderer {
     this._voicingOffset = 0;
     this._mounted = false;
     this._elements = {};
+    this._roofTrackCache = null;
+    this._palateGeometryCache = null;
   }
 
   mount() {
@@ -451,8 +453,15 @@ export class SvgArticulatoryRenderer {
     const tbcl = clamp(s.tongue_body_constriction_location, 0, 1);
     const tbcd = this._normalizeDegree(s.tongue_body_constriction_degree, 30);
     const glo = clamp(s.glottal_aperture, 0, 30);
-    const roofTrack = this._buildRoofTrack(vel);
-    const visiblePalateGeometry = this._buildVisiblePalateGeometry(vel);
+    const velRounded = Math.round(vel);
+    if (!this._roofTrackCache || this._roofTrackCache.vel !== velRounded) {
+      this._roofTrackCache = { vel: velRounded, ...this._buildRoofTrack(vel) };
+    }
+    const roofTrack = this._roofTrackCache;
+    if (!this._palateGeometryCache || this._palateGeometryCache.vel !== velRounded) {
+      this._palateGeometryCache = { vel: velRounded, ...this._buildVisiblePalateGeometry(vel) };
+    }
+    const visiblePalateGeometry = this._palateGeometryCache;
     const visiblePalatePath = visiblePalateGeometry.path;
 
     if (jaw) jaw.setAttribute('transform', `translate(0, ${la})`);

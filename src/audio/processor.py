@@ -10,10 +10,6 @@ from typing import Optional
 import numpy as np
 import parselmouth
 
-# Temporary debug flag for nPVI calculation verification
-# TODO: Remove after confirming nPVI works correctly
-DEBUG_NPVI = True
-
 
 @dataclass
 class PitchContour:
@@ -144,71 +140,24 @@ class ProsodyAnalyzer:
         Returns:
             RhythmMetrics with nPVI score and classification
         """
-        if DEBUG_NPVI:
-            print("[DEBUG_nPVI] === RHYTHM ANALYSIS ===")
-            print(
-                f"[DEBUG_nPVI] Called with {len(vowel_timestamps) if vowel_timestamps else 0} vowel timestamps"
-            )
-            print(f"[DEBUG_nPVI] Timestamps: {vowel_timestamps}")
-
-        print(
-            f"[analyze_rhythm] Called with {len(vowel_timestamps) if vowel_timestamps else 0} timestamps"
-        )
-        if vowel_timestamps:
-            print(f"[analyze_rhythm] vowel_timestamps: {vowel_timestamps}")
-
         if not vowel_timestamps or len(vowel_timestamps) < 2:
-            if DEBUG_NPVI:
-                print(
-                    f"[DEBUG_nPVI] INSUFFICIENT DATA - need at least 2 vowels, got {len(vowel_timestamps) if vowel_timestamps else 0}"
-                )
-            print("[analyze_rhythm] Insufficient vowel timestamps, returning 0 nPVI")
             return RhythmMetrics(
                 npvi=0.0,
                 vowel_durations=[],
                 classification="insufficient_data",
             )
 
-        # Calculate vowel durations
         vowel_durations = [end - start for start, end in vowel_timestamps]
-        print(f"[analyze_rhythm] vowel_durations: {vowel_durations}")
-        if DEBUG_NPVI:
-            print(f"[DEBUG_nPVI] Vowel durations: {[round(d, 3) for d in vowel_durations]}")
-            print(f"[DEBUG_nPVI] Sum of durations: {sum(vowel_durations):.3f}s")
-            print(f"[DEBUG_nPVI] Mean duration: {np.mean(vowel_durations):.3f}s")
-            print(f"[DEBUG_nPVI] Std duration: {np.std(vowel_durations):.3f}s")
 
-        # Calculate nPVI
         num_vowels = len(vowel_durations)
         durations = np.array(vowel_durations)
 
-        # Pairwise differences
         differences = np.abs(durations[:-1] - durations[1:])
         means = (durations[:-1] + durations[1:]) / 2
 
-        if DEBUG_NPVI:
-            print(f"[DEBUG_nPVI] Pairwise differences: {[round(d, 3) for d in differences]}")
-            print(f"[DEBUG_nPVI] Pairwise means: {[round(m, 3) for m in means]}")
-            print(
-                f"[DEBUG_nPVI] Differences/means: {[round(d / m, 3) for d, m in zip(differences, means)]}"
-            )
-
-        # nPVI formula
         npvi = 100 * np.sum(differences / means) / (num_vowels - 1)
 
-        print(f"[analyze_rhythm] Calculated nPVI: {npvi}")
-        if DEBUG_NPVI:
-            print(f"[DEBUG_nPVI] Sum(differences/means): {np.sum(differences / means):.3f}")
-            print(
-                f"[DEBUG_nPVI] nPVI = 100 * {np.sum(differences / means):.3f} / {num_vowels - 1} = {npvi:.2f}"
-            )
-
-        # Classify based on nPVI threshold
-        # English (stress-timed) typically has nPVI > 40
-        # Romance languages (syllable-timed) typically have nPVI < 40
         classification = "stress-timed" if npvi > 40 else "syllable-timed"
-        if DEBUG_NPVI:
-            print(f"[DEBUG_nPVI] Classification: {classification} (threshold: 40)")
 
         return RhythmMetrics(
             npvi=float(npvi),
@@ -222,6 +171,9 @@ class ProsodyAnalyzer:
     ) -> Optional[StressPattern]:
         """Identify primary stressed word using combined F0 and intensity.
 
+        Computes pitch and intensity once for the full audio, then slices
+        by word timestamps to avoid redundant Parselmouth calls.
+
         Args:
             word_timestamps: List of (word, start_time, end_time)
 
@@ -231,28 +183,33 @@ class ProsodyAnalyzer:
         if not word_timestamps:
             return None
 
+        pitch_obj = self.audio.to_pitch()
+        pitch_values = pitch_obj.selected_array["frequency"]
+        pitch_dt = pitch_obj.time_step
+
+        intensity_obj = self.audio.to_intensity()
+        intensity_values = intensity_obj.values
+        intensity_dt = intensity_obj.time_step
+        intensity_t0 = intensity_obj.start_time
+
         words_data = []
 
         for word, start_time, end_time in word_timestamps:
-            # Extract sound part for this word
-            sound_slice = self.audio.extract_part(from_time=start_time, to_time=end_time)
+            pitch_start = int(start_time / pitch_dt)
+            pitch_end = int(end_time / pitch_dt)
+            word_pitch = pitch_values[pitch_start:pitch_end]
+            voiced_pitch = word_pitch[word_pitch > 0]
 
-            # Extract pitch range over this word
-            pitch_slice = sound_slice.to_pitch()
-            pitch_values = pitch_slice.selected_array["frequency"]
-            voiced_pitch = pitch_values[pitch_values > 0]
+            intensity_start = int((start_time - intensity_t0) / intensity_dt)
+            intensity_end = int((end_time - intensity_t0) / intensity_dt)
+            word_intensity = intensity_values[intensity_start:intensity_end]
+            mean_intensity = np.mean(word_intensity) if len(word_intensity) > 0 else 0.0
 
-            # Extract intensity average over this word
-            intensity_slice = sound_slice.to_intensity()
-            mean_intensity = np.mean(intensity_slice.values)
-
-            # Calculate prominence score (combined pitch excursion and intensity)
             if len(voiced_pitch) > 0:
                 pitch_excursion = np.max(voiced_pitch) - np.min(voiced_pitch)
             else:
                 pitch_excursion = 0.0
 
-            # Normalize and combine scores
             prominence_score = float(pitch_excursion) + float(mean_intensity / 100.0)
 
             words_data.append(
@@ -264,7 +221,6 @@ class ProsodyAnalyzer:
                 }
             )
 
-        # Find word with highest prominence
         if not words_data:
             return None
 

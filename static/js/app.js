@@ -3,6 +3,14 @@ import { IPATooltips } from './ipa_tooltips.js';
 import { IntercomRecorder } from './recorder.js';
 const USE_SVG_RENDERER = true;
 
+function debounce(fn, delay) {
+  let timer = null;
+  return function debounced(...args) {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => fn.apply(this, args), delay);
+  };
+}
+
 window.__USE_SVG_RENDERER__ = USE_SVG_RENDERER;
 window.IPATooltips = IPATooltips;
 window.IntercomRecorder = IntercomRecorder;
@@ -235,11 +243,11 @@ window.setPhonemePreset = function setPhonemePreset(phoneme) {
   window.selectPhoneme(phoneme);
 };
 
-window.updateAnimationFromSliders = function updateAnimationFromSliders() {
+window.updateAnimationFromSliders = debounce(function updateAnimationFromSliders() {
   const state = getSvgControlState();
   setAnimationState(state);
   updateSliderValueLabels();
-};
+}, 16);
 
 window.selectPhoneme = function selectPhoneme(phoneme) {
   const preset = SvgPhonemePresets[phoneme] || window.SvgPhonemePresets?.[phoneme] || {

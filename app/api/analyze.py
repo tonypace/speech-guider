@@ -132,6 +132,11 @@ async def run_analysis_blocking(audio_path: str, target_text: str, job_id: str):
         errors = []
         alignment = None
 
+    if torch.backends.mps.is_available():
+        torch.mps.empty_cache()
+    elif torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
     # Step 3: Extract prosody metrics
     await send_progress_update(job_id, 0.6, "Extracting prosody metrics...", "prosody")
 
