@@ -1,6 +1,7 @@
 """Main analysis endpoints for pronunciation evaluation."""
 
 import asyncio
+import os
 
 import numpy as np
 import torch
@@ -16,19 +17,54 @@ router = APIRouter()
 
 # Cached model instances
 _cached_aligner = None
+_cached_ssl_model = None
 _cached_g2p = None
 
 
+def get_ssl_model():
+    """Get or create cached primary SSL model instance."""
+
+    global _cached_ssl_model
+    if _cached_ssl_model is None:
+        from src.models.hubert import DistilHuBERTModel
+
+        print("Initializing DistilHuBERT SSL model (first time)...")
+        _cached_ssl_model = DistilHuBERTModel()
+        print("DistilHuBERT SSL model initialized and cached.")
+    return _cached_ssl_model
+
+
 def get_aligner():
-    """Get or create cached ForcedAligner instance."""
+    """Get or create cached deprecated fallback aligner instance."""
+
     global _cached_aligner
     if _cached_aligner is None:
         from src.models.alignment import ForcedAligner
 
-        print("Initializing Wav2Vec2 aligner (first time)...")
+        print("Initializing deprecated Wav2Vec2 aligner fallback (first time)...")
         _cached_aligner = ForcedAligner()
-        print("Wav2Vec2 aligner initialized and cached.")
+        print("Deprecated Wav2Vec2 aligner fallback initialized and cached.")
     return _cached_aligner
+
+
+def should_use_deprecated_wav2vec2_fallback() -> bool:
+    """Return whether the deprecated alignment fallback should be used."""
+
+    value = os.getenv("ENABLE_WAV2VEC2_FALLBACK", "1").strip().lower()
+    return value not in {"0", "false", "no"}
+
+
+def try_primary_ssl_analysis(
+    audio_tensor: torch.Tensor, sample_rate: int
+) -> tuple[list, object | None]:
+    """Try the primary SSL path before falling back to Wav2Vec2 alignment.
+
+    Phase 1 does not yet have an SSL-to-pronunciation implementation, so this
+    function intentionally raises until that path is completed.
+    """
+
+    get_ssl_model()
+    raise NotImplementedError("Primary DistilHuBERT-based AAI analysis is not implemented yet")
 
 
 async def run_analysis_blocking(audio_path: str, target_text: str, job_id: str):
@@ -76,9 +112,20 @@ async def run_analysis_blocking(audio_path: str, target_text: str, job_id: str):
 
         audio_tensor = torch.from_numpy(audio_data).float()
 
-        # Run alignment
-        aligner = get_aligner()
-        errors, alignment = aligner.analyze_pronunciation(audio_tensor, target_text, sample_rate)
+        try:
+            errors, alignment = try_primary_ssl_analysis(audio_tensor, sample_rate)
+        except NotImplementedError as ssl_exc:
+            print(f"[analyze] Primary SSL analysis unavailable: {ssl_exc}")
+            if not should_use_deprecated_wav2vec2_fallback():
+                raise RuntimeError(
+                    "Primary SSL analysis is unavailable and deprecated Wav2Vec2 fallback is disabled"
+                ) from ssl_exc
+
+            print("[analyze] Falling back to deprecated Wav2Vec2 forced alignment")
+            aligner = get_aligner()
+            errors, alignment = aligner.analyze_pronunciation(
+                audio_tensor, target_text, sample_rate
+            )
 
     except Exception:
         await send_progress_update(job_id, 0.8, "Analysis encountered issues...", "error")
@@ -108,7 +155,7 @@ async def run_analysis_blocking(audio_path: str, target_text: str, job_id: str):
         )
     else:
         print("[analyze] No alignment, running prosody analysis without timestamps")
-        prosody_metrics = prosody_analyzer.analyze_complete()
+        prosody_metrics = prosody_analyzer.analyze_complete(vowel_timestamps=[], word_timestamps=[])
 
     print(f"[analyze] prosody_metrics type: {type(prosody_metrics)}")
     print(f"[analyze] prosody_metrics: {prosody_metrics}")

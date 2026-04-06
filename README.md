@@ -5,7 +5,7 @@ A Python-based application that provides real-time feedback on pronunciation and
 ## Features
 
 - **Audio Capture**: Record or upload audio via microphone or file
-- **Pronunciation Analysis**: Detect phoneme errors using Wav2Vec2/PyGOP with IPA precision
+- **Pronunciation Analysis**: Detect phoneme errors using local SSL models, with deprecated Wav2Vec2 fallback retained for legacy alignment
 - **Prosody Analysis**: Extract pitch (F0), rhythm (nPVI), and stress patterns
 - **Visual Articulatory Feedback**: Side-by-side vocal tract animations with amber highlighting using the SVG articulatory renderer
 - **Teacher-Friendly**: Technical linguistic terminology with hover tooltips for explanations
@@ -15,7 +15,7 @@ A Python-based application that provides real-time feedback on pronunciation and
 
 - **Frontend**: HTML5/Tailwind CSS with vanilla JavaScript
 - **Backend**: FastAPI with Server-Sent Events (SSE) for real-time updates
-- **Audio Processing**: PyTorch, Torchaudio, Parselmouth (Praat), Transformers (Wav2Vec2)
+- **Audio Processing**: PyTorch, Torchaudio, Parselmouth (Praat), Transformers (DistilHuBERT primary, deprecated Wav2Vec2 fallback)
 - **Linguistic Features**: pyclts (Cross-Linguistic Transcription Systems) for IPA feature extraction
 - **Visualization**: Custom SVG articulatory renderer with vanilla JavaScript controls
 
@@ -126,12 +126,12 @@ speech-guider/
 ├── src/                  # Python source modules
 │   ├── audio/            # Parselmouth/Praat prosody processing
 │   │   └── processor.py
-│   └── models/           # PyTorch Wav2Vec2 models & alignment
+│   └── models/           # PyTorch SSL models, adapters, and alignment
 │       ├── articulatory.py  # pyclts mapping & SVG articulatory state
 │       ├── alignment.py     # Forced alignment & GOP scoring
 │       ├── g2p.py          # Grapheme-to-phoneme conversion
-│       ├── wav2vec2.py     # Wav2Vec2 model wrapper
-│       └── g2p.py
+│       ├── hubert.py       # DistilHuBERT SSL model wrapper
+│       ├── wav2vec2.py     # Deprecated Wav2Vec2 fallback wrapper
 ├── tests/                # Pytest test suite
 ├── docs/                 # Project and integration documentation
 │   └── articulatory-animation-api.md
@@ -155,7 +155,7 @@ speech-guider/
 - Storage: 10GB+ for model caching
 - OS: macOS 12.3+
 
-**Note:** Apple Silicon MPS provides ~60x faster inference compared to CPU for Wav2Vec2 models.
+**Note:** Apple Silicon MPS remains the preferred local acceleration path for SSL models, including DistilHuBERT.
 
 **For Other Systems (CPU Only):**
 - CPU: Modern multi-core processor
