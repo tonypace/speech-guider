@@ -3,7 +3,7 @@
 from typing import Optional
 
 import torch
-from transformers import AutoModel, AutoProcessor
+from transformers import AutoFeatureExtractor, AutoModel
 
 
 class DistilHuBERTModel:
@@ -33,7 +33,7 @@ class DistilHuBERTModel:
         print(f"Loading DistilHuBERT model: {self.model_name}")
         print(f"Device: {self.device}")
 
-        self.processor = AutoProcessor.from_pretrained(self.model_name)
+        self.feature_extractor = AutoFeatureExtractor.from_pretrained(self.model_name)
         self.model = AutoModel.from_pretrained(self.model_name)
         self.model.to(self.device)
         self.model.eval()
@@ -53,7 +53,7 @@ class DistilHuBERTModel:
         if sample_rate != self.SAMPLE_RATE:
             raise ValueError(f"Audio sample rate must be {self.SAMPLE_RATE}Hz")
 
-        inputs = self.processor(
+        inputs = self.feature_extractor(
             audio_tensor,
             sampling_rate=self.SAMPLE_RATE,
             return_tensors="pt",
@@ -70,8 +70,8 @@ class DistilHuBERTModel:
 
         if hasattr(self, "model"):
             del self.model
-        if hasattr(self, "processor"):
-            del self.processor
+        if hasattr(self, "feature_extractor"):
+            del self.feature_extractor
 
         if self.device == "cuda" and torch.cuda.is_available():
             torch.cuda.empty_cache()
