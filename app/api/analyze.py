@@ -17,33 +17,40 @@ router = APIRouter()
 
 # Cached model instances
 _cached_aligner = None
-_cached_ssl_model = None
+_cached_ssl_predictor = None
 _cached_g2p = None
 
 
-def get_ssl_model():
-    """Get or create cached primary SSL model instance."""
+def get_ssl_predictor():
+    """Get or create cached SSL AAI predictor instance."""
 
-    global _cached_ssl_model
-    if _cached_ssl_model is None:
-        from src.models.hubert import DistilHuBERTModel
+    global _cached_ssl_predictor
+    if _cached_ssl_predictor is None:
+        from src.models.ssl_aai_predictor import SSLAAIPredictor
 
-        print("Initializing DistilHuBERT SSL model (first time)...")
-        _cached_ssl_model = DistilHuBERTModel()
-        print("DistilHuBERT SSL model initialized and cached.")
-    return _cached_ssl_model
+        checkpoint_path = os.getenv("SSL_AAI_CHECKPOINT_PATH")
+        print(f"[get_ssl_predictor] Initializing SSL AAI predictor (first time)...")
+        if checkpoint_path:
+            print(f"[get_ssl_predictor] Using checkpoint: {checkpoint_path}")
+        else:
+            print(f"[get_ssl_predictor] Using default checkpoint path")
+
+        _cached_ssl_predictor = SSLAAIPredictor(checkpoint_path=checkpoint_path)
+        _cached_ssl_predictor.load()
+        print("[get_ssl_predictor] SSL AAI predictor initialized and cached.")
+    return _cached_ssl_predictor
 
 
 def get_aligner():
-    """Get or create cached deprecated fallback aligner instance."""
+    """Get or create cached deprecated fallback aligner instance (lazy)."""
 
     global _cached_aligner
     if _cached_aligner is None:
         from src.models.alignment import ForcedAligner
 
-        print("Initializing deprecated Wav2Vec2 aligner fallback (first time)...")
+        print("[get_aligner] Initializing deprecated Wav2Vec2 aligner fallback (first time)...")
         _cached_aligner = ForcedAligner()
-        print("Deprecated Wav2Vec2 aligner fallback initialized and cached.")
+        print("[get_aligner] Deprecated Wav2Vec2 aligner fallback initialized and cached.")
     return _cached_aligner
 
 
@@ -54,17 +61,76 @@ def should_use_deprecated_wav2vec2_fallback() -> bool:
     return value not in {"0", "false", "no"}
 
 
-def try_primary_ssl_analysis(
-    audio_tensor: torch.Tensor, sample_rate: int
-) -> tuple[list, object | None]:
-    """Try the primary SSL path before falling back to Wav2Vec2 alignment.
+def _ssl_aai_to_animation_state(audio_tensor: torch.Tensor, sample_rate: int) -> dict | None:
+    """Convert audio to animation state via SSL AAI predictor.
 
-    Phase 1 does not yet have an SSL-to-pronunciation implementation, so this
-    function intentionally raises until that path is completed.
+    Returns:
+        Canonical animation state dict, or None if predictor unavailable/failed.
     """
 
-    get_ssl_model()
-    raise NotImplementedError("Primary DistilHuBERT-based AAI analysis is not implemented yet")
+    from src.models.aai_adapter import (
+        AAIConversionMetadata,
+        aai_to_canonical_state,
+        decode_aai_row,
+        representative_aai_pose,
+    )
+
+    try:
+        predictor = get_ssl_predictor()
+    except (FileNotFoundError, RuntimeError) as e:
+        print(f"[_ssl_aai_to_animation_state] SSL predictor unavailable: {e}")
+        return None
+
+    try:
+        # Predict z-scored AAI tract variables
+        tvs_tensor = predictor.predict(audio_tensor, sample_rate)
+        tvs_array = tvs_tensor.numpy()
+
+        # Get representative pose from trajectory
+        # For now, use the first frame if short, or median across trajectory
+        if len(tvs_array) == 1:
+            pose = decode_aai_row(tvs_array[0])
+        else:
+            pose = representative_aai_pose(tvs_array, normalization="z_score")
+
+        # Convert to canonical animation state
+        metadata = AAIConversionMetadata(normalization="z_score")
+        animation_state = aai_to_canonical_state(pose, metadata=metadata)
+
+        print(f"[_ssl_aai_to_animation_state] Generated animation state via SSL AAI path")
+        return animation_state
+
+    except Exception as e:
+        print(f"[_ssl_aai_to_animation_state] SSL AAI prediction failed: {e}")
+        return None
+
+
+def try_primary_ssl_analysis(
+    audio_tensor: torch.Tensor, sample_rate: int
+) -> tuple[list, object | None, dict | None]:
+    """Try the primary SSL AAI path before falling back to Wav2Vec2 alignment.
+
+    Returns:
+        tuple: (errors, alignment, animation_state)
+        - errors: list of pronunciation errors
+        - alignment: alignment object or None
+        - animation_state: canonical animation state dict or None
+
+    Note:
+        The SSL AAI path currently only produces animation state, not full
+        pronunciation analysis. It returns empty errors and None alignment.
+    """
+
+    print("[try_primary_ssl_analysis] Attempting SSL AAI path...")
+
+    animation_state = _ssl_aai_to_animation_state(audio_tensor, sample_rate)
+
+    if animation_state is not None:
+        print("[try_primary_ssl_analysis] SSL AAI path succeeded")
+        return [], None, animation_state
+
+    # If we reach here, SSL AAI path failed
+    raise NotImplementedError("SSL AAI prediction failed or unavailable")
 
 
 async def run_analysis_blocking(audio_path: str, target_text: str, job_id: str):
@@ -112,10 +178,19 @@ async def run_analysis_blocking(audio_path: str, target_text: str, job_id: str):
 
         audio_tensor = torch.from_numpy(audio_data).float()
 
+        errors = []
+        alignment = None
+        ssl_animation_state = None
+        path_used = "unknown"
+
         try:
-            errors, alignment = try_primary_ssl_analysis(audio_tensor, sample_rate)
+            errors, alignment, ssl_animation_state = try_primary_ssl_analysis(
+                audio_tensor, sample_rate
+            )
+            path_used = "ssl_aai"
+            print(f"[analyze] Primary SSL AAI analysis succeeded, animation state generated")
         except NotImplementedError as ssl_exc:
-            print(f"[analyze] Primary SSL analysis unavailable: {ssl_exc}")
+            print(f"[analyze] Primary SSL AAI analysis unavailable: {ssl_exc}")
             if not should_use_deprecated_wav2vec2_fallback():
                 raise RuntimeError(
                     "Primary SSL analysis is unavailable and deprecated Wav2Vec2 fallback is disabled"
@@ -126,6 +201,7 @@ async def run_analysis_blocking(audio_path: str, target_text: str, job_id: str):
             errors, alignment = aligner.analyze_pronunciation(
                 audio_tensor, target_text, sample_rate
             )
+            path_used = "wav2vec2_fallback"
 
     except Exception:
         await send_progress_update(job_id, 0.8, "Analysis encountered issues...", "error")
@@ -192,11 +268,15 @@ async def run_analysis_blocking(audio_path: str, target_text: str, job_id: str):
             f"[analyze] Filtered out {len(errors) - len(filtered_errors)} identical phoneme pairs"
         )
 
+    print(f"[analyze] Analysis path used: {path_used}")
+
     return {
         "errors": filtered_errors,
         "feedback": feedback,
         "alignment": serialize_alignment(alignment) if alignment else None,
         "prosody": serialize_prosody(prosody_metrics) if prosody_metrics else None,
+        "path_used": path_used,
+        "ssl_animation_state": ssl_animation_state,
         "success": True,
         "message": "Analysis complete",
     }

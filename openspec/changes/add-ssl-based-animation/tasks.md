@@ -21,9 +21,9 @@
 ## 4. Phase 2 SSL Prediction Path
 
 - [x] 4.1 Define an SSL feature-extraction abstraction for local models such as Wav2Vec2 or HuBERT.
-- [ ] 4.2 Implement an initial predictor that maps SSL features into AAI tract-variable outputs rather than directly into renderer fields.
-- [ ] 4.3 Route SSL-predicted tract variables through the same AAI adapter used for dataset-backed conversion.
-- [ ] 4.4 Preserve fallback to the current symbolic articulatory mapper when SSL predictions are unavailable, disabled, or low-confidence.
+- [x] 4.2 Implement an initial predictor that maps SSL features into AAI tract-variable outputs rather than directly into renderer fields.
+- [x] 4.3 Route SSL-predicted tract variables through the same AAI adapter used for dataset-backed conversion.
+- [x] 4.4 Preserve fallback to the current symbolic articulatory mapper when SSL predictions are unavailable, disabled, or low-confidence.
 
 ## 5. Documentation
 
