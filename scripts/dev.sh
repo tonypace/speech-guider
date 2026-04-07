@@ -30,17 +30,16 @@ trap cleanup INT TERM
 # Start FastAPI backend
 echo -e "${GREEN}Starting FastAPI backend...${NC}"
 if [ -d "venv" ]; then
-    source venv/bin/activate
-    uvicorn app.main:app --host 127.0.0.1 --port 7860 --reload &
-    FASTAPI_PID=$!
+    VENV_PYTHON="venv/bin/python"
 elif [ -d "speech-guider" ]; then
-    source speech-guider/bin/activate
-    uvicorn app.main:app --host 127.0.0.1 --port 7860 --reload &
-    FASTAPI_PID=$!
+    VENV_PYTHON="speech-guider/bin/python"
 else
-    uvicorn app.main:app --host 127.0.0.1 --port 7860 --reload &
-    FASTAPI_PID=$!
+    VENV_PYTHON="python"
 fi
+
+echo "Using Python: $($VENV_PYTHON --version 2>&1)"
+$VENV_PYTHON -m uvicorn app.main:app --host 127.0.0.1 --port 7860 --reload &
+FASTAPI_PID=$!
 
 echo "FastAPI running on http://127.0.0.1:7860"
 echo ""

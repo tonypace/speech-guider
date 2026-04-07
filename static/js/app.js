@@ -40,16 +40,16 @@ window.SvgPhonemePresets = SvgPhonemePresets;
 
 function normalizeTongueDegree(value, legacyRestDistance) {
   const numericValue = Number(value);
+  void legacyRestDistance;
   if (!Number.isFinite(numericValue)) return 1;
-  if (numericValue <= 1) return Math.max(0, Math.min(1, numericValue));
-  return Math.max(0, Math.min(1, numericValue / legacyRestDistance));
+  return Math.max(0, Math.min(1, numericValue));
 }
 
 function normalizeScalar(value, legacyMax, fallback) {
   const numericValue = Number(value);
+  void legacyMax;
   if (!Number.isFinite(numericValue)) return fallback;
-  if (numericValue <= 1) return Math.max(0, Math.min(1, numericValue));
-  return Math.max(0, Math.min(1, numericValue / legacyMax));
+  return Math.max(0, Math.min(1, numericValue));
 }
 
 function normalizeSvgState(state = {}) {
@@ -78,6 +78,16 @@ function normalizeSvgState(state = {}) {
     tongue_body_constriction_degree: normalizeTongueDegree(
       state.tongue_body_constriction_degree ?? DEFAULT_SVG_STATE.tongue_body_constriction_degree,
       30,
+    ),
+    lateral_tongue_drop: normalizeScalar(
+      state.lateral_tongue_drop ?? DEFAULT_SVG_STATE.lateral_tongue_drop,
+      1,
+      DEFAULT_SVG_STATE.lateral_tongue_drop,
+    ),
+    glottal_aperture: normalizeScalar(
+      state.glottal_aperture ?? DEFAULT_SVG_STATE.glottal_aperture,
+      1,
+      DEFAULT_SVG_STATE.glottal_aperture,
     ),
   };
 }

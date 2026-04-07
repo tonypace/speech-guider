@@ -61,11 +61,21 @@ def should_use_deprecated_wav2vec2_fallback() -> bool:
     return value not in {"0", "false", "no"}
 
 
-def _ssl_aai_to_animation_state(audio_tensor: torch.Tensor, sample_rate: int) -> dict | None:
+def _ssl_aai_to_animation_state(
+    audio_tensor: torch.Tensor,
+    sample_rate: int,
+    return_trajectory: bool = False,
+) -> dict | tuple[dict, list[dict]] | None:
     """Convert audio to animation state via SSL AAI predictor.
 
+    Args:
+        audio_tensor: Audio tensor
+        sample_rate: Audio sample rate in Hz
+        return_trajectory: If True, also return full trajectory frames
+
     Returns:
-        Canonical animation state dict, or None if predictor unavailable/failed.
+        Canonical animation state dict, or (state, frames) tuple if return_trajectory=True,
+        or None if predictor unavailable/failed.
     """
 
     from src.models.aai_adapter import (
@@ -83,7 +93,11 @@ def _ssl_aai_to_animation_state(audio_tensor: torch.Tensor, sample_rate: int) ->
 
     try:
         # Predict z-scored AAI tract variables
+        print(
+            f"[_ssl_aai_to_animation_state] Calling predictor.predict with audio shape={audio_tensor.shape}, sr={sample_rate}"
+        )
         tvs_tensor = predictor.predict(audio_tensor, sample_rate)
+        print(f"[_ssl_aai_to_animation_state] Prediction succeeded: shape={tvs_tensor.shape}")
         tvs_array = tvs_tensor.numpy()
 
         # Get representative pose from trajectory
@@ -91,30 +105,49 @@ def _ssl_aai_to_animation_state(audio_tensor: torch.Tensor, sample_rate: int) ->
         if len(tvs_array) == 1:
             pose = decode_aai_row(tvs_array[0])
         else:
-            pose = representative_aai_pose(tvs_array, normalization="z_score")
+            pose = representative_aai_pose(tvs_array.tolist())
 
         # Convert to canonical animation state
         metadata = AAIConversionMetadata(normalization="z_score")
         animation_state = aai_to_canonical_state(pose, metadata=metadata)
 
         print(f"[_ssl_aai_to_animation_state] Generated animation state via SSL AAI path")
+
+        if return_trajectory:
+            # Convert full trajectory to canonical frames
+            frames = []
+            for i in range(tvs_array.shape[0]):
+                tv_row = decode_aai_row(tvs_array[i])
+                frame = aai_to_canonical_state(tv_row, metadata=metadata)
+                frames.append(frame)
+            print(f"[_ssl_aai_to_animation_state] Generated {len(frames)} trajectory frames")
+            return animation_state, frames
+
         return animation_state
 
     except Exception as e:
-        print(f"[_ssl_aai_to_animation_state] SSL AAI prediction failed: {e}")
+        import traceback
+
+        tb = traceback.format_exc()
+        msg = f"[_ssl_aai_to_animation_state] SSL AAI prediction failed: {e}\n{tb}"
+        print(msg)
+        # Write to file so we can see it even without terminal access
+        with open("/tmp/ssl_debug.log", "a") as f:
+            f.write(msg + "\n" + "=" * 80 + "\n")
         return None
 
 
 def try_primary_ssl_analysis(
-    audio_tensor: torch.Tensor, sample_rate: int
-) -> tuple[list, object | None, dict | None]:
+    audio_tensor: torch.Tensor, sample_rate: int, return_trajectory: bool = False
+) -> tuple[list, object | None, dict | None, list[dict] | None]:
     """Try the primary SSL AAI path before falling back to Wav2Vec2 alignment.
 
     Returns:
-        tuple: (errors, alignment, animation_state)
+        tuple: (errors, alignment, animation_state, ssl_trajectory)
         - errors: list of pronunciation errors
         - alignment: alignment object or None
         - animation_state: canonical animation state dict or None
+        - ssl_trajectory: list of canonical frame dicts or None (if return_trajectory=True)
 
     Note:
         The SSL AAI path currently only produces animation state, not full
@@ -123,11 +156,17 @@ def try_primary_ssl_analysis(
 
     print("[try_primary_ssl_analysis] Attempting SSL AAI path...")
 
-    animation_state = _ssl_aai_to_animation_state(audio_tensor, sample_rate)
+    result = _ssl_aai_to_animation_state(
+        audio_tensor, sample_rate, return_trajectory=return_trajectory
+    )
 
-    if animation_state is not None:
+    if result is not None:
         print("[try_primary_ssl_analysis] SSL AAI path succeeded")
-        return [], None, animation_state
+        if return_trajectory and isinstance(result, tuple):
+            animation_state, ssl_trajectory = result
+            return [], None, animation_state, ssl_trajectory
+        if isinstance(result, dict):
+            return [], None, result, None
 
     # If we reach here, SSL AAI path failed
     raise NotImplementedError("SSL AAI prediction failed or unavailable")
@@ -156,13 +195,10 @@ async def run_analysis_blocking(audio_path: str, target_text: str, job_id: str):
     await send_progress_update(job_id, 0.3, "Analyzing pronunciation...", "pronunciation")
 
     try:
-        sample_rate, audio_data = wavfile.read(audio_path)
+        # Use soundfile for flexible format support (WAV, WebM, OGG, MP3, etc.)
+        import soundfile as sf
 
-        # Normalize audio
-        if audio_data.dtype == np.int16:
-            audio_data = audio_data.astype(np.float32) / 32768.0
-        elif audio_data.dtype == np.int32:
-            audio_data = audio_data.astype(np.float32) / 2147483648.0
+        audio_data, sample_rate = sf.read(audio_path, dtype="float32")
 
         # Convert to mono if stereo
         if len(audio_data.shape) > 1:
@@ -181,14 +217,17 @@ async def run_analysis_blocking(audio_path: str, target_text: str, job_id: str):
         errors = []
         alignment = None
         ssl_animation_state = None
+        ssl_trajectory = None
         path_used = "unknown"
 
         try:
-            errors, alignment, ssl_animation_state = try_primary_ssl_analysis(
-                audio_tensor, sample_rate
+            errors, alignment, ssl_animation_state, ssl_trajectory = try_primary_ssl_analysis(
+                audio_tensor, sample_rate, return_trajectory=True
             )
             path_used = "ssl_aai"
-            print(f"[analyze] Primary SSL AAI analysis succeeded, animation state generated")
+            print(
+                f"[analyze] Primary SSL AAI analysis succeeded, animation state and trajectory generated"
+            )
         except NotImplementedError as ssl_exc:
             print(f"[analyze] Primary SSL AAI analysis unavailable: {ssl_exc}")
             if not should_use_deprecated_wav2vec2_fallback():
@@ -270,6 +309,15 @@ async def run_analysis_blocking(audio_path: str, target_text: str, job_id: str):
 
     print(f"[analyze] Analysis path used: {path_used}")
 
+    # Serialize trajectory if available
+    serialized_trajectory = None
+    if ssl_trajectory:
+        serialized_trajectory = {
+            "frame_rate": 50,  # SSL predictor outputs at 50Hz
+            "frame_count": len(ssl_trajectory),
+            "frames": ssl_trajectory,
+        }
+
     return {
         "errors": filtered_errors,
         "feedback": feedback,
@@ -277,6 +325,7 @@ async def run_analysis_blocking(audio_path: str, target_text: str, job_id: str):
         "prosody": serialize_prosody(prosody_metrics) if prosody_metrics else None,
         "path_used": path_used,
         "ssl_animation_state": ssl_animation_state,
+        "ssl_trajectory": serialized_trajectory,
         "success": True,
         "message": "Analysis complete",
     }
@@ -535,6 +584,21 @@ async def analyze_audio(
         # Run with concurrency protection
         result = await run_with_semaphore(do_analysis())
         return JSONResponse(content=result)
+    except Exception as e:
+        # Catch-all for unexpected errors
+        import traceback
+
+        print(f"[analyze] UNEXPECTED ERROR: {e}")
+        print(traceback.format_exc())
+        cleanup_temp_file(temp_path)
+        return JSONResponse(
+            content={
+                "success": False,
+                "error": f"Unexpected error: {str(e)}",
+                "traceback": traceback.format_exc(),
+            },
+            status_code=500,
+        )
     except HTTPException as e:
         # Cleanup on error
         cleanup_temp_file(temp_path)

@@ -1,7 +1,7 @@
 """AAI tract-variable adapter for SVG articulatory animation."""
 
 from dataclasses import dataclass, field
-from typing import Mapping, Sequence
+from typing import Mapping, Sequence, cast
 
 import numpy as np
 
@@ -10,6 +10,7 @@ from src.models.articulatory import (
     normalize_svg_state,
     svg_state_to_dict,
 )
+from src.models.articulatory_calibration import apply_global_articulatory_calibration, clamp_unit
 
 AAI_TV_ORDER: tuple[str, ...] = ("LP", "LA", "TTCL", "TTCD", "TBCL", "TBCD", "VEL", "GLO", "LAT")
 AAI_MASKED_FIELDS_BY_SOURCE: dict[str, set[str]] = {
@@ -51,7 +52,10 @@ class AAIConversionMetadata:
         source_dataset = payload.get("source_dataset")
         source_name = str(source_dataset).lower() if source_dataset is not None else None
         payload_masked = payload.get("masked_fields", [])
-        masked_fields = {str(field_name).upper() for field_name in payload_masked}
+        masked_fields: set[str] = set()
+        if isinstance(payload_masked, Sequence) and not isinstance(payload_masked, (str, bytes)):
+            for field_name in cast(Sequence[object], payload_masked):
+                masked_fields.add(str(field_name).upper())
         if source_name in AAI_MASKED_FIELDS_BY_SOURCE:
             masked_fields |= AAI_MASKED_FIELDS_BY_SOURCE[source_name]
         return cls(
@@ -142,7 +146,7 @@ def representative_aai_pose(
 ) -> AAITractVariables:
     """Reduce a TV trajectory to a stable representative pose."""
 
-    if not frames:
+    if len(frames) == 0:
         raise ValueError("AAI frames must not be empty")
 
     matrix = np.asarray(frames, dtype=np.float32)
@@ -169,10 +173,93 @@ def _lp_to_renderer(value: float, reference_extent: float) -> float:
     return _mm_to_unit_interval(max(0.0, value), reference_extent)
 
 
+def _glo_to_unit_interval(value: float) -> float:
+    """Normalize glottal aperture into canonical 0..1 range."""
+
+    return clamp_unit(value)
+
+
+def _lat_to_unit_interval(value: float) -> float:
+    """Normalize lateral tongue drop into canonical 0..1 range."""
+
+    return clamp_unit(value)
+
+
 def _reference_extent(mean: float, std: float) -> float:
     """Return a conservative positive reference extent from stats."""
 
     return max(1.0, abs(mean) + (3.0 * std))
+
+
+def _resolve_aai_input_variables(
+    tract_variables: AAITractVariables,
+    profile: AAINormalizationProfile,
+    metadata: AAIConversionMetadata,
+) -> AAITractVariables:
+    """Resolve incoming AAI values into one consistent physical scale."""
+
+    if metadata.normalization != "z_score":
+        return tract_variables
+
+    return denormalize_aai_row(
+        [
+            tract_variables.lp,
+            tract_variables.la,
+            tract_variables.ttcl,
+            tract_variables.ttcd,
+            tract_variables.tbcl,
+            tract_variables.tbcd,
+            tract_variables.vel,
+            tract_variables.glo,
+            tract_variables.lat,
+        ],
+        profile,
+    )
+
+
+def _resolved_aai_to_canonical_state(
+    tract_variables: AAITractVariables,
+    profile: AAINormalizationProfile,
+    metadata: AAIConversionMetadata,
+    fallback_state: Mapping[str, float] | None = None,
+) -> dict[str, float]:
+    """Map resolved AAI tract variables into canonical normalized state."""
+
+    defaults = svg_state_to_dict(default_articulatory_state())
+    fallback = dict(fallback_state or defaults)
+
+    lp_extent = _reference_extent(profile.mean[0], profile.std[0])
+    la_extent = _reference_extent(profile.mean[1], profile.std[1])
+    ttcd_extent = _reference_extent(profile.mean[3], profile.std[3])
+    tbcd_extent = _reference_extent(profile.mean[5], profile.std[5])
+    vel_extent = _reference_extent(profile.mean[6], profile.std[6])
+
+    candidate = {
+        "lip_aperture": _mm_to_unit_interval(tract_variables.la, la_extent),
+        "lip_protrusion": _lp_to_renderer(tract_variables.lp, lp_extent),
+        "tongue_tip_constriction_location": clamp_unit(tract_variables.ttcl),
+        "tongue_tip_constriction_degree": _mm_to_unit_interval(tract_variables.ttcd, ttcd_extent),
+        "lateral_tongue_drop": _lat_to_unit_interval(tract_variables.lat),
+        "velic_aperture": _mm_to_unit_interval(tract_variables.vel, vel_extent),
+        "tongue_body_constriction_location": clamp_unit(tract_variables.tbcl),
+        "tongue_body_constriction_degree": _mm_to_unit_interval(tract_variables.tbcd, tbcd_extent),
+        "glottal_aperture": _glo_to_unit_interval(tract_variables.glo),
+    }
+
+    masked_fields = set(metadata.masked_fields)
+    if metadata.source_dataset in AAI_MASKED_FIELDS_BY_SOURCE:
+        masked_fields |= AAI_MASKED_FIELDS_BY_SOURCE[metadata.source_dataset]
+
+    masked_field_mapping = {
+        "VEL": "velic_aperture",
+        "GLO": "glottal_aperture",
+        "LAT": "lateral_tongue_drop",
+    }
+    for aai_key, canonical_key in masked_field_mapping.items():
+        if aai_key in masked_fields:
+            candidate[canonical_key] = fallback.get(canonical_key, defaults[canonical_key])
+
+    return apply_global_articulatory_calibration(normalize_svg_state(candidate))
 
 
 def aai_to_canonical_state(
@@ -185,41 +272,13 @@ def aai_to_canonical_state(
 
     stats = profile or DEFAULT_AAI_REFERENCE_PROFILE
     conversion_metadata = metadata or AAIConversionMetadata()
-    defaults = svg_state_to_dict(default_articulatory_state())
-    fallback = dict(fallback_state or defaults)
-
-    lp_extent = _reference_extent(stats.mean[0], stats.std[0])
-    la_extent = _reference_extent(stats.mean[1], stats.std[1])
-    ttcd_extent = _reference_extent(stats.mean[3], stats.std[3])
-    tbcd_extent = _reference_extent(stats.mean[5], stats.std[5])
-    vel_extent = _reference_extent(stats.mean[6], stats.std[6])
-
-    candidate = {
-        "lip_aperture": _mm_to_unit_interval(tract_variables.la, la_extent),
-        "lip_protrusion": _lp_to_renderer(tract_variables.lp, lp_extent),
-        "tongue_tip_constriction_location": max(0.0, min(1.0, tract_variables.ttcl)),
-        "tongue_tip_constriction_degree": _mm_to_unit_interval(tract_variables.ttcd, ttcd_extent),
-        "lateral_tongue_drop": max(0.0, min(40.0, tract_variables.lat * 40.0)),
-        "velic_aperture": _mm_to_unit_interval(tract_variables.vel, vel_extent),
-        "tongue_body_constriction_location": max(0.0, min(1.0, tract_variables.tbcl)),
-        "tongue_body_constriction_degree": _mm_to_unit_interval(tract_variables.tbcd, tbcd_extent),
-        "glottal_aperture": max(0.0, min(30.0, tract_variables.glo * 30.0)),
-    }
-
-    masked_fields = set(conversion_metadata.masked_fields)
-    if conversion_metadata.source_dataset in AAI_MASKED_FIELDS_BY_SOURCE:
-        masked_fields |= AAI_MASKED_FIELDS_BY_SOURCE[conversion_metadata.source_dataset]
-
-    masked_field_mapping = {
-        "VEL": "velic_aperture",
-        "GLO": "glottal_aperture",
-        "LAT": "lateral_tongue_drop",
-    }
-    for aai_key, canonical_key in masked_field_mapping.items():
-        if aai_key in masked_fields:
-            candidate[canonical_key] = fallback.get(canonical_key, defaults[canonical_key])
-
-    return normalize_svg_state(candidate)
+    resolved_variables = _resolve_aai_input_variables(tract_variables, stats, conversion_metadata)
+    return _resolved_aai_to_canonical_state(
+        resolved_variables,
+        profile=stats,
+        metadata=conversion_metadata,
+        fallback_state=fallback_state,
+    )
 
 
 def parse_aai_animation_payload(
@@ -256,10 +315,7 @@ def parse_aai_animation_payload(
         values = payload.get("values")
         if not isinstance(values, Sequence):
             raise ValueError("AAI values payload must be a sequence")
-        if metadata.normalization == "z_score":
-            tract_variables = denormalize_aai_row(values, profile)
-        else:
-            tract_variables = decode_aai_row(values)
+        tract_variables = decode_aai_row(values)
 
     return aai_to_canonical_state(
         tract_variables,

@@ -121,7 +121,7 @@ const cannedSelectErrorResponse = {
       velic_aperture: 0.0,
       tongue_body_constriction_location: 0.55,
       tongue_body_constriction_degree: 0.55,
-      glottal_aperture: 3,
+      glottal_aperture: 0.1,
     },
     right: {
       lip_aperture: 0.0,
@@ -132,7 +132,7 @@ const cannedSelectErrorResponse = {
       velic_aperture: 0.0,
       tongue_body_constriction_location: 0.55,
       tongue_body_constriction_degree: 0.55,
-      glottal_aperture: 18,
+      glottal_aperture: 0.6,
     },
   },
   highlight_params: { zone: 'glottis' },

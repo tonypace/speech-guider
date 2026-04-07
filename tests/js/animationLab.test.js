@@ -23,7 +23,7 @@ describe('SvgArticulatoryRenderer', () => {
 
   it('renders state updates', () => {
     renderer.mount();
-    renderer.setState({ lip_aperture: 0.5, glottal_aperture: 10 });
+    renderer.setState({ lip_aperture: 0.5, glottal_aperture: 1 });
     expect(container.querySelector('#test-jaw-group')).toBeTruthy();
     expect(container.querySelector('#test-tongue').getAttribute('d')).toContain('C');
   });
@@ -65,9 +65,9 @@ describe('SvgArticulatoryRenderer', () => {
 
   it('setPhonemePreset is an alias for setState', () => {
     renderer.mount();
-    renderer.setPhonemePreset({ lip_aperture: 0.38, glottal_aperture: 5 });
+    renderer.setPhonemePreset({ lip_aperture: 0.38, glottal_aperture: 0.5 });
     expect(renderer.state.lip_aperture).toBe(0.38);
-    expect(renderer.state.glottal_aperture).toBe(5);
+    expect(renderer.state.glottal_aperture).toBe(0.5);
   });
 
   it('setParameters is an alias for setState', () => {
@@ -78,8 +78,8 @@ describe('SvgArticulatoryRenderer', () => {
 
   it('updateFromSchema is an alias for setState', () => {
     renderer.mount();
-    renderer.updateFromSchema({ glottal_aperture: 12 });
-    expect(renderer.state.glottal_aperture).toBe(12);
+    renderer.updateFromSchema({ glottal_aperture: 0.75 });
+    expect(renderer.state.glottal_aperture).toBe(0.75);
   });
 
   it('setState merges with existing state', () => {
@@ -173,7 +173,7 @@ describe('SvgArticulatoryRenderer', () => {
 
   it('glottal_aperture updates glottis-hole points', () => {
     renderer.mount();
-    renderer.setState({ glottal_aperture: 20 });
+    renderer.setState({ glottal_aperture: 2 / 3 });
     const glottisHole = container.querySelector('#test-glottis-hole');
     const pts = glottisHole.getAttribute('points');
     expect(pts).toContain('0,-10');
@@ -189,7 +189,7 @@ describe('SvgArticulatoryRenderer', () => {
 
   it('tongue opacity decreases as lateral_tongue_drop increases', () => {
     renderer.mount();
-    renderer.setState({ lateral_tongue_drop: 40 });
+    renderer.setState({ lateral_tongue_drop: 1 });
     const tongue = container.querySelector('#test-tongue');
     const opacity = parseFloat(tongue.getAttribute('opacity'));
     expect(opacity).toBeLessThan(1.0);
@@ -197,7 +197,7 @@ describe('SvgArticulatoryRenderer', () => {
 
   it('wind-icon appears when lateral_tongue_drop >= 20', () => {
     renderer.mount();
-    renderer.setState({ lateral_tongue_drop: 25 });
+    renderer.setState({ lateral_tongue_drop: 0.625 });
     const wind = container.querySelector('#test-wind-icon');
     expect(parseFloat(wind.getAttribute('opacity'))).toBeGreaterThan(0);
   });
@@ -240,11 +240,11 @@ describe('SvgArticulatoryRenderer', () => {
     expect(r._mapLocation(1, 'body')).toBeCloseTo(1.0, 4);
   });
 
-  it('normalizes old raw tongue degree values', async () => {
+  it('clamps tongue degree to normalized range only', async () => {
     const mod = await import('../../static/js/svg_articulatory_renderer.js');
     const r = new mod.SvgArticulatoryRenderer(document.body);
-    expect(r._normalizeDegree(40, 40)).toBeCloseTo(1, 4);
-    expect(r._normalizeDegree(20, 40)).toBeCloseTo(0.5, 4);
+    expect(r._normalizeDegree(1.4, 40)).toBeCloseTo(1, 4);
+    expect(r._normalizeDegree(0.5, 40)).toBeCloseTo(0.5, 4);
     expect(r._normalizeDegree(0.7, 40)).toBeCloseTo(0.7, 4);
   });
 

@@ -37,18 +37,17 @@ This is the source-of-truth API document for the current implemented renderer co
 | `LP` | `lip_protrusion` | `0..1` | `0.71` | lips protrude more |
 | `TTCL` | `tongue_tip_constriction_location` | `0..1` | `0.20` | tongue-tip anchor moves posteriorly on the tip track |
 | `TTCD` | `tongue_tip_constriction_degree` | `0..1` | `1.0` | tongue tip moves farther away from the roof |
-| `LAT` | `lateral_tongue_drop` | `0..40` | `0.0` | tongue sides drop more |
+| `LAT` | `lateral_tongue_drop` | `0..1` | `0.0` | tongue sides drop more |
 | `VEL` | `velic_aperture` | `0..1` | `0.0` | velum opens more / nasal coupling increases |
 | `TBCL` | `tongue_body_constriction_location` | `0..1` | `0.70` | tongue-body anchor moves posteriorly on the body track |
 | `TBCD` | `tongue_body_constriction_degree` | `0..1` | `1.0` | tongue body moves farther away from the roof |
-| `GLO` | `glottal_aperture` | `0..30` | `0.0` | glottis opens more / voicing decreases |
+| `GLO` | `glottal_aperture` | `0..1` | `0.0` | glottis opens more / voicing decreases |
 
 ## Global Rules
 
 - All sliders increase numerically from left to right.
 - Out-of-range values are clamped by the renderer.
-- `LA`, `LP`, `TTCL`, `TTCD`, `VEL`, `TBCL`, and `TBCD` are canonical normalized controls.
-- `LAT` and `GLO` are canonical but not normalized yet.
+- All 9 canonical controls are normalized to `0..1`.
 - Larger values do not always mean more constriction. In several cases they mean more opening.
 
 ## Tongue Geometry Model
@@ -173,11 +172,11 @@ TTCD = 1 - tip_constriction_tightness
 
 ### 5. `LAT` / `lateral_tongue_drop`
 
-- Range: `0..40`
+- Range: `0..1`
 - Default: `0.0`
 - Slider right means: more lateral tongue-side opening or side drop
 - `0` means: no lateral drop
-- `40` means: maximum supported lateral drop in the current contract
+- `1` means: maximum supported lateral drop in the current contract
 
 Meaning:
 
@@ -186,13 +185,13 @@ Meaning:
 
 Translation warning:
 
-- `LAT` is not normalized today.
-- If your source system uses `0..1`, multiply by `40`.
+- `LAT` is normalized in the canonical contract.
+- If your source system uses another scale, normalize it into `0..1` before emission.
 
 Typical adapter:
 
 ```text
-LAT = 40 * lateral_drop_normalized
+LAT = lateral_drop_normalized
 ```
 
 ### 6. `VEL` / `velic_aperture`
@@ -267,11 +266,11 @@ TBCD = 1 - body_constriction_tightness
 
 ### 9. `GLO` / `glottal_aperture`
 
-- Range: `0..30`
+- Range: `0..1`
 - Default: `0.0`
 - Slider right means: glottis opens more, voicing potential decreases
 - `0` means: maximally adducted end of the current visual range
-- `30` means: maximally open end of the current visual range
+- `1` means: maximally open end of the current visual range
 
 Meaning:
 
@@ -282,25 +281,21 @@ Translation warning:
 
 - Do not map a voicing strength value directly without inversion.
 - If your source system uses `1 = voiced` and `0 = voiceless`, the sign is opposite.
-- `GLO` is also not normalized today.
+- `GLO` is normalized in the canonical contract.
 
 Typical adapter:
 
 ```text
-GLO = 30 * (1 - voiced_normalized)
+GLO = 1 - voiced_normalized
 ```
 
-## Legacy Compatibility
+## Runtime Contract
 
-The runtime accepts some historical non-canonical values and normalizes them.
+The runtime contract is normalized-only.
 
-- `LA` values greater than `1` are treated as legacy `0..40` values and divided by `40`
-- `LP` values greater than `1` are treated as legacy `0..14` values and divided by `14`
-- `VEL` values greater than `1` are treated as legacy `0..40` values and divided by `40`
-- `TTCD` values greater than `1` are treated as legacy pixel-distance style values and divided by `40`
-- `TBCD` values greater than `1` are treated as legacy pixel-distance style values and divided by `30`
-
-This behavior exists for compatibility. New integrations should emit the canonical ranges documented here, not the legacy ones.
+- New integrations should emit canonical normalized values for all 9 fields.
+- The renderer expands normalized values into internal pixel geometry as an implementation detail.
+- Callers should not rely on legacy raw-value coercion.
 
 ## Translation Layer Guidance
 
@@ -323,7 +318,7 @@ Always convert by named field.
 Additional AAI notes:
 
 - AAI `LP` may be signed, where negative means retracted; this renderer only accepts nonnegative protrusion, so negative values must be mapped intentionally rather than copied directly.
-- AAI `GLO` and `LAT` commonly use `0..1` and must be scaled into renderer ranges `0..30` and `0..40` respectively.
+- AAI `GLO` and `LAT` can map directly into canonical normalized `0..1` ranges when already normalized.
 - Some AAI datasets emit z-scored targets and require speaker or reference `mean`/`std` profiles for denormalization before rendering.
 - XRMB-based data may not supervise `VEL`, `GLO`, or `LAT`; those channels should use explicit fallback behavior rather than being treated as fully observed.
 
@@ -350,7 +345,7 @@ tongue_body_constriction_degree = 1 - body_tightness
 Convert from voicing to glottal opening instead of copying the value directly.
 
 ```text
-glottal_aperture = 30 * (1 - voiced_normalized)
+glottal_aperture = 1 - voiced_normalized
 ```
 
 ### If your source system has one tongue frontness axis
@@ -401,7 +396,7 @@ These are example states in the canonical API format.
   "velic_aperture": 0.0,
   "tongue_body_constriction_location": 0.55,
   "tongue_body_constriction_degree": 0.55,
-  "glottal_aperture": 18.0
+  "glottal_aperture": 0.60
 }
 ```
 
@@ -417,7 +412,7 @@ These are example states in the canonical API format.
   "velic_aperture": 0.0,
   "tongue_body_constriction_location": 0.75,
   "tongue_body_constriction_degree": 0.55,
-  "glottal_aperture": 18.0
+  "glottal_aperture": 0.60
 }
 ```
 
@@ -433,7 +428,7 @@ These are example states in the canonical API format.
   "velic_aperture": 0.0,
   "tongue_body_constriction_location": 0.15,
   "tongue_body_constriction_degree": 1.00,
-  "glottal_aperture": 18.0
+  "glottal_aperture": 0.60
 }
 ```
 
@@ -449,7 +444,7 @@ These are example states in the canonical API format.
   "velic_aperture": 0.88,
   "tongue_body_constriction_location": 0.75,
   "tongue_body_constriction_degree": 0.55,
-  "glottal_aperture": 3.0
+  "glottal_aperture": 0.10
 }
 ```
 
@@ -497,7 +492,28 @@ Before shipping a translation layer, verify all of the following:
 - `TTCD` and `TBCD` are not accidentally inverted
 - `VEL` increases with nasal opening, not oral closure
 - `GLO` increases with glottal opening, not voicing
-- `LAT` is scaled into `0..40`
-- `GLO` is scaled into `0..30`
+- `LAT` remains normalized in `0..1`
+- `GLO` remains normalized in `0..1`
+
+## Global Calibration Layer
+
+The backend supports a global Python-side calibration layer that adjusts canonical normalized values before they are emitted to the renderer.
+
+- Calibration is global across all utterances.
+- Calibration is monotonic.
+- Calibration is phoneme-independent.
+- Calibration is intended for visual tuning, not semantic reinterpretation.
+
+Current calibration implementation lives in `src/models/articulatory_calibration.py`.
+
+Supported transform types:
+
+- `identity`
+- `gamma`
+- `piecewise_linear`
+
+Example use case:
+
+- If low-to-mid `TTCD` values should render slightly closer to the palate for a better sibilant appearance, a global monotonic `gamma` transform can tighten the visual response without retraining the model.
 
 If any one of these is wrong, the animation may still move, but it will encode the wrong articulatory meaning.

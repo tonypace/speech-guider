@@ -29,9 +29,9 @@ function lerp(start, end, t) {
 
 function normalizeScalar(value, legacyMax, fallback) {
   const numericValue = Number(value);
+  void legacyMax;
   if (!Number.isFinite(numericValue)) return fallback;
-  if (numericValue <= 1) return clamp(numericValue, 0, 1);
-  return clamp(numericValue / legacyMax, 0, 1);
+  return clamp(numericValue, 0, 1);
 }
 
 function cubicPoint(p0, p1, p2, p3, t) {
@@ -120,8 +120,6 @@ export class SvgArticulatoryRenderer {
     this._voicingOffset = 0;
     this._mounted = false;
     this._elements = {};
-    this._roofTrackCache = null;
-    this._palateGeometryCache = null;
   }
 
   mount() {
@@ -307,14 +305,14 @@ export class SvgArticulatoryRenderer {
         state.tongue_tip_constriction_degree ?? DEFAULT_STATE.tongue_tip_constriction_degree,
         40,
       ),
-      lateral_tongue_drop: clamp(Number(state.lateral_tongue_drop ?? DEFAULT_STATE.lateral_tongue_drop), 0, 40),
+      lateral_tongue_drop: clamp(Number(state.lateral_tongue_drop ?? DEFAULT_STATE.lateral_tongue_drop), 0, 1),
       velic_aperture: normalizeScalar(state.velic_aperture, VELIC_APERTURE_MAX, DEFAULT_STATE.velic_aperture),
       tongue_body_constriction_location: clamp(Number(state.tongue_body_constriction_location ?? DEFAULT_STATE.tongue_body_constriction_location), 0, 1),
       tongue_body_constriction_degree: this._normalizeDegree(
         state.tongue_body_constriction_degree ?? DEFAULT_STATE.tongue_body_constriction_degree,
         30,
       ),
-      glottal_aperture: clamp(Number(state.glottal_aperture ?? DEFAULT_STATE.glottal_aperture), 0, 30),
+      glottal_aperture: clamp(Number(state.glottal_aperture ?? DEFAULT_STATE.glottal_aperture), 0, 1),
     };
   }
 
@@ -364,8 +362,8 @@ export class SvgArticulatoryRenderer {
 
   _normalizeDegree(value, legacyRestDistance) {
     const numericValue = Number(value);
-    if (numericValue <= 1) return clamp(numericValue, 0, 1);
-    return clamp(numericValue / legacyRestDistance, 0, 1);
+    void legacyRestDistance;
+    return clamp(numericValue, 0, 1);
   }
 
   _projectInside(anchor, normal, point, minimumDistance = 2) {
@@ -448,20 +446,15 @@ export class SvgArticulatoryRenderer {
     const lp = normalizeScalar(s.lip_protrusion, LIP_PROTRUSION_MAX, DEFAULT_STATE.lip_protrusion) * LIP_PROTRUSION_MAX;
     const ttcl = clamp(s.tongue_tip_constriction_location, 0, 1);
     const ttcd = this._normalizeDegree(s.tongue_tip_constriction_degree, 40);
-    const lat = clamp(s.lateral_tongue_drop, 0, 40);
+    const latNorm = clamp(s.lateral_tongue_drop, 0, 1);
+    const lat = latNorm * 40;
     const vel = normalizeScalar(s.velic_aperture, VELIC_APERTURE_MAX, DEFAULT_STATE.velic_aperture) * VELIC_APERTURE_MAX;
     const tbcl = clamp(s.tongue_body_constriction_location, 0, 1);
     const tbcd = this._normalizeDegree(s.tongue_body_constriction_degree, 30);
-    const glo = clamp(s.glottal_aperture, 0, 30);
-    const velRounded = Math.round(vel);
-    if (!this._roofTrackCache || this._roofTrackCache.vel !== velRounded) {
-      this._roofTrackCache = { vel: velRounded, ...this._buildRoofTrack(vel) };
-    }
-    const roofTrack = this._roofTrackCache;
-    if (!this._palateGeometryCache || this._palateGeometryCache.vel !== velRounded) {
-      this._palateGeometryCache = { vel: velRounded, ...this._buildVisiblePalateGeometry(vel) };
-    }
-    const visiblePalateGeometry = this._palateGeometryCache;
+    const gloNorm = clamp(s.glottal_aperture, 0, 1);
+    const glo = gloNorm * 30;
+    const roofTrack = this._buildRoofTrack(vel);
+    const visiblePalateGeometry = this._buildVisiblePalateGeometry(vel);
     const visiblePalatePath = visiblePalateGeometry.path;
 
     if (jaw) jaw.setAttribute('transform', `translate(0, ${la})`);
@@ -616,7 +609,7 @@ export class SvgArticulatoryRenderer {
   _renderVoicing(timestamp) {
     const line = this.$('voicing-line');
     const pattern = this.$('voicing-pattern');
-    const intensity = 1 - clamp(this.state.glottal_aperture, 0, 30) / 30;
+    const intensity = 1 - clamp(this.state.glottal_aperture, 0, 1);
     if (!line || !pattern) return;
     if (intensity > 0) {
       const speed = 0.5 + intensity * 2.5;

@@ -8,7 +8,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from app.api import analyze, errors, presets, prosody_lab, sse
+from app.api import analyze, comparison, errors, presets, prosody_lab, sse
 from app.services.state import load_presets
 
 # Create FastAPI app
@@ -52,6 +52,7 @@ templates = Jinja2TemplatesNoCache(jinja_env)
 
 # Include API routers
 app.include_router(analyze.router)
+app.include_router(comparison.router)
 app.include_router(prosody_lab.router)
 app.include_router(presets.router)
 app.include_router(errors.router)

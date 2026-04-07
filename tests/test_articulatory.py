@@ -272,7 +272,7 @@ def test_template_to_svg_state():
     assert state.velic_aperture == 0.0
     assert state.tongue_body_constriction_location == 0.55
     assert state.tongue_body_constriction_degree == 0.55
-    assert state.glottal_aperture == 18
+    assert state.glottal_aperture == 0.6
     print("✓ _template_to_svg_state test passed")
 
 
@@ -287,11 +287,11 @@ def test_get_animation_params_template_hit():
 
     result_p = mapper.get_animation_params("p")
     assert result_p["lip_aperture"] == 0.0
-    assert result_p["glottal_aperture"] == 18
+    assert result_p["glottal_aperture"] == 0.6
 
     result_b = mapper.get_animation_params("b")
     assert result_b["lip_aperture"] == 0.0
-    assert result_b["glottal_aperture"] == 3
+    assert result_b["glottal_aperture"] == 0.1
 
     result_m = mapper.get_animation_params("m")
     assert result_m["velic_aperture"] == 0.88
@@ -316,7 +316,7 @@ def test_svg_state_to_dict():
         velic_aperture=0.50,
         tongue_body_constriction_location=0.60,
         tongue_body_constriction_degree=0.7,
-        glottal_aperture=5,
+        glottal_aperture=0.5,
     )
     d = svg_state_to_dict(state)
 
@@ -329,7 +329,7 @@ def test_svg_state_to_dict():
     assert d["velic_aperture"] == 0.50
     assert d["tongue_body_constriction_location"] == 0.60
     assert d["tongue_body_constriction_degree"] == 0.7
-    assert d["glottal_aperture"] == 5
+    assert d["glottal_aperture"] == 0.5
     print("✓ svg_state_to_dict test passed")
 
 
@@ -340,15 +340,15 @@ def test_normalize_svg_state():
         "lip_protrusion": 0.21,
         "tongue_tip_constriction_location": 0.5,
         "tongue_tip_constriction_degree": 1.0,
-        "lateral_tongue_drop": 10,
+        "lateral_tongue_drop": 0.25,
         "velic_aperture": 0.12,
         "tongue_body_constriction_location": 0.6,
         "tongue_body_constriction_degree": 0.7,
-        "glottal_aperture": 3,
+        "glottal_aperture": 0.3,
     }
     result = normalize_svg_state(svg_input)
     assert result["lip_aperture"] == 0.20
-    assert result["glottal_aperture"] == 3
+    assert result["glottal_aperture"] == 0.3
     assert result["tongue_tip_constriction_degree"] == 1.0
     assert result["tongue_body_constriction_degree"] == 0.7
 
@@ -369,8 +369,8 @@ def test_normalize_svg_state():
     print("✓ normalize_svg_state test passed")
 
 
-def test_normalize_svg_state_legacy_degree_scale():
-    """Test normalize_svg_state converts older raw tongue distances."""
+def test_normalize_svg_state_clamps_non_normalized_svg_input():
+    """Test normalize_svg_state clamps SVG-shaped input into normalized range."""
 
     legacy_svg_input = {
         "tongue_tip_constriction_degree": 40,
@@ -486,8 +486,38 @@ def test_aai_to_canonical_state_preserves_sign_directions():
     assert state["tongue_body_constriction_location"] == 0.9
     assert state["tongue_body_constriction_degree"] > 0
     assert state["velic_aperture"] == 0.0
-    assert state["glottal_aperture"] == 30.0
-    assert state["lateral_tongue_drop"] == 40.0
+    assert state["glottal_aperture"] == 1.0
+    assert state["lateral_tongue_drop"] == 1.0
+
+    for value in state.values():
+        assert 0.0 <= value <= 1.0
+
+
+def test_parse_aai_animation_payload_zscore_matches_single_step_conversion():
+    """AAI payload parsing should denormalize z-scored values exactly once."""
+
+    payload = {
+        "source_dataset": "timit",
+        "normalization": "z_score",
+        "stats_reference": {
+            "mean": [-3.035, 33.41, 0.0, 14.96, 0.85, 7.78, 11.64, 1.0, 0.0],
+            "std": [0.632, 0.68, 1.0, 0.73, 0.07, 0.20, 0.64, 1.0, 1.0],
+        },
+        "values": [0.92, 2.63, 0.0, 0.51, -0.28, -0.59, 0.58, 0.0, 0.0],
+    }
+
+    profile = AAINormalizationProfile(
+        mean=tuple(payload["stats_reference"]["mean"]),
+        std=tuple(payload["stats_reference"]["std"]),
+        profile_name="payload_reference",
+    )
+    expected = aai_to_canonical_state(
+        decode_aai_row(payload["values"]),
+        profile=profile,
+        metadata=AAIConversionMetadata(normalization="z_score", source_dataset="timit"),
+    )
+
+    assert parse_aai_animation_payload(payload) == expected
 
 
 def test_aai_masked_channels_fall_back_to_existing_state():
@@ -513,14 +543,14 @@ def test_aai_masked_channels_fall_back_to_existing_state():
         "velic_aperture": 0.0,
         "tongue_body_constriction_location": 0.5,
         "tongue_body_constriction_degree": 0.6,
-        "glottal_aperture": 3.0,
+        "glottal_aperture": 0.3,
     }
     metadata = AAIConversionMetadata(normalization="raw", source_dataset="xrmb")
 
     state = aai_to_canonical_state(tv, metadata=metadata, fallback_state=fallback)
 
     assert state["velic_aperture"] == 0.0
-    assert state["glottal_aperture"] == 3.0
+    assert state["glottal_aperture"] == 0.3
     assert state["lateral_tongue_drop"] == 0.0
 
 
@@ -569,6 +599,8 @@ def test_parse_aai_animation_payload_returns_canonical_state():
     }
     assert state["tongue_tip_constriction_location"] == 0.0
     assert round(state["tongue_body_constriction_location"], 2) == 0.83
+    for value in state.values():
+        assert 0.0 <= value <= 1.0
 
 
 def test_articulatory_state_dataclass():
@@ -578,15 +610,15 @@ def test_articulatory_state_dataclass():
         lip_protrusion=1.0,
         tongue_tip_constriction_location=0.1,
         tongue_tip_constriction_degree=0.2,
-        lateral_tongue_drop=5.0,
+        lateral_tongue_drop=0.5,
         velic_aperture=1.0,
         tongue_body_constriction_location=0.9,
         tongue_body_constriction_degree=1.0,
-        glottal_aperture=8.0,
+        glottal_aperture=0.8,
     )
     assert state.lip_aperture == 1.0
-    assert state.glottal_aperture == 8.0
-    assert state.lateral_tongue_drop == 5.0
+    assert state.glottal_aperture == 0.8
+    assert state.lateral_tongue_drop == 0.5
     print("✓ ArticulatoryState dataclass test passed")
 
 

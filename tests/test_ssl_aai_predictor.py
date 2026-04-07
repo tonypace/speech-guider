@@ -192,6 +192,7 @@ def test_predictor_adapter_integration():
     for field in expected_fields:
         assert field in canonical, f"Missing canonical field: {field}"
         assert isinstance(canonical[field], float), f"Field {field} should be float"
+        assert 0.0 <= canonical[field] <= 1.0, f"Field {field} should be normalized"
 
 
 def test_aai_tv_order_matches_training():
