@@ -1,9 +1,5 @@
 """Speech Guider source modules."""
 
-from src import (
-    audio,  # type: ignore
-    llm,  # type: ignore
-    models,  # type: ignore
-)
+from . import audio, llm, models
 
 __all__ = ["audio", "llm", "models"]

@@ -1,171 +1,171 @@
 # Pronunciation & Prosody Evaluator
 
-A Python-based application that provides real-time feedback on pronunciation and intonation for language learners, particularly targeting ESL students.
+Speech Guider is a local-first pronunciation and prosody coaching app for ESL practice. It records speech, analyzes pronunciation and rhythm, and shows articulatory feedback through an SVG vocal-tract renderer.
+
+## Current Status
+
+- Implemented: ContentVec-based SSL articulatory analysis, SVG articulatory feedback, Animation Lab, Prosody Lab, student-friendly prosody summaries, and the musical-score Prosody Lab display
+- In progress: Comparison Lab playback polish and validation, plus the Tauri classroom shell workflow
+- Backlog: phoneme-level error detection (requires CTC phoneme model), voice-quality metrics, and end-user help docs
 
 ## Features
 
-- **Audio Capture**: Record or upload audio via microphone or file
-- **Pronunciation Analysis**: Detect phoneme errors using local SSL models, with deprecated Wav2Vec2 fallback retained for legacy alignment
-- **Prosody Analysis**: Extract pitch (F0), rhythm (nPVI), and stress patterns
-- **Visual Articulatory Feedback**: Side-by-side vocal tract animations with amber highlighting using the SVG articulatory renderer
-- **Teacher-Friendly**: Technical linguistic terminology with hover tooltips for explanations
-- **Hardware Optimization**: Automatic device detection (MPS > CPU) - optimized for Apple Silicon (~60x faster than CPU) with CPU fallback. Designed for local classroom use.
+- **Analysis tab**: record or upload audio, analyze articulatory features and prosody
+- **Articulatory feedback**: view mouth shapes via the SVG articulatory renderer using ContentVec-based AAI prediction
+- **Animation Lab**: explore and tune canonical phoneme positions directly
+- **Prosody Lab**: record short clips, inspect rhythm and pitch, and compare recent takes
+- **Musical-score display**: view Prosody Lab pitch as note lanes with truth-mode and lock-to-beat views
+- **Comparison Lab**: generate a reference animation from text and compare it side by side with a student trajectory
+- **Classroom-ready direction**: Tauri shell and clicker controls are present in the repo but still under validation
 
 ## Tech Stack
 
-- **Frontend**: HTML5/Tailwind CSS with vanilla JavaScript
-- **Backend**: FastAPI with Server-Sent Events (SSE) for real-time updates
-- **Audio Processing**: PyTorch, Torchaudio, Parselmouth (Praat), Transformers (DistilHuBERT primary, deprecated Wav2Vec2 fallback)
-- **Linguistic Features**: pyclts (Cross-Linguistic Transcription Systems) for IPA feature extraction
-- **Visualization**: Custom SVG articulatory renderer with vanilla JavaScript controls
+- **Frontend**: HTML5, Tailwind CSS, vanilla JavaScript
+- **Backend**: FastAPI, Jinja2, Server-Sent Events
+- **Speech and audio**: PyTorch, Torchaudio, Parselmouth, librosa, `my-voice-analysis`
+- **Models**: ContentVec-based SSL with DANN predictor for articulatory inversion (9 tract variables)
+- **Visualization**: custom SVG articulatory renderer and Plotly-based prosody charts
+- **Desktop shell**: Tauri workspace in `src-tauri/`
 
 ## Installation
 
 ### Prerequisites
 
 - Python 3.10 or later
-- Virtual environment (recommended)
+- Node.js for JS tests and Tauri tooling
+- macOS: `espeak-ng` for phoneme and reference TTS support via `brew install espeak-ng`
 
 ### Setup
 
 ```bash
-# Activate the existing venv
-source speech-guider/bin/activate  # On macOS/Linux
-# speech-guider\Scripts\activate  # On Windows
-
-# Install dependencies (if not already installed)
+source speech-guider/bin/activate
 pip install -r requirements.txt
+npm install
 ```
 
-**System Requirements:**
-- **macOS:** Ensure `espeak-ng` is installed for phoneme conversion: `brew install espeak-ng`
-- **Apple Silicon:** Automatically uses MPS for acceleration (~60x faster than CPU) on macOS 12.3+.
-- **CPU Fallback:** Works on any CPU (slower but functional).
-
-## Usage
-
-### Running the Application
+## Running The App
 
 ```bash
-# Activate venv first, then:
 source speech-guider/bin/activate
 python -m app.main
-# or
+```
+
+Or:
+
+```bash
 uvicorn app.main:app --reload
 ```
 
-The application will launch a web interface at `http://localhost:7860`.
+The web app runs at `http://localhost:7860`.
 
-### How to Use
+For the desktop shell:
 
-1. Read the target sentence displayed in the UI
-2. Click the microphone to record your pronunciation (or upload a .wav file)
-3. Click "Analyze Pronunciation" to receive feedback
-4. Select detected pronunciation errors from the list
-5. Click "Animate" to see side-by-side vocal tract comparisons
-6. Hover over technical terms for plain-English explanations
-7. Amber highlighting shows which part of the mouth/tongue needs correction
-8. Practice and try again!
+```bash
+npm run tauri dev
+```
+
+## How To Use
+
+1. Open the `Analysis` tab and enter or keep the target sentence.
+2. Hold the record button or upload audio.
+3. Run analysis to get articulatory and prosody feedback.
+4. View the articulatory animation showing your vocal tract shape.
+5. Use `Animation Lab` to explore individual phoneme shapes.
+6. Use `Prosody Lab` to compare recent recordings with rhythm and pitch views.
+7. Use `Comparison Lab` to prepare a reference animation from text and compare it with a student recording.
 
 ## Development
 
-### Code Quality
-
-We maintain strict code quality standards using automated tools:
+### Python
 
 ```bash
-# Format code
 ruff format .
-
-# Run linter and auto-fix simple issues
 ruff check . --fix
-
-# Run static type checking
 mypy .
+pytest
 ```
 
-### Testing
-
-We use `pytest` for all unit and integration tests:
+### JavaScript
 
 ```bash
-# Run all tests
-pytest
-
-# Run specific test file
-pytest tests/test_articulatory.py
-
-# Run tests with verbose output
-pytest -v
+npm run test:run
 ```
 
-For detailed development guidelines, see [AGENTS.md](AGENTS.md).
+### End-to-end tests
 
-For the canonical 9-variable articulatory animation contract and dataset translation guidance, see [docs/articulatory-animation-api.md](docs/articulatory-animation-api.md).
+```bash
+npm run test:e2e:mocked
+npm run test:e2e:real
+```
+
+For detailed development guidance, see `AGENTS.md`.
+
+For the canonical 9-variable articulatory animation contract, see `docs/articulatory-animation-api.md`.
+
+## Active Work
+
+- `add-ssl-comparison-playback`: remaining work is mostly tests, validation, docs, and some playback plumbing
+- `add-tauri-classroom-shell`: remaining work is microphone, clicker-flow, and browser-vs-Tauri validation
+
+Recently archived completed changes include SSL-based animation, Prosody Lab voice analysis, student-friendly prosody feedback, and the musical-score display.
 
 ## Project Structure
 
 ```text
 speech-guider/
-├── app/                   # FastAPI application
-│   ├── main.py           # FastAPI entrypoint
-│   ├── api/              # API endpoints (analysis, presets, errors, sse)
-│   ├── services/         # Business logic (state, concurrency)
-│   ├── utils/            # Utilities (audio)
-│   └── templates/        # Jinja2 HTML templates
-│       └── index.html    # Main UI
-├── static/               # Static assets
-│   ├── js/               # JavaScript modules (app bootstrap + components)
-│   │   ├── app.js
-│   │   ├── svg_articulatory_renderer.js
-│   │   ├── recorder.js
-│   │   ├── prosody_lab.js
-│   │   └── ipa_tooltips.js
-│   └── css/              # CSS files (vocal_tract, etc.)
-│       └── vocal_tract.css
-├── src/                  # Python source modules
-│   ├── audio/            # Parselmouth/Praat prosody processing
-│   │   └── processor.py
-│   └── models/           # PyTorch SSL models, adapters, and alignment
-│       ├── articulatory.py  # pyclts mapping & SVG articulatory state
-│       ├── alignment.py     # Forced alignment & GOP scoring
-│       ├── g2p.py          # Grapheme-to-phoneme conversion
-│       ├── hubert.py       # DistilHuBERT SSL model wrapper
-│       ├── wav2vec2.py     # Deprecated Wav2Vec2 fallback wrapper
-├── tests/                # Pytest test suite
-├── docs/                 # Project and integration documentation
-│   └── articulatory-animation-api.md
-├── requirements.txt      # Dependencies
-├── AGENTS.md             # Agent development guidelines
-└── README.md             # This file
+├── app/
+│   ├── api/
+│   │   ├── analyze.py
+│   │   ├── comparison.py
+│   │   ├── prosody_lab.py
+│   │   ├── presets.py
+│   │   ├── errors.py
+│   │   └── sse.py
+│   ├── templates/
+│   │   └── index.html
+│   └── main.py
+├── static/
+│   ├── css/
+│   │   └── vocal_tract.css
+│   └── js/
+│       ├── app.js
+│       ├── recorder.js
+│       ├── prosody_lab.js
+│       ├── comparison_lab.js
+│       ├── ssl_comparison_controller.js
+│       ├── svg_articulatory_renderer.js
+│       ├── tauri_controller.js
+│       └── ipa_tooltips.js
+├── src/
+│   ├── audio/
+│   │   ├── processor.py
+│   │   ├── prosody_lab.py
+│   │   └── reference_tts.py
+│   ├── models/
+│   │   ├── aai_adapter.py
+│   │   ├── alignment.py
+│   │   ├── articulatory.py
+│   │   ├── articulatory_calibration.py
+│   │   ├── contentvec.py
+│   │   ├── g2p.py
+│   │   ├── hubert.py
+│   │   └── ssl_aai_predictor.py
+│   └── services/
+│       └── comparison_cache.py
+├── src-tauri/
+├── tests/
+├── docs/
+├── openspec/
+├── README.md
+└── PROJECT.md
 ```
 
-## Hardware Recommendations
+## Hardware Notes
 
-### Minimum Configuration
-- CPU: Modern multi-core processor (Apple M1/M2 or Intel/AMD equivalent)
-- RAM: 8GB minimum
-- Storage: 5GB free space for models
-
-### Recommended Configuration
-
-**For Apple Silicon (Optimized):**
-- Chip: M1/M2/M3 Pro/Max/Ultra (with unified memory)
-- RAM: 16GB minimum
-- Storage: 10GB+ for model caching
-- OS: macOS 12.3+
-
-**Note:** Apple Silicon MPS remains the preferred local acceleration path for SSL models, including DistilHuBERT.
-
-**For Other Systems (CPU Only):**
-- CPU: Modern multi-core processor
-- RAM: 16GB recommended
-- Storage: 10GB+ for model caching
+- Apple Silicon MPS is the preferred acceleration path
+- CPU fallback is supported for local use, but slower
+- Leave enough storage for local model caches and generated assets
 
 ## License
 
 This project is licensed under the MIT License.
-
-## Contributing
-
-Contributions are welcome! Please see [AGENTS.md](AGENTS.md) for development guidelines and coding standards.

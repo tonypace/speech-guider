@@ -9,6 +9,7 @@ from typing import Optional
 
 import numpy as np
 import parselmouth
+from parselmouth import Pitch
 
 
 @dataclass
@@ -48,6 +49,16 @@ class ProsodyMetrics:
     stress: Optional[StressPattern]
 
 
+@dataclass
+class WordData:
+    """Word-level data for stress analysis."""
+
+    word: str
+    start_time: float
+    end_time: float
+    prominence_score: float
+
+
 class AudioContext:
     """Centralized audio context for unified analysis.
 
@@ -69,7 +80,7 @@ class AudioContext:
         try:
             self.praat_sound = parselmouth.Sound(str(self.audio_filepath))
         except Exception as e:
-            raise ValueError(f"Failed to load audio file: {e}")
+            raise ValueError(f"Failed to load audio file: {e}") from e
 
         # Get audio metadata
         self.original_sample_rate = int(self.praat_sound.sampling_frequency)
@@ -86,7 +97,7 @@ class AudioContext:
         else:
             samples = self.praat_sound.resample(self.target_sample_rate).values[:, 0]
 
-        return samples.astype(np.float32)  # type: ignore[no-any-return]
+        return samples.astype(np.float32)
 
 
 class ProsodyAnalyzer:
@@ -100,14 +111,19 @@ class ProsodyAnalyzer:
         """
         self.audio = audio_context.praat_sound
 
-    def analyze_pitch(self) -> PitchContour:
+    def analyze_pitch(self, pitch_obj: Optional[Pitch] = None) -> PitchContour:
         """Extract pitch (F0) contour.
+
+        Args:
+            pitch_obj: Optional pre-computed Pitch object. If None, computed here.
+                Allows reuse when called from analyze_complete().
 
         Returns:
             PitchContour with F0 values and statistics
         """
-        pitch = self.audio.to_pitch()
-        f0_values = pitch.selected_array["frequency"]
+        if pitch_obj is None:
+            pitch_obj = self.audio.to_pitch()
+        f0_values = pitch_obj.selected_array["frequency"]
 
         # Filter out unvoiced segments (F0 == 0)
         voiced_f0 = f0_values[f0_values > 0]
@@ -168,6 +184,7 @@ class ProsodyAnalyzer:
     def analyze_stress(
         self,
         word_timestamps: list[tuple[str, float, float]],
+        pitch_obj: Optional[Pitch] = None,
     ) -> Optional[StressPattern]:
         """Identify primary stressed word using combined F0 and intensity.
 
@@ -176,6 +193,9 @@ class ProsodyAnalyzer:
 
         Args:
             word_timestamps: List of (word, start_time, end_time)
+            pitch_obj: Optional pre-computed Pitch object. If None, computed here.
+                Passing in avoids redundant pitch computation when called from
+                analyze_complete() which already computes pitch.
 
         Returns:
             StressPattern with primary stress information
@@ -183,7 +203,8 @@ class ProsodyAnalyzer:
         if not word_timestamps:
             return None
 
-        pitch_obj = self.audio.to_pitch()
+        if pitch_obj is None:
+            pitch_obj = self.audio.to_pitch()
         pitch_values = pitch_obj.selected_array["frequency"]
         pitch_dt = pitch_obj.time_step
 
@@ -192,7 +213,7 @@ class ProsodyAnalyzer:
         intensity_dt = intensity_obj.time_step
         intensity_t0 = intensity_obj.start_time
 
-        words_data = []
+        words_data: list[WordData] = []
 
         for word, start_time, end_time in word_timestamps:
             pitch_start = int(start_time / pitch_dt)
@@ -213,23 +234,23 @@ class ProsodyAnalyzer:
             prominence_score = float(pitch_excursion) + float(mean_intensity / 100.0)
 
             words_data.append(
-                {
-                    "word": word,
-                    "start_time": start_time,
-                    "end_time": end_time,
-                    "prominence_score": prominence_score,
-                }
+                WordData(
+                    word=word,
+                    start_time=start_time,
+                    end_time=end_time,
+                    prominence_score=prominence_score,
+                )
             )
 
         if not words_data:
             return None
 
-        stressed_word_data = max(words_data, key=lambda x: x["prominence_score"])  # type: ignore[arg-type, return-value]
+        stressed_word_data = max(words_data, key=lambda x: x.prominence_score)
 
         return StressPattern(
-            primary_stress_word=stressed_word_data["word"],  # type: ignore[arg-type]
-            primary_stress_time=stressed_word_data["start_time"],  # type: ignore[arg-type]
-            prominence_score=stressed_word_data["prominence_score"],  # type: ignore[arg-type]
+            primary_stress_word=stressed_word_data.word,
+            primary_stress_time=stressed_word_data.start_time,
+            prominence_score=stressed_word_data.prominence_score,
         )
 
     def analyze_complete(
@@ -239,6 +260,8 @@ class ProsodyAnalyzer:
     ) -> ProsodyMetrics:
         """Run complete prosody analysis.
 
+        Computes pitch once and reuses for both pitch extraction and stress analysis.
+
         Args:
             vowel_timestamps: List of vowel (start_time, end_time)
             word_timestamps: List of word (word, start_time, end_time)
@@ -246,9 +269,11 @@ class ProsodyAnalyzer:
         Returns:
             ProsodyMetrics with complete analysis
         """
-        pitch = self.analyze_pitch()
+        # Compute pitch once and reuse for both analyze_pitch and analyze_stress
+        pitch_obj = self.audio.to_pitch()
+        pitch = self.analyze_pitch(pitch_obj=pitch_obj)
         rhythm = self.analyze_rhythm(vowel_timestamps)
-        stress = self.analyze_stress(word_timestamps)
+        stress = self.analyze_stress(word_timestamps, pitch_obj=pitch_obj)
 
         return ProsodyMetrics(
             pitch=pitch,

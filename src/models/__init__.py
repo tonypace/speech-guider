@@ -6,11 +6,11 @@ from src.models.alignment import (
     SentenceAlignment,
     WordAlignment,
 )
+from src.models.contentvec import ContentVecModel
 from src.models.g2p import G2PConverter
-from src.models.wav2vec2 import Wav2Vec2Model
 
 __all__ = [
-    "Wav2Vec2Model",
+    "ContentVecModel",
     "G2PConverter",
     "ForcedAligner",
     "PhonemeAlignment",

@@ -115,10 +115,14 @@ def _heuristic_syllable_markers(y: np.ndarray, sr: int) -> list[float]:
     """Estimate syllable nuclei from onset peaks as a fallback."""
 
     if librosa is not None:
-        onsets = librosa.onset.onset_detect(y=y, sr=sr, units="time", backtrack=True)
-        if onsets.size == 0:
-            return []
-        return [float(value) for value in np.unique(np.round(onsets, 3))]
+        try:
+            onsets = librosa.onset.onset_detect(y=y, sr=sr, units="time", backtrack=True)
+            if onsets.size == 0:
+                return []
+            return [float(value) for value in np.unique(np.round(onsets, 3))]
+        except (ValueError, RuntimeError) as e:
+            # Log specific error but fall back to energy-based detection
+            print(f"[_heuristic_syllable_markers] librosa onset detection failed: {e}")
 
     if y.size == 0:
         return []
@@ -132,8 +136,12 @@ def _heuristic_syllable_markers(y: np.ndarray, sr: int) -> list[float]:
         return []
 
     distance = max(1, int(0.12 * sr / hop_length))
-    peaks, _ = find_peaks(energy, distance=distance, prominence=max(energy.max() * 0.1, 1e-6))
-    return [round(float(index * hop_length / sr), 3) for index in peaks]
+    try:
+        peaks, _ = find_peaks(energy, distance=distance, prominence=max(energy.max() * 0.1, 1e-6))
+        return [round(float(index * hop_length / sr), 3) for index in peaks]
+    except ValueError as e:
+        print(f"[_heuristic_syllable_markers] Peak detection failed: {e}")
+        return []
 
 
 def _heuristic_pause_spans(y: np.ndarray, sr: int) -> list[dict[str, float]]:
@@ -143,16 +151,32 @@ def _heuristic_pause_spans(y: np.ndarray, sr: int) -> list[dict[str, float]]:
         return []
 
     if librosa is not None:
-        segments = librosa.effects.split(y, top_db=35)
-        if len(segments) == 0:
-            return []
+        try:
+            segments = librosa.effects.split(y, top_db=35)
+            if len(segments) == 0:
+                return []
 
-        spans: list[dict[str, float]] = []
-        previous_end = 0
-        for start, end in segments:
-            if start > previous_end:
+            spans: list[dict[str, float]] = []
+            previous_end = 0
+            for start, end in segments:
+                if start > previous_end:
+                    pause_start = previous_end / sr
+                    pause_end = start / sr
+                    duration = pause_end - pause_start
+                    if duration > 0.08:
+                        spans.append(
+                            {
+                                "start_time": float(pause_start),
+                                "end_time": float(pause_end),
+                                "duration": float(duration),
+                            }
+                        )
+                previous_end = end
+
+            total_duration = len(y) / sr
+            if previous_end < len(y):
                 pause_start = previous_end / sr
-                pause_end = start / sr
+                pause_end = total_duration
                 duration = pause_end - pause_start
                 if duration > 0.08:
                     spans.append(
@@ -162,23 +186,10 @@ def _heuristic_pause_spans(y: np.ndarray, sr: int) -> list[dict[str, float]]:
                             "duration": float(duration),
                         }
                     )
-            previous_end = end
 
-        total_duration = len(y) / sr
-        if previous_end < len(y):
-            pause_start = previous_end / sr
-            pause_end = total_duration
-            duration = pause_end - pause_start
-            if duration > 0.08:
-                spans.append(
-                    {
-                        "start_time": float(pause_start),
-                        "end_time": float(pause_end),
-                        "duration": float(duration),
-                    }
-                )
-
-        return spans
+            return spans
+        except (ValueError, RuntimeError) as e:
+            print(f"[_heuristic_pause_spans] librosa pause detection failed: {e}, using fallback")
 
     spans: list[dict[str, float]] = []
     frame_length = 2048
@@ -225,17 +236,21 @@ def _compute_pitch_track(y: np.ndarray, sr: int) -> dict[str, Any]:
     """Compute pitch contour and quantize it into musical note data."""
 
     if librosa is not None:
-        fmin = librosa.note_to_hz("C2")
-        fmax = librosa.note_to_hz("C6")
         try:
+            fmin = librosa.note_to_hz("C2")
+            fmax = librosa.note_to_hz("C6")
             f0, voiced_flag, voiced_prob = librosa.pyin(y, fmin=fmin, fmax=fmax, sr=sr)
-        except Exception:
+
+            times = librosa.times_like(f0, sr=sr)
+            midi = np.where(np.isnan(f0), np.nan, librosa.hz_to_midi(f0))
+        except (ValueError, RuntimeError) as e:
+            print(f"[_compute_pitch_track] librosa pitch detection failed: {e}, using fallback")
+            # Fall through to scipy-based implementation below
             f0 = np.full(1, np.nan)
             voiced_flag = np.zeros(1, dtype=bool)
             voiced_prob = np.zeros(1, dtype=float)
-
-        times = librosa.times_like(f0, sr=sr)
-        midi = np.where(np.isnan(f0), np.nan, librosa.hz_to_midi(f0))
+            times = np.array([0.0])
+            midi = np.full(1, np.nan)
     else:
         frame_length = 2048
         hop_length = 256
@@ -285,7 +300,8 @@ def _compute_pitch_track(y: np.ndarray, sr: int) -> dict[str, Any]:
         if f0_value is not None:
             try:
                 note_value = _hz_to_note_name(f0_value)
-            except Exception:
+            except ValueError as e:
+                print(f"[_compute_pitch_track] Note conversion failed for f0={f0_value}: {e}")
                 note_value = None
         pitch_track.append(
             {
@@ -306,7 +322,8 @@ def _compute_pitch_track(y: np.ndarray, sr: int) -> dict[str, Any]:
     if mean_f0 > 0:
         try:
             mean_note = _hz_to_note_name(mean_f0)
-        except Exception:
+        except ValueError as e:
+            print(f"[_compute_pitch_track] Mean note conversion failed: {e}")
             mean_note = None
 
     return {
@@ -330,6 +347,8 @@ def _normalize_audio_file(
 
     y = y.astype(np.float32)
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    if sf is None:
+        raise RuntimeError("soundfile is required for audio normalization")
     sf.write(output_path, y, sr, subtype="PCM_16")
     return y, sr
 
@@ -338,17 +357,23 @@ def _load_audio_samples(audio_path: str, sample_rate: int) -> tuple[np.ndarray, 
     """Load audio with librosa when available, otherwise fall back to scipy/soundfile."""
 
     if librosa is not None:
-        y, sr = librosa.load(audio_path, sr=sample_rate, mono=True)
-        return np.asarray(y, dtype=np.float32), int(sr)
+        try:
+            y, sr = librosa.load(audio_path, sr=sample_rate, mono=True)
+            return np.asarray(y, dtype=np.float32), int(sr)
+        except (ValueError, RuntimeError) as e:
+            print(f"[_load_audio_samples] librosa load failed: {e}, trying fallback")
 
     if sf is not None:
-        y, sr = sf.read(audio_path, always_2d=False)
-        if y.ndim > 1:
-            y = np.mean(y, axis=1)
-        if sr != sample_rate:
-            y = resample_poly(np.asarray(y, dtype=np.float32), sample_rate, sr)
-            sr = sample_rate
-        return np.asarray(y, dtype=np.float32), int(sr)
+        try:
+            y, sr = sf.read(audio_path, always_2d=False)
+            if y.ndim > 1:
+                y = np.mean(y, axis=1)
+            if sr != sample_rate:
+                y = resample_poly(np.asarray(y, dtype=np.float32), sample_rate, sr)
+                sr = sample_rate
+            return np.asarray(y, dtype=np.float32), int(sr)
+        except (ValueError, RuntimeError) as e:
+            print(f"[_load_audio_samples] soundfile load failed: {e}, trying scipy")
 
     sr, y = scipy_wavfile.read(audio_path)
     if y.ndim > 1:
@@ -368,6 +393,7 @@ def _run_my_voice_analysis(temp_dir: Path, wav_stem: str) -> tuple[dict[str, flo
 
     module = _load_my_voice_analysis_module()
     if module is None or not hasattr(module, "mysptotal"):
+        print("[_run_my_voice_analysis] my-voice-analysis not available, using fallback metrics")
         return {
             "syllable_count": 0,
             "pause_count": 0,
@@ -382,7 +408,8 @@ def _run_my_voice_analysis(temp_dir: Path, wav_stem: str) -> tuple[dict[str, flo
             module.mysptotal(wav_stem, str(temp_dir))
         raw_output = buffer.getvalue()
         return _parse_my_voice_analysis_output(raw_output), raw_output
-    except Exception:
+    except (ValueError, RuntimeError, OSError) as e:
+        print(f"[_run_my_voice_analysis] my-voice-analysis failed: {e}, using fallback")
         return {
             "syllable_count": 0,
             "pause_count": 0,

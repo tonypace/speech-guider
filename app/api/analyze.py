@@ -1,24 +1,29 @@
 """Main analysis endpoints for pronunciation evaluation."""
 
 import asyncio
+import logging
 import os
 
 import numpy as np
 import torch
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
-from scipy.io import wavfile
 
 from app.api.sse import create_job_id, send_progress_update
 from app.services.concurrency import run_with_semaphore
 from app.utils.audio import cleanup_temp_file, save_upload_to_temp
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 # Cached model instances
-_cached_aligner = None
 _cached_ssl_predictor = None
-_cached_g2p = None
+
+
+class SSLAnalysisError(Exception):
+    """Raised when SSL AAI analysis fails unexpectedly."""
+
+    pass
 
 
 def get_ssl_predictor():
@@ -29,36 +34,16 @@ def get_ssl_predictor():
         from src.models.ssl_aai_predictor import SSLAAIPredictor
 
         checkpoint_path = os.getenv("SSL_AAI_CHECKPOINT_PATH")
-        print(f"[get_ssl_predictor] Initializing SSL AAI predictor (first time)...")
+        logger.info(f"[get_ssl_predictor] Initializing SSL AAI predictor (first time)...")
         if checkpoint_path:
-            print(f"[get_ssl_predictor] Using checkpoint: {checkpoint_path}")
+            logger.info(f"[get_ssl_predictor] Using checkpoint: {checkpoint_path}")
         else:
-            print(f"[get_ssl_predictor] Using default checkpoint path")
+            logger.info(f"[get_ssl_predictor] Using default checkpoint path")
 
         _cached_ssl_predictor = SSLAAIPredictor(checkpoint_path=checkpoint_path)
         _cached_ssl_predictor.load()
-        print("[get_ssl_predictor] SSL AAI predictor initialized and cached.")
+        logger.info("[get_ssl_predictor] SSL AAI predictor initialized and cached.")
     return _cached_ssl_predictor
-
-
-def get_aligner():
-    """Get or create cached deprecated fallback aligner instance (lazy)."""
-
-    global _cached_aligner
-    if _cached_aligner is None:
-        from src.models.alignment import ForcedAligner
-
-        print("[get_aligner] Initializing deprecated Wav2Vec2 aligner fallback (first time)...")
-        _cached_aligner = ForcedAligner()
-        print("[get_aligner] Deprecated Wav2Vec2 aligner fallback initialized and cached.")
-    return _cached_aligner
-
-
-def should_use_deprecated_wav2vec2_fallback() -> bool:
-    """Return whether the deprecated alignment fallback should be used."""
-
-    value = os.getenv("ENABLE_WAV2VEC2_FALLBACK", "1").strip().lower()
-    return value not in {"0", "false", "no"}
 
 
 def _ssl_aai_to_animation_state(
@@ -67,6 +52,8 @@ def _ssl_aai_to_animation_state(
     return_trajectory: bool = False,
 ) -> dict | tuple[dict, list[dict]] | None:
     """Convert audio to animation state via SSL AAI predictor.
+
+    Uses ContentVec + DANN predictor with robust_01 normalization.
 
     Args:
         audio_tensor: Audio tensor
@@ -81,6 +68,7 @@ def _ssl_aai_to_animation_state(
     from src.models.aai_adapter import (
         AAIConversionMetadata,
         aai_to_canonical_state,
+        aai_to_canonical_states_batch,
         decode_aai_row,
         representative_aai_pose,
     )
@@ -88,16 +76,17 @@ def _ssl_aai_to_animation_state(
     try:
         predictor = get_ssl_predictor()
     except (FileNotFoundError, RuntimeError) as e:
-        print(f"[_ssl_aai_to_animation_state] SSL predictor unavailable: {e}")
+        logger.debug(f"[_ssl_aai_to_animation_state] SSL predictor unavailable: {e}")
         return None
 
     try:
-        # Predict z-scored AAI tract variables
-        print(
+        logger.debug(
             f"[_ssl_aai_to_animation_state] Calling predictor.predict with audio shape={audio_tensor.shape}, sr={sample_rate}"
         )
         tvs_tensor = predictor.predict(audio_tensor, sample_rate)
-        print(f"[_ssl_aai_to_animation_state] Prediction succeeded: shape={tvs_tensor.shape}")
+        logger.debug(
+            f"[_ssl_aai_to_animation_state] Prediction succeeded: shape={tvs_tensor.shape}"
+        )
         tvs_array = tvs_tensor.numpy()
 
         # Get representative pose from trajectory
@@ -105,22 +94,22 @@ def _ssl_aai_to_animation_state(
         if len(tvs_array) == 1:
             pose = decode_aai_row(tvs_array[0])
         else:
-            pose = representative_aai_pose(tvs_array.tolist())
+            pose = representative_aai_pose(
+                tvs_array,  # Pass numpy array directly
+                normalization="robust_01",
+            )
 
         # Convert to canonical animation state
-        metadata = AAIConversionMetadata(normalization="z_score")
+        # robust_01 means values are already in [0,1], no denormalization needed
+        metadata = AAIConversionMetadata(normalization="robust_01")
         animation_state = aai_to_canonical_state(pose, metadata=metadata)
 
-        print(f"[_ssl_aai_to_animation_state] Generated animation state via SSL AAI path")
+        logger.debug("[_ssl_aai_to_animation_state] Generated animation state via SSL AAI path")
 
         if return_trajectory:
-            # Convert full trajectory to canonical frames
-            frames = []
-            for i in range(tvs_array.shape[0]):
-                tv_row = decode_aai_row(tvs_array[i])
-                frame = aai_to_canonical_state(tv_row, metadata=metadata)
-                frames.append(frame)
-            print(f"[_ssl_aai_to_animation_state] Generated {len(frames)} trajectory frames")
+            # Convert full trajectory using vectorized batch conversion
+            frames = aai_to_canonical_states_batch(tvs_array, metadata)
+            logger.debug(f"[_ssl_aai_to_animation_state] Generated {len(frames)} trajectory frames")
             return animation_state, frames
 
         return animation_state
@@ -130,51 +119,76 @@ def _ssl_aai_to_animation_state(
 
         tb = traceback.format_exc()
         msg = f"[_ssl_aai_to_animation_state] SSL AAI prediction failed: {e}\n{tb}"
-        print(msg)
-        # Write to file so we can see it even without terminal access
+        logger.error(msg)
         with open("/tmp/ssl_debug.log", "a") as f:
             f.write(msg + "\n" + "=" * 80 + "\n")
-        return None
+        raise SSLAnalysisError(f"SSL AAI prediction failed: {e}") from e
 
 
 def try_primary_ssl_analysis(
     audio_tensor: torch.Tensor, sample_rate: int, return_trajectory: bool = False
-) -> tuple[list, object | None, dict | None, list[dict] | None]:
-    """Try the primary SSL AAI path before falling back to Wav2Vec2 alignment.
+) -> tuple[dict | None, list[dict] | None]:
+    """Run the SSL AAI analysis path.
 
     Returns:
-        tuple: (errors, alignment, animation_state, ssl_trajectory)
-        - errors: list of pronunciation errors
-        - alignment: alignment object or None
+        tuple: (animation_state, ssl_trajectory)
         - animation_state: canonical animation state dict or None
         - ssl_trajectory: list of canonical frame dicts or None (if return_trajectory=True)
-
-    Note:
-        The SSL AAI path currently only produces animation state, not full
-        pronunciation analysis. It returns empty errors and None alignment.
     """
 
-    print("[try_primary_ssl_analysis] Attempting SSL AAI path...")
+    logger.debug("[try_primary_ssl_analysis] Attempting SSL AAI path...")
 
     result = _ssl_aai_to_animation_state(
         audio_tensor, sample_rate, return_trajectory=return_trajectory
     )
 
     if result is not None:
-        print("[try_primary_ssl_analysis] SSL AAI path succeeded")
+        logger.debug("[try_primary_ssl_analysis] SSL AAI path succeeded")
         if return_trajectory and isinstance(result, tuple):
             animation_state, ssl_trajectory = result
-            return [], None, animation_state, ssl_trajectory
+            return animation_state, ssl_trajectory
         if isinstance(result, dict):
-            return [], None, result, None
+            return result, None
 
     # If we reach here, SSL AAI path failed
-    raise NotImplementedError("SSL AAI prediction failed or unavailable")
+    logger.debug("[try_primary_ssl_analysis] SSL AAI path failed")
+    return None, None
 
 
-async def run_analysis_blocking(audio_path: str, target_text: str, job_id: str):
+def _load_and_preprocess_audio(audio_path: str) -> tuple[torch.Tensor, int]:
+    """Load and preprocess audio file for analysis.
+
+    Args:
+        audio_path: Path to audio file
+
+    Returns:
+        Tuple of (audio_tensor, sample_rate)
+
+    Raises:
+        ValueError: If audio cannot be loaded or processed
     """
-    Run the full analysis pipeline in a blocking context (thread).
+    import soundfile as sf
+
+    audio_data, sample_rate = sf.read(audio_path, dtype="float32")
+
+    # Convert to mono if stereo
+    if len(audio_data.shape) > 1:
+        audio_data = np.mean(audio_data, axis=1)
+
+    # Resample to 16kHz if needed
+    if sample_rate != 16000:
+        import scipy.signal as signal
+
+        num_samples = int(len(audio_data) * 16000 / sample_rate)
+        audio_data = signal.resample(audio_data, num_samples)
+        sample_rate = 16000
+
+    audio_tensor = torch.from_numpy(audio_data).float()
+    return audio_tensor, sample_rate
+
+
+async def _run_analysis_pipeline(audio_path: str, target_text: str, job_id: str) -> dict:
+    """Run the full analysis pipeline.
 
     Args:
         audio_path: Path to temporary audio file
@@ -182,7 +196,11 @@ async def run_analysis_blocking(audio_path: str, target_text: str, job_id: str):
         job_id: Job ID for progress updates
 
     Returns:
-        Analysis results dictionary
+        Analysis results dictionary with success status
+
+    Raises:
+        SSLAnalysisError: If SSL analysis fails
+        Exception: For other unexpected errors (propagated)
     """
     # Step 1: Load audio
     await send_progress_update(job_id, 0.1, "Loading audio file...", "load_audio")
@@ -194,120 +212,63 @@ async def run_analysis_blocking(audio_path: str, target_text: str, job_id: str):
     # Step 2: Analyze pronunciation
     await send_progress_update(job_id, 0.3, "Analyzing pronunciation...", "pronunciation")
 
+    # Load audio in thread to avoid blocking
+    audio_tensor, sample_rate = await asyncio.to_thread(_load_and_preprocess_audio, audio_path)
+
+    ssl_animation_state = None
+    ssl_trajectory = None
+    ssl_error = None
+
+    # Run SSL AAI analysis in thread to avoid blocking
     try:
-        # Use soundfile for flexible format support (WAV, WebM, OGG, MP3, etc.)
-        import soundfile as sf
-
-        audio_data, sample_rate = sf.read(audio_path, dtype="float32")
-
-        # Convert to mono if stereo
-        if len(audio_data.shape) > 1:
-            audio_data = np.mean(audio_data, axis=1)
-
-        # Resample to 16kHz if needed
-        if sample_rate != 16000:
-            import scipy.signal as signal
-
-            num_samples = int(len(audio_data) * 16000 / sample_rate)
-            audio_data = signal.resample(audio_data, num_samples)
-            sample_rate = 16000
-
-        audio_tensor = torch.from_numpy(audio_data).float()
-
-        errors = []
-        alignment = None
-        ssl_animation_state = None
-        ssl_trajectory = None
-        path_used = "unknown"
-
-        try:
-            errors, alignment, ssl_animation_state, ssl_trajectory = try_primary_ssl_analysis(
-                audio_tensor, sample_rate, return_trajectory=True
+        ssl_animation_state, ssl_trajectory = await asyncio.to_thread(
+            try_primary_ssl_analysis, audio_tensor, sample_rate, True
+        )
+        if ssl_animation_state is not None:
+            logger.debug(
+                "[analyze] SSL AAI analysis succeeded, animation state and trajectory generated"
             )
-            path_used = "ssl_aai"
-            print(
-                f"[analyze] Primary SSL AAI analysis succeeded, animation state and trajectory generated"
-            )
-        except NotImplementedError as ssl_exc:
-            print(f"[analyze] Primary SSL AAI analysis unavailable: {ssl_exc}")
-            if not should_use_deprecated_wav2vec2_fallback():
-                raise RuntimeError(
-                    "Primary SSL analysis is unavailable and deprecated Wav2Vec2 fallback is disabled"
-                ) from ssl_exc
+        else:
+            ssl_error = "SSL AAI predictor unavailable or failed"
+            logger.warning(f"[analyze] {ssl_error}")
+    except SSLAnalysisError as e:
+        ssl_error = str(e)
+        logger.warning(f"[analyze] SSL AAI analysis failed: {e}")
+    except Exception as e:
+        ssl_error = f"Unexpected SSL analysis error: {e}"
+        logger.error(f"[analyze] Unexpected SSL analysis error: {e}")
 
-            print("[analyze] Falling back to deprecated Wav2Vec2 forced alignment")
-            aligner = get_aligner()
-            errors, alignment = aligner.analyze_pronunciation(
-                audio_tensor, target_text, sample_rate
-            )
-            path_used = "wav2vec2_fallback"
-
-    except Exception:
-        await send_progress_update(job_id, 0.8, "Analysis encountered issues...", "error")
-        errors = []
-        alignment = None
-
-    if torch.backends.mps.is_available():
-        torch.mps.empty_cache()
-    elif torch.cuda.is_available():
-        torch.cuda.empty_cache()
+    try:
+        predictor = get_ssl_predictor()
+        if predictor.device == "mps" and torch.backends.mps.is_available():
+            torch.mps.empty_cache()
+        elif predictor.device == "cuda" and torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except (FileNotFoundError, RuntimeError) as e:
+        logger.debug(f"[analyze] SSL predictor unavailable for cache cleanup: {e}")
 
     # Step 3: Extract prosody metrics
     await send_progress_update(job_id, 0.6, "Extracting prosody metrics...", "prosody")
 
     prosody_analyzer = ProsodyAnalyzer(audio_context)
 
-    if alignment:
-        vowel_timestamps = [
-            (phoneme.start_time, phoneme.end_time)
-            for word in alignment.words
-            for phoneme in word.phonemes
-            if phoneme.is_vowel
-        ]
+    # Run prosody analysis without phoneme alignment (alignment requires phoneme model)
+    logger.debug("[analyze] Running prosody analysis without alignment timestamps")
+    prosody_metrics = prosody_analyzer.analyze_complete(vowel_timestamps=[], word_timestamps=[])
 
-        word_timestamps = [(word.word, word.start_time, word.end_time) for word in alignment.words]
-
-        print(f"[analyze] vowel_timestamps ({len(vowel_timestamps)}): {vowel_timestamps}")
-        print(f"[analyze] word_timestamps ({len(word_timestamps)}): {word_timestamps}")
-
-        prosody_metrics = prosody_analyzer.analyze_complete(
-            vowel_timestamps=vowel_timestamps, word_timestamps=word_timestamps
-        )
-    else:
-        print("[analyze] No alignment, running prosody analysis without timestamps")
-        prosody_metrics = prosody_analyzer.analyze_complete(vowel_timestamps=[], word_timestamps=[])
-
-    print(f"[analyze] prosody_metrics type: {type(prosody_metrics)}")
-    print(f"[analyze] prosody_metrics: {prosody_metrics}")
     if prosody_metrics:
-        print(f"[analyze] prosody_metrics.pitch: {prosody_metrics.pitch}")
-        print(f"[analyze] prosody_metrics.rhythm: {prosody_metrics.rhythm}")
+        logger.debug(f"[analyze] prosody_metrics type: {type(prosody_metrics)}")
+        logger.debug(f"[analyze] prosody_metrics.pitch: {prosody_metrics.pitch}")
+        logger.debug(f"[analyze] prosody_metrics.rhythm: {prosody_metrics.rhythm}")
         if prosody_metrics.rhythm:
-            print(f"[analyze] nPVI value: {prosody_metrics.rhythm.npvi}")
+            logger.debug(f"[analyze] nPVI value: {prosody_metrics.rhythm.npvi}")
 
     # Step 4: Generate feedback
     await send_progress_update(job_id, 0.9, "Generating feedback...", "feedback")
 
-    from src.models.articulatory import ArticulatoryMapper
-
-    mapper = ArticulatoryMapper()
-    feedback = _generate_comprehensive_feedback(errors, alignment, prosody_metrics, mapper)
+    feedback = _generate_comprehensive_feedback(prosody_metrics)
 
     await send_progress_update(job_id, 1.0, "Analysis complete!", "complete")
-
-    # Filter out identical phoneme pairs (e.g., /d/ -> /d/)
-    filtered_errors = (
-        [serialize_error(e) for e in errors if e.target_phoneme != e.predicted_phoneme]
-        if errors
-        else []
-    )
-
-    if len(filtered_errors) < len(errors):
-        print(
-            f"[analyze] Filtered out {len(errors) - len(filtered_errors)} identical phoneme pairs"
-        )
-
-    print(f"[analyze] Analysis path used: {path_used}")
 
     # Serialize trajectory if available
     serialized_trajectory = None
@@ -318,57 +279,19 @@ async def run_analysis_blocking(audio_path: str, target_text: str, job_id: str):
             "frames": ssl_trajectory,
         }
 
-    return {
-        "errors": filtered_errors,
+    result = {
         "feedback": feedback,
-        "alignment": serialize_alignment(alignment) if alignment else None,
         "prosody": serialize_prosody(prosody_metrics) if prosody_metrics else None,
-        "path_used": path_used,
         "ssl_animation_state": ssl_animation_state,
         "ssl_trajectory": serialized_trajectory,
         "success": True,
         "message": "Analysis complete",
     }
 
+    if ssl_error:
+        result["ssl_warning"] = ssl_error
 
-def serialize_error(error):
-    """Convert PronunciationError dataclass to dict."""
-    return {
-        "error_type": error.error_type,
-        "target_phoneme": error.target_phoneme,
-        "predicted_phoneme": error.predicted_phoneme,
-        "word_context": error.word_context,
-    }
-
-
-def serialize_alignment(alignment):
-    """Convert SentenceAlignment dataclass to dict."""
-    return {
-        "text": alignment.text,
-        "total_duration": alignment.total_duration,
-        "overall_score": alignment.overall_score,
-        "words": [
-            {
-                "word": w.word,
-                "start_time": w.start_time,
-                "end_time": w.end_time,
-                "phonemes": [
-                    {
-                        "phoneme": p.phoneme,
-                        "start_time": p.start_time,
-                        "end_time": p.end_time,
-                        "score": p.score,
-                        "is_error": p.is_error,
-                        "predicted_phoneme": p.predicted_phoneme,
-                        "is_vowel": p.is_vowel,
-                        "is_voiced": p.is_voiced,
-                    }
-                    for p in w.phonemes
-                ],
-            }
-            for w in alignment.words
-        ],
-    }
+    return result
 
 
 def _get_pitch_range_label(range_semitones: float) -> str:
@@ -452,26 +375,19 @@ def _build_npvi_bar_html(npvi: float) -> str:
     return bar_html
 
 
-def _f0_to_semitones(f0_hz: float, reference_hz: float = 1.0) -> float:
-    """Convert a frequency in Hz to semitones above a reference frequency."""
-    if f0_hz <= 0 or reference_hz <= 0:
-        return 0.0
-    return 12.0 * (f0_hz / reference_hz) ** (1 / 12) - 12.0
-
-
 def serialize_prosody(prosody):
     """Convert ProsodyMetrics to dict."""
-    print(f"[serialize_prosody] Called with: {prosody}")
-    print(
+    logger.debug(f"[serialize_prosody] Called with: {prosody}")
+    logger.debug(
         f"[serialize_prosody] prosody.pitch: {prosody.pitch if prosody else 'prosody is None/False'}"
     )
-    print(
+    logger.debug(
         f"[serialize_prosody] prosody.rhythm: {prosody.rhythm if prosody else 'prosody is None/False'}"
     )
     if prosody and prosody.rhythm:
-        print(f"[serialize_prosody] nPVI: {prosody.rhythm.npvi}")
+        logger.debug(f"[serialize_prosody] nPVI: {prosody.rhythm.npvi}")
     elif prosody:
-        print("[serialize_prosody] rhythm is None, nPVI will be 0")
+        logger.debug("[serialize_prosody] rhythm is None, nPVI will be 0")
 
     pitch_mean = prosody.pitch.mean_f0 if prosody and prosody.pitch else 0
     pitch_range = prosody.pitch.f0_range if prosody and prosody.pitch else 0
@@ -496,23 +412,16 @@ def serialize_prosody(prosody):
     }
 
 
-def _generate_comprehensive_feedback(errors, alignment, prosody_metrics, mapper):
+def _generate_comprehensive_feedback(prosody_metrics):
     """Generate comprehensive feedback text."""
-    print(f"[feedback] Generating feedback for {len(errors) if errors else 0} errors")
-    print(f"[feedback] alignment: {alignment}")
-    print(f"[feedback] prosody_metrics: {prosody_metrics}")
+    logger.debug(f"[feedback] prosody_metrics: {prosody_metrics}")
 
     sections = []
 
     # Pronunciation summary
-    if errors:
-        sections.append(f"<strong>Pronunciation:</strong> Found {len(errors)} error(s)")
-        for i, error in enumerate(errors[:5], 1):
-            sections.append(
-                f"{i}. '{error.word_context}': /{error.target_phoneme}/ → /{error.predicted_phoneme}/"
-            )
-    else:
-        sections.append("<strong>Pronunciation:</strong> No errors detected")
+    # NOTE: Phoneme-level error detection requires a phoneme CTC model.
+    # This feature is currently non-functional pending model integration.
+    sections.append("<strong>Pronunciation:</strong> Articulatory analysis via ContentVec+AAI")
 
     # Prosody summary with student-friendly labels
     if prosody_metrics:
@@ -533,12 +442,10 @@ def _generate_comprehensive_feedback(errors, alignment, prosody_metrics, mapper)
             sections.append(f"- Rhythm (nPVI {npvi:.2f})")
             sections.append(f"  {npvi_label} — {npvi_coaching}")
             sections.append(_build_npvi_bar_html(npvi))
-            print(f"[feedback] nPVI value being used: {npvi:.2f}")
+            logger.debug(f"[feedback] nPVI value being used: {npvi:.2f}")
 
     result = "<br>".join(sections)
-    print("[feedback] Final feedback string:")
-    print(result)
-    print(f"[feedback] Feedback repr: {repr(result)}")
+    logger.debug(f"[feedback] Final feedback string: {result}")
     return result
 
 
@@ -548,14 +455,15 @@ async def analyze_audio(
     target_text: str = Form(..., description="Target sentence to practice"),
 ):
     """
-    Main analysis endpoint - performs pronunciation and prosody analysis.
+    Main analysis endpoint - performs articulatory and prosody analysis.
 
     Args:
         audio: Audio file (WAV format recommended)
         target_text: The target sentence the user was practicing
 
     Returns:
-        Analysis results with errors, feedback, alignment, and prosody metrics
+        Analysis results with articulatory feedback, prosody metrics, and feedback.
+        Uses ContentVec + DANN AAI predictor for articulatory inference.
     """
     if not target_text.strip():
         raise HTTPException(status_code=400, detail="Please enter the target sentence.")
@@ -569,28 +477,19 @@ async def analyze_audio(
     # Save uploaded file to temp location
     temp_path = await save_upload_to_temp(audio)
 
-    async def do_analysis():
-        try:
-            # Run blocking analysis in thread pool
-            result = await asyncio.to_thread(
-                lambda: asyncio.run(run_analysis_blocking(temp_path, target_text, job_id))
-            )
-            return result
-        finally:
-            # Cleanup temp file
-            cleanup_temp_file(temp_path)
-
     try:
-        # Run with concurrency protection
-        result = await run_with_semaphore(do_analysis())
+        # Run analysis with concurrency protection
+        result = await run_with_semaphore(_run_analysis_pipeline(temp_path, target_text, job_id))
         return JSONResponse(content=result)
+    except HTTPException:
+        # Re-raise HTTPExceptions directly (from validation errors)
+        raise
     except Exception as e:
         # Catch-all for unexpected errors
         import traceback
 
-        print(f"[analyze] UNEXPECTED ERROR: {e}")
-        print(traceback.format_exc())
-        cleanup_temp_file(temp_path)
+        logger.error(f"[analyze] UNEXPECTED ERROR: {e}")
+        logger.error(traceback.format_exc())
         return JSONResponse(
             content={
                 "success": False,
@@ -599,13 +498,6 @@ async def analyze_audio(
             },
             status_code=500,
         )
-    except HTTPException as e:
-        # Cleanup on error
+    finally:
+        # Cleanup temp file in all cases
         cleanup_temp_file(temp_path)
-        return JSONResponse(
-            content={"success": False, "error": e.detail}, status_code=e.status_code
-        )
-    except Exception as e:
-        # Cleanup on unexpected error
-        cleanup_temp_file(temp_path)
-        return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)

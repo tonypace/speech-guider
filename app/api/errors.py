@@ -15,6 +15,12 @@ from src.models.articulatory import (
 router = APIRouter()
 
 
+class AAIPayloadError(Exception):
+    """Raised when AAI payload parsing fails."""
+
+    pass
+
+
 def _resolve_animation_params(
     phoneme: str,
     fallback_state: dict[str, float] | None,
@@ -26,8 +32,11 @@ def _resolve_animation_params(
     if isinstance(aai_payload, dict):
         try:
             return parse_aai_animation_payload(aai_payload, fallback_state=fallback_state)
-        except Exception as exc:
+        except (KeyError, ValueError, TypeError) as exc:
+            # Specific parsing errors - log and fall back to symbolic mapping
             print(f"[_resolve_animation_params] Failed to parse AAI payload: {exc}")
+            # Re-raise as specific error type for better handling
+            raise AAIPayloadError(f"Invalid AAI payload: {exc}") from exc
 
     return mapper.get_animation_params(phoneme)
 
@@ -88,9 +97,14 @@ async def select_error(request: SelectErrorRequest):
         )
         print(f"[select_error] target_params from mapper: {target_params}")
         print(f"[select_error] predicted_params from mapper: {predicted_params}")
-    except Exception as e:
-        print(f"[select_error] Exception getting animation params: {e}")
-        # Fallback to default params
+    except AAIPayloadError as e:
+        # AAI payload error - log specific message and fall back to default
+        print(f"[select_error] AAI payload error, using fallback: {e}")
+        target_params = svg_state_to_dict(default_articulatory_state())
+        predicted_params = dict(target_params)
+    except (KeyError, ValueError, TypeError) as e:
+        # Data structure errors - log and fall back
+        print(f"[select_error] Data error getting animation params: {e}")
         target_params = svg_state_to_dict(default_articulatory_state())
         predicted_params = dict(target_params)
 

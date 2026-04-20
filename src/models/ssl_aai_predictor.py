@@ -1,8 +1,15 @@
-"""SSL-based AAI tract-variable predictor using DistilHuBERT.
+"""SSL-based AAI tract-variable predictor using ContentVec + DANN.
 
-Loads a trained checkpoint and predicts z-scored AAI tract variables
-from audio waveforms. Uses the existing AAI adapter for conversion
-to canonical animation states.
+Loads a trained DANN checkpoint and predicts tract variables from audio
+waveforms. Uses ContentVec as the SSL backbone (replacing DistilHuBERT)
+and a DANN-based predictor head with LayerNorm and Dropout.
+
+Normalization: robust_01 (outputs already in [0, 1] range)
+
+Normalization Evolution Note:
+- z_score (old): required denormalization via AAINormalizationProfile
+- robust_01 (current): values already in [0,1], no denormalization needed
+- hard_sigmoid_01 (future): hard-sigmoid clamped to [0,1] (under refinement)
 """
 
 import os
@@ -11,7 +18,7 @@ from typing import Optional
 
 import torch
 import torch.nn as nn
-from transformers import AutoFeatureExtractor, AutoModel
+from transformers import AutoModel, Wav2Vec2FeatureExtractor
 
 # AAI TV field order confirmed by training
 AAI_TV_ORDER = ("LP", "LA", "TTCL", "TTCD", "TBCL", "TBCD", "VEL", "GLO", "LAT")
@@ -19,68 +26,93 @@ AAI_TV_ORDER = ("LP", "LA", "TTCL", "TTCD", "TBCL", "TBCD", "VEL", "GLO", "LAT")
 
 def _get_default_checkpoint_path() -> Path:
     """Return the default checkpoint path relative to project root."""
-    return Path(__file__).parent.parent.parent / "models" / "distillhubert-aai" / "best_model.pt"
+    return Path(__file__).parent.parent.parent / "external" / "aai_portable0.1" / "best_model.pt"
 
 
-class AAIHead(nn.Module):
-    """Predictor head: 768 -> 256 -> 9 with ReLU and Dropout."""
+class DANNPredictorHead(nn.Module):
+    """DANN-based predictor head: 768 -> 256 -> 9 with LayerNorm, ReLU, Dropout.
 
-    def __init__(self) -> None:
+    This matches the architecture from external/aai_portable0.1/models.py:
+    Linear(768->256) -> LayerNorm(256) -> ReLU -> Dropout(0.1) -> Linear(256->9)
+
+    Output is in robust_01 normalization ([0, 1] range), not z-score.
+    """
+
+    def __init__(self, input_dim: int = 768, hidden_dim: int = 256, output_dim: int = 9) -> None:
         super().__init__()
-        self.fc1 = nn.Linear(768, 256)
+        self.fc1 = nn.Linear(input_dim, hidden_dim)
+        self.layer_norm = nn.LayerNorm(hidden_dim)
         self.relu = nn.ReLU()
         self.dropout = nn.Dropout(0.1)
-        self.fc2 = nn.Linear(256, 9)
+        self.fc2 = nn.Linear(hidden_dim, output_dim)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass returning (T, 9) z-scored AAI TVs."""
+        """Forward pass returning (T, 9) tract variables in [0, 1] range.
 
+        Args:
+            x: Input features of shape (T, 768) or (B, T, 768)
+
+        Returns:
+            torch.Tensor: Predicted tract variables of shape (T, 9) or (B, T, 9)
+        """
         x = self.fc1(x)
+        x = self.layer_norm(x)
         x = self.relu(x)
         x = self.dropout(x)
         x = self.fc2(x)
+        # Clamp to [0, 1] for robust_01 normalization
+        x = torch.clamp(x, 0.0, 1.0)
         return x
 
 
 class SSLAAIPredictor:
-    """SSL-based predictor for AAI tract variables.
+    """SSL-based predictor for AAI tract variables using ContentVec + DANN.
 
-    Loads a trained DistilHuBERT + predictor head checkpoint and
-    provides inference for audio waveforms. Outputs are z-scored
-    AAI tract variables in the confirmed order:
+    Loads a trained DANN checkpoint with ContentVec backbone and provides
+    inference for audio waveforms. Outputs are tract variables in [0, 1]
+    range (robust_01 normalization) in the order:
     LP, LA, TTCL, TTCD, TBCL, TBCD, VEL, GLO, LAT
 
     The checkpoint is expected to contain:
-    - ssl_model.*: DistilHuBERT weights
-    - predictor.*: Predictor head weights (ignored: domain_classifier.*)
+    - predictor.*: DANN predictor head weights
+      Keys: fc1.weight, fc1.bias, layer_norm.weight, layer_norm.bias,
+            fc2.weight, fc2.bias
 
     Usage:
         predictor = SSLAAIPredictor()
         predictor.load()  # or load(checkpoint_path)
         tvs = predictor.predict(audio_tensor, sample_rate=16000)
-        # tvs shape: (T, 9), z-scored
+        # tvs shape: (T, 9), values in [0, 1]
     """
 
-    MODEL_NAME = "ntu-spml/distilhubert"
+    MODEL_NAME = "lengyue233/content-vec-best"
     SAMPLE_RATE = 16000
+    FEATURE_LAYER = -2  # Penultimate hidden state
+    FEATURE_DIM = 768
+    NUM_TVS = 9
 
     def __init__(
         self,
         checkpoint_path: Optional[str | Path] = None,
         device: Optional[str] = None,
     ) -> None:
+        """Initialize SSL AAI predictor.
+
+        Args:
+            checkpoint_path: Path to DANN checkpoint (uses default if None)
+            device: Target device (auto-detected if None)
+        """
         self.checkpoint_path = (
             Path(checkpoint_path) if checkpoint_path else _get_default_checkpoint_path()
         )
         self.device = device or self._auto_detect_device()
         self._ssl_model: Optional[AutoModel] = None
-        self._feature_extractor: Optional[AutoFeatureExtractor] = None
-        self._predictor_head: Optional[AAIHead] = None
+        self._feature_extractor: Optional[Wav2Vec2FeatureExtractor] = None
+        self._predictor_head: Optional[DANNPredictorHead] = None
         self._loaded = False
 
     def _auto_detect_device(self) -> str:
         """Auto-detect best available device."""
-
         if torch.cuda.is_available():
             return "cuda"
         if torch.backends.mps.is_available():
@@ -97,7 +129,6 @@ class SSLAAIPredictor:
             FileNotFoundError: If checkpoint does not exist.
             RuntimeError: If checkpoint loading fails or state dict incompatible.
         """
-
         path = Path(checkpoint_path) if checkpoint_path else self.checkpoint_path
         if not path.exists():
             raise FileNotFoundError(f"SSL AAI checkpoint not found: {path}")
@@ -105,64 +136,68 @@ class SSLAAIPredictor:
         print(f"[SSLAAIPredictor] Loading checkpoint from {path}")
         print(f"[SSLAAIPredictor] Device: {self.device}")
 
-        # Load feature extractor and SSL model
-        self._feature_extractor = AutoFeatureExtractor.from_pretrained(self.MODEL_NAME)
+        # Load feature extractor and SSL model (ContentVec)
+        # ContentVec doesn't have a preprocessor_config.json, so we create
+        # the feature extractor with default settings for 16kHz audio
+        self._feature_extractor = Wav2Vec2FeatureExtractor(
+            feature_size=1,
+            sampling_rate=self.SAMPLE_RATE,
+            padding_value=0.0,
+            do_normalize=True,
+            return_attention_mask=False,
+        )
         self._ssl_model = AutoModel.from_pretrained(self.MODEL_NAME)
         self._ssl_model.to(self.device)
         self._ssl_model.eval()
 
-        # Create and load predictor head
-        self._predictor_head = AAIHead()
+        # Create predictor head
+        self._predictor_head = DANNPredictorHead(
+            input_dim=self.FEATURE_DIM,
+            hidden_dim=256,
+            output_dim=self.NUM_TVS,
+        )
         self._predictor_head.to(self.device)
         self._predictor_head.eval()
 
-        # Load state dict
+        # Load checkpoint state dict
         state_dict = torch.load(path, map_location=self.device, weights_only=True)
 
-        # Filter and load SSL model weights
-        ssl_state = {
-            k.replace("ssl_model.", ""): v
-            for k, v in state_dict.items()
-            if k.startswith("ssl_model.")
-        }
-        self._ssl_model.load_state_dict(ssl_state)
-
-        # Filter and load predictor weights
-        # Checkpoint uses sequential keys: 0.weight, 0.bias, 3.weight, 3.bias
-        # Map to our named parameters: fc1.weight, fc1.bias, fc2.weight, fc2.bias
+        # Load predictor head weights
+        # Checkpoint uses keys: fc1.*, layer_norm.*, fc2.*
         predictor_state = {}
-        for k, v in state_dict.items():
-            if k.startswith("predictor."):
-                key = k.replace("predictor.", "")
-                if key == "0.weight":
-                    predictor_state["fc1.weight"] = v
-                elif key == "0.bias":
-                    predictor_state["fc1.bias"] = v
-                elif key == "3.weight":
-                    predictor_state["fc2.weight"] = v
-                elif key == "3.bias":
-                    predictor_state["fc2.bias"] = v
+        for key, value in state_dict.items():
+            if key.startswith("predictor."):
+                # Strip "predictor." prefix
+                predictor_key = key[len("predictor.") :]
+                predictor_state[predictor_key] = value
 
         self._predictor_head.load_state_dict(predictor_state, strict=True)
 
         print(f"[SSLAAIPredictor] Loaded successfully")
         print(f"[SSLAAIPredictor] SSL model: {self.MODEL_NAME}")
-        print(f"[SSLAAIPredictor] Predictor head: 768 -> 256 -> 9")
-        print(f"[SSLAAIPredictor] Output: z-scored AAI TVs, order: {AAI_TV_ORDER}")
+        print(f"[SSLAAIPredictor] Predictor head: {self.FEATURE_DIM} -> 256 -> {self.NUM_TVS}")
+        print(f"[SSLAAIPredictor] Output: robust_01 normalized TVs, order: {AAI_TV_ORDER}")
+        print(f"[SSLAAIPredictor] Normalization note: robust_01 (values in [0,1])")
 
         self._loaded = True
 
     def _validate_output(self, output: torch.Tensor) -> None:
         """Validate predictor output shape and values."""
-
         if output.ndim != 2:
             raise ValueError(f"Predictor output must be 2D (T, 9), got shape {output.shape}")
-        if output.shape[1] != 9:
-            raise ValueError(f"Predictor output must have 9 channels, got {output.shape[1]}")
+        if output.shape[1] != self.NUM_TVS:
+            raise ValueError(
+                f"Predictor output must have {self.NUM_TVS} channels, got {output.shape[1]}"
+            )
         if output.shape[0] == 0:
             raise ValueError("Predictor output has no time frames")
         if not torch.isfinite(output).all():
             raise ValueError("Predictor output contains NaN or Inf values")
+        # Validate robust_01 range
+        if output.min() < 0.0 or output.max() > 1.0:
+            print(
+                f"[SSLAAIPredictor] Warning: Output outside [0,1] range: [{output.min():.3f}, {output.max():.3f}]"
+            )
 
     def predict(
         self,
@@ -176,14 +211,14 @@ class SSLAAIPredictor:
             sample_rate: Audio sample rate (must be 16000)
 
         Returns:
-            torch.Tensor: Z-scored AAI tract variables, shape (T, 9)
+            torch.Tensor: Tract variables in robust_01 normalization,
+                         shape (T, 9), values in [0, 1]
                          Order: LP, LA, TTCL, TTCD, TBCL, TBCD, VEL, GLO, LAT
 
         Raises:
             RuntimeError: If predictor not loaded.
             ValueError: If sample rate mismatch or invalid output.
         """
-
         if not self._loaded:
             raise RuntimeError("Predictor not loaded. Call load() first.")
 
@@ -193,7 +228,7 @@ class SSLAAIPredictor:
         if audio_tensor.dim() == 2:
             audio_tensor = audio_tensor.squeeze()
 
-        # Extract features
+        # Extract ContentVec features
         inputs = self._feature_extractor(
             audio_tensor.cpu().numpy(),
             sampling_rate=self.SAMPLE_RATE,
@@ -203,9 +238,14 @@ class SSLAAIPredictor:
 
         # Forward through SSL model and predictor
         with torch.no_grad():
-            ssl_outputs = self._ssl_model(**inputs)
-            hidden_states = ssl_outputs.last_hidden_state  # (B, T, 768)
-            # Remove batch dimension if present
+            outputs = self._ssl_model(
+                **inputs,
+                output_hidden_states=True,
+                return_dict=True,
+            )
+            # Get penultimate layer features
+            hidden_states = outputs.hidden_states[self.FEATURE_LAYER]
+            # Remove batch dimension: (1, T, 768) -> (T, 768)
             if hidden_states.dim() == 3 and hidden_states.shape[0] == 1:
                 hidden_states = hidden_states.squeeze(0)
             # Predict tract variables
@@ -217,7 +257,6 @@ class SSLAAIPredictor:
 
     def cleanup(self) -> None:
         """Free model resources."""
-
         if self._ssl_model is not None:
             del self._ssl_model
             self._ssl_model = None

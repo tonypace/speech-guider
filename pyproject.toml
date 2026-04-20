@@ -41,11 +41,26 @@ exclude = [
 ]
 warn_return_any = true
 warn_unused_configs = true
-ignore_missing_imports = true
 strict_optional = false
+
+# Targeted overrides for packages without type stubs
+[[tool.mypy.overrides]]
+module = [
+    "parselmouth",
+    "pyclts",
+    "clts",
+    "myspsolution",
+    "mysp",
+    "my_voice_analysis",
+]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests"
+]
