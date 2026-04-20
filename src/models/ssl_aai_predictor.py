@@ -12,7 +12,6 @@ Normalization Evolution Note:
 - hard_sigmoid_01 (future): hard-sigmoid clamped to [0,1] (under refinement)
 """
 
-import os
 from pathlib import Path
 from typing import Optional
 
@@ -30,39 +29,30 @@ def _get_default_checkpoint_path() -> Path:
 
 
 class DANNPredictorHead(nn.Module):
-    """DANN-based predictor head: 768 -> 256 -> 9 with LayerNorm, ReLU, Dropout.
+    """DANN predictor head: 768 -> 256 -> 9 as nn.Sequential.
 
-    This matches the architecture from external/aai_portable0.1/models.py:
-    Linear(768->256) -> LayerNorm(256) -> ReLU -> Dropout(0.1) -> Linear(256->9)
+    Architecture matches checkpoint from external/aai_portable0.1/models.py:
+    Sequential(Linear(768->256), LayerNorm(256), ReLU, Dropout(0.1), Linear(256->9))
 
-    Output is in robust_01 normalization ([0, 1] range), not z-score.
+    Output is in robust_01 normalization ([0, 1] range).
     """
 
     def __init__(self, input_dim: int = 768, hidden_dim: int = 256, output_dim: int = 9) -> None:
         super().__init__()
-        self.fc1 = nn.Linear(input_dim, hidden_dim)
-        self.layer_norm = nn.LayerNorm(hidden_dim)
-        self.relu = nn.ReLU()
-        self.dropout = nn.Dropout(0.1)
-        self.fc2 = nn.Linear(hidden_dim, output_dim)
+        self.net = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.1),
+            nn.Linear(hidden_dim, output_dim),
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass returning (T, 9) tract variables in [0, 1] range.
+        """Forward pass returning (T, 9) tract variables in [0, 1] range."""
+        return torch.clamp(self.net(x), 0.0, 1.0)
 
-        Args:
-            x: Input features of shape (T, 768) or (B, T, 768)
 
-        Returns:
-            torch.Tensor: Predicted tract variables of shape (T, 9) or (B, T, 9)
-        """
-        x = self.fc1(x)
-        x = self.layer_norm(x)
-        x = self.relu(x)
-        x = self.dropout(x)
-        x = self.fc2(x)
-        # Clamp to [0, 1] for robust_01 normalization
-        x = torch.clamp(x, 0.0, 1.0)
-        return x
+AAIHead = DANNPredictorHead
 
 
 class SSLAAIPredictor:
@@ -75,8 +65,8 @@ class SSLAAIPredictor:
 
     The checkpoint is expected to contain:
     - predictor.*: DANN predictor head weights
-      Keys: fc1.weight, fc1.bias, layer_norm.weight, layer_norm.bias,
-            fc2.weight, fc2.bias
+      Keys: 0.weight, 0.bias (Linear 768->256), 1.weight, 1.bias (LayerNorm 256),
+            4.weight, 4.bias (Linear 256->9)
 
     Usage:
         predictor = SSLAAIPredictor()
@@ -162,22 +152,19 @@ class SSLAAIPredictor:
         # Load checkpoint state dict
         state_dict = torch.load(path, map_location=self.device, weights_only=True)
 
-        # Load predictor head weights
-        # Checkpoint uses keys: fc1.*, layer_norm.*, fc2.*
+        # Load predictor head weights into self.net (nn.Sequential)
         predictor_state = {}
         for key, value in state_dict.items():
             if key.startswith("predictor."):
-                # Strip "predictor." prefix
-                predictor_key = key[len("predictor.") :]
-                predictor_state[predictor_key] = value
+                predictor_state[key[len("predictor.") :]] = value
 
-        self._predictor_head.load_state_dict(predictor_state, strict=True)
+        self._predictor_head.net.load_state_dict(predictor_state, strict=True)
 
-        print(f"[SSLAAIPredictor] Loaded successfully")
+        print("[SSLAAIPredictor] Loaded successfully")
         print(f"[SSLAAIPredictor] SSL model: {self.MODEL_NAME}")
         print(f"[SSLAAIPredictor] Predictor head: {self.FEATURE_DIM} -> 256 -> {self.NUM_TVS}")
         print(f"[SSLAAIPredictor] Output: robust_01 normalized TVs, order: {AAI_TV_ORDER}")
-        print(f"[SSLAAIPredictor] Normalization note: robust_01 (values in [0,1])")
+        print("[SSLAAIPredictor] Normalization note: robust_01 (values in [0,1])")
 
         self._loaded = True
 

@@ -1,11 +1,10 @@
 """Regression tests for analysis endpoint failure modes and exception handling."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import numpy as np
 import pytest
 import torch
-from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -118,6 +117,7 @@ class TestAnalysisPipelineExceptions:
     def test_unexpected_error_propagates_with_cause(self, mock_get_predictor, mock_load_audio):
         """Unexpected errors should propagate with exception cause preserved."""
         import asyncio
+
         from app.api.analyze import _run_analysis_pipeline
 
         mock_load_audio.side_effect = ValueError("Unexpected audio error")

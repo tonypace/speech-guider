@@ -1,6 +1,5 @@
 """Regression tests for comparison_cache and reference_tts error paths."""
 
-import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -12,7 +11,7 @@ class TestComparisonCacheErrorPaths:
 
     def test_cache_temp_file_read_failure(self, tmp_path):
         """Cache temp file read failure should be handled gracefully."""
-        from src.services.comparison_cache import ComparisonCache, CacheEntry
+        from src.services.comparison_cache import CacheEntry, ComparisonCache
 
         cache = ComparisonCache(cache_dir=tmp_path, max_size=2)
 
@@ -59,7 +58,7 @@ class TestComparisonCacheErrorPaths:
 
     def test_cache_eviction_with_missing_temp_files(self, tmp_path):
         """Cache eviction should handle missing temp files gracefully."""
-        from src.services.comparison_cache import ComparisonCache, CacheEntry
+        from src.services.comparison_cache import ComparisonCache
 
         cache = ComparisonCache(cache_dir=tmp_path, max_size=2)
 
@@ -180,7 +179,7 @@ class TestReferenceTTSFactory:
 
     def test_espeak_provider_creation(self):
         """espeak provider should be created successfully."""
-        from src.audio.reference_tts import create_tts_provider, EspeakTTSProvider
+        from src.audio.reference_tts import EspeakTTSProvider, create_tts_provider
 
         provider = create_tts_provider("espeak")
         assert isinstance(provider, EspeakTTSProvider)

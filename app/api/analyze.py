@@ -34,11 +34,11 @@ def get_ssl_predictor():
         from src.models.ssl_aai_predictor import SSLAAIPredictor
 
         checkpoint_path = os.getenv("SSL_AAI_CHECKPOINT_PATH")
-        logger.info(f"[get_ssl_predictor] Initializing SSL AAI predictor (first time)...")
+        logger.info("[get_ssl_predictor] Initializing SSL AAI predictor (first time)...")
         if checkpoint_path:
             logger.info(f"[get_ssl_predictor] Using checkpoint: {checkpoint_path}")
         else:
-            logger.info(f"[get_ssl_predictor] Using default checkpoint path")
+            logger.info("[get_ssl_predictor] Using default checkpoint path")
 
         _cached_ssl_predictor = SSLAAIPredictor(checkpoint_path=checkpoint_path)
         _cached_ssl_predictor.load()

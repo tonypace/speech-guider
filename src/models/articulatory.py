@@ -818,7 +818,7 @@ class ArticulatoryMapper:
             print(f"[ArticulatoryMapper.get_animation_params] Returning pyclts result: {result}")
             return result
 
-        print(f"[ArticulatoryMapper.get_animation_params] pyclts failed, trying preset fallback")
+        print("[ArticulatoryMapper.get_animation_params] pyclts failed, trying preset fallback")
         try:
             from app.services.state import load_presets
 
@@ -842,7 +842,7 @@ class ArticulatoryMapper:
         except Exception as e:
             print(f"[ArticulatoryMapper.get_animation_params] Preset fallback failed: {e}")
 
-        print(f"[ArticulatoryMapper.get_animation_params] All fallbacks failed, returning defaults")
+        print("[ArticulatoryMapper.get_animation_params] All fallbacks failed, returning defaults")
         return svg_state_to_dict(default_articulatory_state())
 
     def calculate_delta(

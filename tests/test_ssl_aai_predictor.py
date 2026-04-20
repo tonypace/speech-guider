@@ -11,7 +11,7 @@ import torch
 def test_predictor_module_imports():
     """SSL AAI predictor module should import without errors."""
 
-    from src.models.ssl_aai_predictor import SSLAAIPredictor, AAIHead
+    from src.models.ssl_aai_predictor import AAIHead, SSLAAIPredictor
 
     assert SSLAAIPredictor is not None
     assert AAIHead is not None
@@ -36,7 +36,7 @@ def test_predictor_default_checkpoint_path():
     from src.models.ssl_aai_predictor import _get_default_checkpoint_path
 
     path = _get_default_checkpoint_path()
-    expected_suffix = Path("models/distillhubert-aai/best_model.pt")
+    expected_suffix = Path("external/aai_portable0.1/best_model.pt")
     assert path.name == "best_model.pt"
     assert expected_suffix.parts[-3:] == path.parts[-3:]
 
@@ -67,7 +67,7 @@ def test_predictor_unloaded_raises():
 
 @pytest.mark.skipif(
     not Path(
-        "/Users/tonypace/Documents/Code/speech-guider/models/distillhubert-aai/best_model.pt"
+        "/Users/tonypace/Documents/Code/speech-guider/external/aai_portable0.1/best_model.pt"
     ).exists(),
     reason="Checkpoint not available",
 )
@@ -90,15 +90,16 @@ def test_predictor_loads_checkpoint():
 
 @pytest.mark.skipif(
     not Path(
-        "/Users/tonypace/Documents/Code/speech-guider/models/distillhubert-aai/best_model.pt"
+        "/Users/tonypace/Documents/Code/speech-guider/external/aai_portable0.1/best_model.pt"
     ).exists(),
     reason="Checkpoint not available",
 )
 def test_predictor_produces_valid_output():
     """Predictor should produce valid (T, 9) output from audio."""
 
-    from src.models.ssl_aai_predictor import SSLAAIPredictor
     import scipy.io.wavfile
+
+    from src.models.ssl_aai_predictor import SSLAAIPredictor
 
     predictor = SSLAAIPredictor()
     predictor.load()
@@ -128,17 +129,12 @@ def test_predictor_produces_valid_output():
         assert output.shape[0] > 0, "Expected at least one time frame"
         assert torch.isfinite(output).all(), "Output contains NaN or Inf"
 
-        # Check values look z-scored (roughly mean 0, std 1)
+        # Check values look robust_01 normalized (roughly [0, 1] range)
         output_np = output.numpy()
         for i in range(9):
             channel = output_np[:, i]
-            mean = np.mean(channel)
-            std = np.std(channel)
-            # Very loose bounds since it's a single sine wave
-            # Note: A single sine wave has low feature variability, so std may be low
-            assert -10 < mean < 10, f"Channel {i} mean {mean} not in plausible range"
-            # Std can be very low for simple signals, just check it's finite and not extreme
-            assert 0 < std < 20, f"Channel {i} std {std} not in plausible range"
+            assert channel.min() >= 0.0, f"Channel {i} below [0,1]: {channel.min()}"
+            assert channel.max() <= 1.0, f"Channel {i} above [0,1]: {channel.max()}"
 
     finally:
         predictor.cleanup()
@@ -148,18 +144,17 @@ def test_predictor_produces_valid_output():
 def test_predictor_adapter_integration():
     """Predictor output should work with AAI adapter."""
 
-    from src.models.ssl_aai_predictor import SSLAAIPredictor, AAI_TV_ORDER
     from src.models.aai_adapter import (
         AAIConversionMetadata,
         aai_to_canonical_state,
         decode_aai_row,
     )
 
-    # Simulate predictor output: (T, 9) z-scored values
-    tvs_zscore = torch.randn(10, 9)  # 10 frames, 9 channels
+    # Simulate predictor output: (T, 9) robust_01 normalized values (uniform [0,1])
+    tvs_robust = torch.rand(10, 9)  # 10 frames, 9 channels
 
     # Decode first frame
-    first_frame = tvs_zscore[0].tolist()
+    first_frame = tvs_robust[0].tolist()
     tract_vars = decode_aai_row(first_frame)
 
     # Verify field order
@@ -174,7 +169,7 @@ def test_predictor_adapter_integration():
     assert tract_vars.lat == first_frame[8]  # LAT
 
     # Convert to canonical state
-    metadata = AAIConversionMetadata(normalization="z_score")
+    metadata = AAIConversionMetadata(normalization="robust_01")
     canonical = aai_to_canonical_state(tract_vars, metadata=metadata)
 
     # Verify canonical fields present

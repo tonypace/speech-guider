@@ -5,6 +5,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from src.models.aai_adapter import (
+    AAIConversionMetadata,
+    AAINormalizationProfile,
+    AAITractVariables,
+    aai_to_canonical_state,
+    decode_aai_row,
+    denormalize_aai_row,
+    parse_aai_animation_payload,
+    representative_aai_pose,
+)
 from src.models.articulatory import (
     CONSONANT_TEMPLATES,
     VOWEL_TEMPLATES,
@@ -17,16 +27,6 @@ from src.models.articulatory import (
     legacy_to_svg_state,
     normalize_svg_state,
     svg_state_to_dict,
-)
-from src.models.aai_adapter import (
-    AAIConversionMetadata,
-    AAINormalizationProfile,
-    AAITractVariables,
-    aai_to_canonical_state,
-    decode_aai_row,
-    denormalize_aai_row,
-    parse_aai_animation_payload,
-    representative_aai_pose,
 )
 
 

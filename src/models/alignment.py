@@ -11,9 +11,7 @@ model) to restore forced alignment and error detection functionality.
 from dataclasses import dataclass
 from typing import Optional
 
-import numpy as np
 import torch
-import torchaudio
 
 from src.models.g2p import G2PConverter
 

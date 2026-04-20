@@ -5,11 +5,10 @@ text content. Supports in-memory storage with optional temp file backing.
 """
 
 import hashlib
-import json
 import tempfile
 import time
 from collections import OrderedDict
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 

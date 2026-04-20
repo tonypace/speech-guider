@@ -1,7 +1,6 @@
 """Comparison API endpoints for reference generation and student analysis."""
 
 import io
-from dataclasses import asdict
 from typing import Optional
 
 import numpy as np
@@ -10,7 +9,7 @@ import torch
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from src.audio.reference_tts import ReferenceAudio, TTSProviderFactory
+from src.audio.reference_tts import TTSProviderFactory
 from src.models.aai_adapter import (
     AAIConversionMetadata,
     aai_to_canonical_state,
@@ -74,17 +73,17 @@ def _ssl_trajectory_to_canonical_frames(
     """Convert SSL predictor trajectory to canonical animation frames.
 
     Args:
-        trajectory: Tensor of shape (T, 9) with z-scored AAI TVs
+        trajectory: Tensor of shape (T, 9) with robust_01 AAI TVs (values in [0, 1])
         sample_rate: Original audio sample rate
 
     Returns:
         List of canonical animation state dictionaries
     """
     frames = []
-    metadata = AAIConversionMetadata(normalization="z_score")
+    metadata = AAIConversionMetadata(normalization="robust_01")
 
     for i in range(trajectory.shape[0]):
-        # Get z-scored TV row
+        # Get robust_01 TV row
         tv_row = trajectory[i].tolist()
 
         # Decode to named tract variables
@@ -154,7 +153,7 @@ def _generate_reference_asset(
 
     try:
         trajectory = predictor.predict(audio_tensor, sample_rate=16000)
-        # trajectory shape: (T, 9) z-scored AAI TVs
+        # trajectory shape: (T, 9) robust_01 normalized AAI TVs (values in [0, 1])
 
         # Step 4: Convert trajectory to canonical frames
         frames = _ssl_trajectory_to_canonical_frames(trajectory)

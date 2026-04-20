@@ -1,7 +1,5 @@
 """Regression tests for prosody_lab optional dependency fallbacks."""
 
-import importlib
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 

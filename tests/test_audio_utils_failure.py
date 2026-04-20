@@ -1,8 +1,5 @@
 """Regression tests for audio utility failure paths and exception handling."""
 
-import importlib
-import os
-import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -15,7 +12,7 @@ class TestAudioConversionFailureModes:
 
     def test_pydub_not_available_uses_ffmpeg(self, tmp_path):
         """When pydub is not available, should try ffmpeg."""
-        from app.utils.audio import AudioConversionError, _convert_to_wav
+        from app.utils.audio import _convert_to_wav
 
         # Create a test audio file
         input_path = str(tmp_path / "test.mp3")
@@ -110,8 +107,9 @@ class TestSaveUploadToTemp:
         """Non-audio format conversion failure should raise error."""
         import io
 
-        from app.utils.audio import AudioConversionError, save_upload_to_temp
         from fastapi import UploadFile
+
+        from app.utils.audio import AudioConversionError, save_upload_to_temp
 
         # Create an UploadFile with a non-audio extension
         content = b"not audio data"
@@ -129,8 +127,9 @@ class TestSaveUploadToTemp:
         """WAV files should not trigger conversion."""
         import io
 
-        from app.utils.audio import save_upload_to_temp
         from fastapi import UploadFile
+
+        from app.utils.audio import save_upload_to_temp
 
         # Create a real WAV file
         wav_path = tmp_path / "test.wav"

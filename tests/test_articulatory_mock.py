@@ -23,6 +23,7 @@ clts_mock.TranscriptionSystem = MockCLTS.TranscriptionSystem  # type: ignore[att
 sys.modules["clts"] = clts_mock
 
 # Now import our module (after mock setup)
+from src.models.aai_adapter import parse_aai_animation_payload
 from src.models.articulatory import (
     ArticulatoryMapper,
     ArticulatoryParameters,
@@ -31,7 +32,6 @@ from src.models.articulatory import (
     default_articulatory_state,
     format_with_html_tooltips,
 )
-from src.models.aai_adapter import parse_aai_animation_payload
 
 
 def test_basic_structure():
