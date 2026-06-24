@@ -2,19 +2,20 @@
 
 import torch
 
-from app.api.comparison import _ssl_trajectory_to_canonical_frames
+from src.models.aai_adapter import AAIConversionMetadata, aai_to_canonical_states_batch
 
 
-def test_ssl_trajectory_to_canonical_frames_emits_normalized_values() -> None:
+def test_aai_to_canonical_states_batch_emits_normalized_values() -> None:
     trajectory = torch.tensor(
         [
-            [0.5, 1.2, 0.1, 0.0, 0.8, 0.6, 0.1, 0.2, 0.3],
+            [0.5, 0.8, 0.1, 0.0, 0.8, 0.6, 0.1, 0.2, 0.3],
             [0.2, 0.9, 0.3, 0.2, 0.7, 0.4, 0.0, 0.0, 0.1],
         ],
         dtype=torch.float32,
     )
 
-    frames = _ssl_trajectory_to_canonical_frames(trajectory)
+    metadata = AAIConversionMetadata(normalization="robust_01")
+    frames = aai_to_canonical_states_batch(trajectory.numpy(), metadata)
 
     assert len(frames) == 2
     for frame in frames:

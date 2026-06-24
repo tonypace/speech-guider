@@ -6,9 +6,9 @@
 
 ## 2. Analysis pipeline
 
-- [x] 2.1 Add backend audio normalization for the recording input expected by `my-voice-analysis` and `librosa`.
-- [x] 2.2 Integrate `my-voice-analysis` to extract syllable, pause, and rhythm balance data.
-- [x] 2.3 Integrate `librosa.pyin` pitch tracking and map pitch values into visualization-ready data.
+- [x] 2.1 Add backend audio normalization for the recording input.
+- [x] 2.2 Integrate heuristic syllable, pause, and rhythm balance extraction.
+- [x] 2.3 Integrate scipy-based pitch tracking and map pitch values into visualization-ready data.
 
 ## 3. Visualization and comparison
 

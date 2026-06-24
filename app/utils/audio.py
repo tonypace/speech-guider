@@ -1,6 +1,5 @@
 """Utility functions for handling audio file uploads."""
 
-import importlib
 import io
 import os
 import subprocess
@@ -63,7 +62,7 @@ async def save_upload_to_temp(upload_file: UploadFile, target_format: str = "wav
 
 
 def _convert_to_wav(input_path: str) -> str:
-    """Convert audio file to WAV using pydub or ffmpeg.
+    """Convert audio file to WAV using ffmpeg.
 
     Args:
         input_path: Path to input audio file
@@ -76,23 +75,6 @@ def _convert_to_wav(input_path: str) -> str:
     """
     wav_path = input_path.rsplit(".", 1)[0] + ".wav"
 
-    # Try pydub first (uses ffmpeg under the hood)
-    try:
-        pydub = importlib.import_module("pydub")
-        AudioSegment = pydub.AudioSegment
-
-        audio = AudioSegment.from_file(input_path)
-        audio = audio.set_frame_rate(16000).set_channels(1)
-        audio.export(wav_path, format="wav")
-
-        if os.path.exists(wav_path):
-            return wav_path
-    except ImportError:
-        print("[audio] pydub not available, trying ffmpeg directly...")
-    except (OSError, ValueError) as e:
-        print(f"[audio] pydub conversion failed: {e}, trying ffmpeg directly...")
-
-    # Fallback to direct ffmpeg
     try:
         result = subprocess.run(
             [

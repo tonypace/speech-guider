@@ -1,9 +1,10 @@
 """Audio processing for prosody analysis using Parselmouth.
 
-Implements rhythm (nPVI), stress patterns, and pitch extraction.
+Implements rhythm (nPVI), stress patterns, pitch extraction,
+and voice quality metrics (jitter, shimmer, CPPS, spectral tilt).
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
@@ -41,12 +42,30 @@ class StressPattern:
 
 
 @dataclass
+class VoiceQuality:
+    """Voice quality metrics.
+
+    Attributes:
+        jitter_local: Cycle-to-cycle F0 variation (Perturbation quotient, %)
+        shimmer_local: Cycle-to-cycle amplitude variation (dB)
+        cpps: Cepstral Peak Prominence Smoothed (dB) - roughness measure
+        spectral_tilt: Spectral slope (dB/octave) - breathiness indicator
+    """
+
+    jitter_local: float
+    shimmer_local: float
+    cpps: float
+    spectral_tilt: float
+
+
+@dataclass
 class ProsodyMetrics:
     """Complete prosody analysis results."""
 
     pitch: PitchContour
     rhythm: RhythmMetrics
     stress: Optional[StressPattern]
+    voice_quality: VoiceQuality = field(default_factory=lambda: VoiceQuality(0.0, 0.0, 0.0, 0.0))
 
 
 @dataclass
@@ -181,6 +200,90 @@ class ProsodyAnalyzer:
             classification=classification,
         )
 
+    def _compute_jitter_and_shimmer(self, sound: parselmouth.Sound) -> tuple[float, float]:
+        """Compute jitter (F0 period variation) and shimmer (amplitude variation)."""
+        pitch_obj = sound.to_pitch()
+        f0 = pitch_obj.selected_array["frequency"]
+        voiced_mask = f0 > 0
+        n_voiced = int(np.sum(voiced_mask))
+        if n_voiced < 3:
+            return (0.0, 0.0)
+
+        periods = np.where(voiced_mask, 1.0 / np.maximum(f0, 1e-6), 0.0)
+        voiced_periods = periods[voiced_mask]
+        jitter = (
+            float(np.mean(np.abs(np.diff(voiced_periods))) / np.mean(voiced_periods) * 100)
+            if len(voiced_periods) > 2
+            else 0.0
+        )
+
+        intensity_obj = sound.to_intensity()
+        intensity = intensity_obj.values.flatten()
+        n_pitch = len(f0)
+        shimmer = 0.0
+        if len(intensity) > 1 and n_pitch > 1:
+            idx = np.clip(
+                np.linspace(0, len(intensity) - 1, n_pitch).astype(int), 0, len(intensity) - 1
+            )
+            voiced_int = intensity[idx][voiced_mask]
+            if len(voiced_int) > 2:
+                shimmer = float(np.mean(np.abs(np.diff(voiced_int))) / np.mean(voiced_int) * 100)
+        return (jitter, shimmer)
+
+    def _compute_cpps(self, sound: parselmouth.Sound) -> float:
+        """Compute Cepstral Peak Prominence Smoothed (roughness measure)."""
+        try:
+            samples = sound.values.flatten()
+            sr = int(sound.sampling_frequency)
+            fl = int(0.03 * sr)
+            hl = int(0.01 * sr)
+            peaks = []
+            for start in range(0, len(samples) - fl, hl):
+                frame = samples[start : start + fl] * np.hanning(fl)
+                cepstrum_mag = np.abs(np.fft.rfft(np.log(np.abs(np.fft.rfft(frame)) + 1e-10)))
+                quef = np.fft.rfftfreq(fl, d=1.0 / sr)
+                lo, hi = (
+                    max(1, np.searchsorted(quef, 1.0 / 500.0)),
+                    min(len(cepstrum_mag), np.searchsorted(quef, 1.0 / 60.0)),
+                )
+                if lo >= hi:
+                    continue
+                pk = int(np.argmax(cepstrum_mag[lo:hi])) + lo
+                c = np.arange(len(cepstrum_mag), dtype=float)
+                baseline = np.polyval(np.polyfit(c, cepstrum_mag, 1), c[pk])
+                peaks.append(float(cepstrum_mag[pk] - baseline))
+            return float(np.mean(peaks)) if peaks else 0.0
+        except Exception:
+            return 0.0
+
+    def _compute_spectral_tilt(self, sound: parselmouth.Sound) -> float:
+        """Compute spectral slope (breathiness indicator)."""
+        try:
+            samples = sound.values.flatten()
+            sr = int(sound.sampling_frequency)
+            spectrum = np.abs(np.fft.rfft(samples))
+            freqs = np.fft.rfftfreq(len(samples), d=1.0 / sr)
+            lo, hi = np.searchsorted(freqs, 100), np.searchsorted(freqs, 4000)
+            if lo >= hi:
+                return 0.0
+            log_f = np.log2(freqs[lo:hi] + 1)
+            log_m = np.log(spectrum[lo:hi] + 1e-10)
+            return float(np.polyfit(log_f, log_m, 1)[0])
+        except Exception:
+            return 0.0
+
+    def analyze_voice_quality(self) -> VoiceQuality:
+        """Compute voice quality metrics using Parselmouth."""
+        jitter, shimmer = self._compute_jitter_and_shimmer(self.audio)
+        cpps = self._compute_cpps(self.audio)
+        tilt = self._compute_spectral_tilt(self.audio)
+        return VoiceQuality(
+            jitter_local=jitter,
+            shimmer_local=shimmer,
+            cpps=cpps,
+            spectral_tilt=tilt,
+        )
+
     def analyze_stress(
         self,
         word_timestamps: list[tuple[str, float, float]],
@@ -274,9 +377,11 @@ class ProsodyAnalyzer:
         pitch = self.analyze_pitch(pitch_obj=pitch_obj)
         rhythm = self.analyze_rhythm(vowel_timestamps)
         stress = self.analyze_stress(word_timestamps, pitch_obj=pitch_obj)
+        voice_quality = self.analyze_voice_quality()
 
         return ProsodyMetrics(
             pitch=pitch,
             rhythm=rhythm,
             stress=stress,
+            voice_quality=voice_quality,
         )

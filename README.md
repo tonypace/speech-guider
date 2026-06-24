@@ -22,7 +22,7 @@ Speech Guider is a local-first pronunciation and prosody coaching app for ESL pr
 
 - **Frontend**: HTML5, Tailwind CSS, vanilla JavaScript
 - **Backend**: FastAPI, Jinja2, Server-Sent Events
-- **Speech and audio**: PyTorch, Torchaudio, Parselmouth, librosa, `my-voice-analysis`
+- **Speech and audio**: PyTorch, Parselmouth, numpy/scipy heuristics
 - **Models**: ContentVec-based SSL with DANN predictor for articulatory inversion (9 tract variables)
 - **Visualization**: custom SVG articulatory renderer and Plotly-based prosody charts
 - **Desktop shell**: Tauri workspace in `src-tauri/`
@@ -33,7 +33,7 @@ Speech Guider is a local-first pronunciation and prosody coaching app for ESL pr
 
 - Python 3.10 or later
 - Node.js for JS tests and Tauri tooling
-- macOS: `espeak-ng` for phoneme and reference TTS support via `brew install espeak-ng`
+- macOS: Build omnivoice.cpp for reference TTS (see `omnivoice-tts/` in repo root)
 
 ### Setup
 
@@ -142,14 +142,11 @@ speech-guider/
 │   │   ├── prosody_lab.py
 │   │   └── reference_tts.py
 │   ├── models/
-│   │   ├── aai_adapter.py
 │   │   ├── alignment.py
 │   │   ├── articulatory.py
 │   │   ├── articulatory_calibration.py
-│   │   ├── contentvec.py
-│   │   ├── g2p.py
-│   │   ├── hubert.py
-│   │   └── ssl_aai_predictor.py
+│   │   ├── ssl_aai_predictor.py
+│   │   ├── ssl_common.py
 │   └── services/
 │       └── comparison_cache.py
 ├── src-tauri/

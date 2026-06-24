@@ -277,6 +277,45 @@ def _resolve_aai_input_variables(
         return tract_variables
 
 
+def _robust_01_row_to_canonical_candidate(
+    values: Sequence[float],
+    fallback: dict[str, float],
+    defaults: dict[str, float],
+    metadata: AAIConversionMetadata,
+) -> dict[str, float]:
+    """Convert one robust_01 TV row to a canonical state candidate.
+
+    Field order: LP, LA, TTCL, TTCD, TBCL, TBCD, VEL, GLO, LAT
+    """
+    candidate = {
+        "lip_aperture": clamp_unit(values[1]),  # LA
+        "lip_protrusion": clamp_unit(values[0]),  # LP
+        "tongue_tip_constriction_location": clamp_unit(values[2]),  # TTCL
+        "tongue_tip_constriction_degree": clamp_unit(values[3]),  # TTCD
+        "lateral_tongue_drop": clamp_unit(values[8]),  # LAT
+        "velic_aperture": clamp_unit(values[6]),  # VEL
+        "tongue_body_constriction_location": clamp_unit(values[4]),  # TBCL
+        "tongue_body_constriction_degree": clamp_unit(values[5]),  # TBCD
+        "glottal_aperture": clamp_unit(values[7]),  # GLO
+    }
+
+    masked_fields = set(metadata.masked_fields)
+    if metadata.source_dataset in AAI_MASKED_FIELDS_BY_SOURCE:
+        masked_fields |= AAI_MASKED_FIELDS_BY_SOURCE[metadata.source_dataset]
+
+    if masked_fields:
+        masked_field_mapping = {
+            "VEL": "velic_aperture",
+            "GLO": "glottal_aperture",
+            "LAT": "lateral_tongue_drop",
+        }
+        for aai_key, canonical_key in masked_field_mapping.items():
+            if aai_key in masked_fields:
+                candidate[canonical_key] = fallback.get(canonical_key, defaults[canonical_key])
+
+    return apply_global_articulatory_calibration(normalize_svg_state(candidate))
+
+
 def _resolved_aai_to_canonical_state(
     tract_variables: AAITractVariables,
     profile: AAINormalizationProfile,
@@ -290,23 +329,20 @@ def _resolved_aai_to_canonical_state(
     defaults = svg_state_to_dict(default_articulatory_state())
     fallback = dict(fallback_state or defaults)
 
-    # For robust_01, values are already in [0,1], use directly
-    # For z_score, we need to scale from physical mm to [0,1]
     if metadata.normalization == "robust_01":
-        # Values already in [0, 1] range, use directly
-        candidate = {
-            "lip_aperture": clamp_unit(tract_variables.la),
-            "lip_protrusion": clamp_unit(tract_variables.lp),
-            "tongue_tip_constriction_location": clamp_unit(tract_variables.ttcl),
-            "tongue_tip_constriction_degree": clamp_unit(tract_variables.ttcd),
-            "lateral_tongue_drop": clamp_unit(tract_variables.lat),
-            "velic_aperture": clamp_unit(tract_variables.vel),
-            "tongue_body_constriction_location": clamp_unit(tract_variables.tbcl),
-            "tongue_body_constriction_degree": clamp_unit(tract_variables.tbcd),
-            "glottal_aperture": clamp_unit(tract_variables.glo),
-        }
+        values = [
+            tract_variables.lp,
+            tract_variables.la,
+            tract_variables.ttcl,
+            tract_variables.ttcd,
+            tract_variables.tbcl,
+            tract_variables.tbcd,
+            tract_variables.vel,
+            tract_variables.glo,
+            tract_variables.lat,
+        ]
+        return _robust_01_row_to_canonical_candidate(values, fallback, defaults, metadata)
     else:
-        # z_score or raw: scale from physical mm to [0,1]
         lp_extent = _reference_extent(profile.mean[0], profile.std[0])
         la_extent = _reference_extent(profile.mean[1], profile.std[1])
         ttcd_extent = _reference_extent(profile.mean[3], profile.std[3])
@@ -329,20 +365,20 @@ def _resolved_aai_to_canonical_state(
             "glottal_aperture": _glo_to_unit_interval(tract_variables.glo),
         }
 
-    masked_fields = set(metadata.masked_fields)
-    if metadata.source_dataset in AAI_MASKED_FIELDS_BY_SOURCE:
-        masked_fields |= AAI_MASKED_FIELDS_BY_SOURCE[metadata.source_dataset]
+        masked_fields = set(metadata.masked_fields)
+        if metadata.source_dataset in AAI_MASKED_FIELDS_BY_SOURCE:
+            masked_fields |= AAI_MASKED_FIELDS_BY_SOURCE[metadata.source_dataset]
 
-    masked_field_mapping = {
-        "VEL": "velic_aperture",
-        "GLO": "glottal_aperture",
-        "LAT": "lateral_tongue_drop",
-    }
-    for aai_key, canonical_key in masked_field_mapping.items():
-        if aai_key in masked_fields:
-            candidate[canonical_key] = fallback.get(canonical_key, defaults[canonical_key])
+        masked_field_mapping = {
+            "VEL": "velic_aperture",
+            "GLO": "glottal_aperture",
+            "LAT": "lateral_tongue_drop",
+        }
+        for aai_key, canonical_key in masked_field_mapping.items():
+            if aai_key in masked_fields:
+                candidate[canonical_key] = fallback.get(canonical_key, defaults[canonical_key])
 
-    return apply_global_articulatory_calibration(normalize_svg_state(candidate))
+        return apply_global_articulatory_calibration(normalize_svg_state(candidate))
 
 
 def aai_to_canonical_state(
@@ -390,50 +426,12 @@ def aai_to_canonical_states_batch(
     fallback = dict(fallback_state or defaults)
 
     if metadata.normalization == "robust_01":
-        # Vectorized: clamp all values at once
         clamped = np.clip(tvs_array, 0.0, 1.0)
-
-        # Apply calibration rule (identity by default, just clamp)
-        # For robust_01, we just need to ensure [0,1] which np.clip handles
-        calibrated = clamped  # DEFAULT_CALIBRATION_RULES uses identity mode
-
-        # Build list of dicts
         frames = []
-        for i in range(calibrated.shape[0]):
-            row = calibrated[i]
-            candidate = {
-                "lip_aperture": clamp_unit(row[1]),  # la
-                "lip_protrusion": clamp_unit(row[0]),  # lp
-                "tongue_tip_constriction_location": clamp_unit(row[2]),  # ttcl
-                "tongue_tip_constriction_degree": clamp_unit(row[3]),  # ttcd
-                "lateral_tongue_drop": clamp_unit(row[8]),  # lat
-                "velic_aperture": clamp_unit(row[6]),  # vel
-                "tongue_body_constriction_location": clamp_unit(row[4]),  # tbcl
-                "tongue_body_constriction_degree": clamp_unit(row[5]),  # tbcd
-                "glottal_aperture": clamp_unit(row[7]),  # glo
-            }
-
-            # Handle masked fields
-            masked_fields = set(metadata.masked_fields)
-            if metadata.source_dataset in AAI_MASKED_FIELDS_BY_SOURCE:
-                masked_fields |= AAI_MASKED_FIELDS_BY_SOURCE[metadata.source_dataset]
-
-            if masked_fields:
-                masked_field_mapping = {
-                    "VEL": "velic_aperture",
-                    "GLO": "glottal_aperture",
-                    "LAT": "lateral_tongue_drop",
-                }
-                for aai_key, canonical_key in masked_field_mapping.items():
-                    if aai_key in masked_fields:
-                        candidate[canonical_key] = fallback.get(
-                            canonical_key, defaults[canonical_key]
-                        )
-
-            # Apply global calibration (identity by default)
-            calibrated_state = apply_global_articulatory_calibration(candidate)
-            frames.append(calibrated_state)
-
+        for i in range(clamped.shape[0]):
+            row = clamped[i].tolist()
+            frame = _robust_01_row_to_canonical_candidate(row, fallback, defaults, metadata)
+            frames.append(frame)
         return frames
     else:
         # z_score or raw: fall back to per-frame processing

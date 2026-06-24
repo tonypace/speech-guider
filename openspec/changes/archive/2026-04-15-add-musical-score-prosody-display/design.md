@@ -46,7 +46,7 @@ Each pitch point is drawn as a dark marker (`#0f0f0f`, size 8–10) sitting dire
 
 ### Backend unchanged
 
-The existing pitch_track (from librosa.pyin), syllable_onsets, and summary data are reused directly. No new analysis endpoints are needed.
+The existing pitch_track (from scipy heuristics), syllable_onsets, and summary data are reused directly. No new analysis endpoints are needed.
 
 ## Risks / Trade-offs
 

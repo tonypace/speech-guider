@@ -1,4 +1,4 @@
-"""Tests for ContentVec model and SSL AAI predictor."""
+"""Tests for SSL AAI predictor."""
 
 import sys
 from pathlib import Path
@@ -12,132 +12,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 def create_sine_wave(
     duration: float = 1.0, sample_rate: int = 16000, frequency: float = 440.0
 ) -> torch.Tensor:
-    """Create a simple sine wave for testing.
-
-    Args:
-        duration: Duration in seconds
-        sample_rate: Sample rate in Hz
-        frequency: Frequency in Hz
-
-    Returns:
-        Audio tensor
-    """
+    """Create a simple sine wave for testing."""
     t = torch.linspace(0.0, duration, int(sample_rate * duration))
     waveform = torch.sin(2 * torch.pi * frequency * t).float()
     return waveform
-
-
-class TestContentVecModel:
-    """Tests for ContentVec model wrapper."""
-
-    def test_contentvec_model_initialization(self) -> None:
-        """Test that ContentVec model can be initialized."""
-        from src.models.contentvec import ContentVecModel
-
-        model = ContentVecModel()
-
-        assert model.model_name == "lengyue233/content-vec-best"
-        assert model.SAMPLE_RATE == 16000
-        assert model.FEATURE_DIM == 768
-        assert hasattr(model, "feature_extractor")
-        assert hasattr(model, "model")
-
-        model.cleanup()
-
-    def test_contentvec_extract_features_shape(self) -> None:
-        """Test that feature extraction returns correct shape."""
-        from src.models.contentvec import ContentVecModel
-
-        model = ContentVecModel()
-        audio_tensor = create_sine_wave(duration=1.0)
-
-        features = model.extract_features(audio_tensor)
-
-        # Should be (T, 768) where T is roughly duration * frame_rate
-        assert features.dim() == 2
-        assert features.shape[1] == 768
-        assert features.shape[0] > 0  # At least some frames
-        assert isinstance(features, torch.Tensor)
-
-        model.cleanup()
-
-    def test_contentvec_extract_features_2d_input(self) -> None:
-        """Test that 2D input (batch dimension) is handled."""
-        from src.models.contentvec import ContentVecModel
-
-        model = ContentVecModel()
-        audio_tensor = create_sine_wave(duration=1.0).unsqueeze(0)  # (1, samples)
-
-        features = model.extract_features(audio_tensor)
-
-        assert features.dim() == 2
-        assert features.shape[1] == 768
-
-        model.cleanup()
-
-    def test_contentvec_wrong_sample_rate_raises(self) -> None:
-        """Test that wrong sample rate raises ValueError."""
-        from src.models.contentvec import ContentVecModel
-
-        model = ContentVecModel()
-        audio_tensor = create_sine_wave(duration=1.0)
-
-        with pytest.raises(ValueError, match="sample rate must be 16000Hz"):
-            model.extract_features(audio_tensor, sample_rate=22050)
-
-        model.cleanup()
-
-    @pytest.mark.slow
-    def test_contentvec_device_selection(self) -> None:
-        """Test that model loads on appropriate device."""
-        from src.models.contentvec import ContentVecModel
-
-        cuda_available = torch.cuda.is_available()
-        mps_available = torch.backends.mps.is_available()
-
-        # Test CPU explicitly
-        model_cpu = ContentVecModel(device="cpu")
-        assert model_cpu.device == "cpu"
-        model_cpu.cleanup()
-
-        if cuda_available:
-            model_cuda = ContentVecModel(device="cuda")
-            assert model_cuda.device == "cuda"
-            model_cuda.cleanup()
-
-        if mps_available:
-            model_mps = ContentVecModel(device="mps")
-            assert model_mps.device == "mps"
-            model_mps.cleanup()
-
-    def test_contentvec_auto_detect_device(self) -> None:
-        """Test that auto-detection picks the best available device."""
-        from src.models.contentvec import ContentVecModel
-
-        model = ContentVecModel()
-
-        if torch.cuda.is_available():
-            assert model.device == "cuda"
-        elif torch.backends.mps.is_available():
-            assert model.device == "mps"
-        else:
-            assert model.device == "cpu"
-
-        model.cleanup()
-
-    def test_contentvec_cleanup(self) -> None:
-        """Test that model cleanup properly frees resources."""
-        from src.models.contentvec import ContentVecModel
-
-        model = ContentVecModel()
-
-        # Verify model exists before cleanup
-        assert model.model is not None
-
-        model.cleanup()
-
-        # After cleanup, these should no longer exist
-        assert not hasattr(model, "model") or model.model is None
 
 
 class TestSSLAAIPredictor:

@@ -293,7 +293,7 @@ class ComparisonLab {
       const response = await fetch('/api/reference-animation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ target_text: text, tts_provider: 'espeak' }),
+        body: JSON.stringify({ target_text: text, tts_provider: 'omnivoice' }),
         signal: this.pendingRequestController.signal,
       });
 

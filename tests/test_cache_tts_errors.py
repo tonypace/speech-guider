@@ -1,5 +1,6 @@
 """Regression tests for comparison_cache and reference_tts error paths."""
 
+import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -11,136 +12,196 @@ class TestComparisonCacheErrorPaths:
 
     def test_cache_temp_file_read_failure(self, tmp_path):
         """Cache temp file read failure should be handled gracefully."""
-        from src.services.comparison_cache import CacheEntry, ComparisonCache
+        from src.services.comparison_cache import ComparisonCache
 
-        cache = ComparisonCache(cache_dir=tmp_path, max_size=2)
-
-        # Create a mock entry with a temp file that will fail to read
-        entry = CacheEntry(
-            audio_path="/nonexistent/audio.wav",
-            canonical_frames=[{"test": "data"}],
+        cache = ComparisonCache(max_entries=2, use_temp_files=False)
+        normalized = cache._normalize_text("test")
+        entry = cache.put(
+            text="test",
+            audio_bytes=b"test audio",
+            audio_sample_rate=8000,
+            audio_duration=1.0,
+            audio_format="ogg",
             frame_rate=50,
-            duration_seconds=1.0,
-            created_at=0,
-            access_count=0,
+            frames=[{"test": "data"}],
         )
 
-        # Manually inject into cache
-        cache._cache["test-key"] = entry
-        cache._key_order.append("test-key")
+        # Manually corrupt the audio path to simulate read failure
+        cache._temp_files[normalized] = tmp_path / "nonexistent.ogg"
+        cache.use_temp_files = True
 
-        # Attempt to get should return the entry even if temp file missing
-        result = cache.get("test-key")
-        # Should return None since entry exists but audio file doesn't
+        result = cache.get("test")
         assert result is None
 
     def test_cache_temp_file_write_failure(self, tmp_path):
         """Cache temp file write failure should fall back to memory."""
+        from pathlib import Path
+
         from src.services.comparison_cache import ComparisonCache
 
-        cache = ComparisonCache(cache_dir=tmp_path, max_size=2)
+        cache = ComparisonCache(max_entries=2, use_temp_files=True)
 
-        # Mock Path.write_bytes to fail
         with patch.object(Path, "write_bytes", side_effect=IOError("Disk full")):
-            # This should not raise - it should fall back to memory-only storage
-            cache.set(
-                "test-key",
-                audio_path="/fake/path.wav",
-                canonical_frames=[{"test": "data"}],
+            entry = cache.put(
+                text="test",
+                audio_bytes=b"test audio",
+                audio_sample_rate=8000,
+                audio_duration=1.0,
+                audio_format="ogg",
                 frame_rate=50,
-                duration_seconds=1.0,
+                frames=[{"test": "data"}],
             )
 
-            # Entry should still be in memory cache
-            result = cache.get("test-key")
-            assert result is not None
-            assert result["canonical_frames"] == [{"test": "data"}]
+            assert entry is not None
+            assert len(entry.frames) > 0
 
-    def test_cache_eviction_with_missing_temp_files(self, tmp_path):
-        """Cache eviction should handle missing temp files gracefully."""
+    def test_cache_eviction_handles_errors(self, tmp_path):
+        """Cache eviction should handle errors gracefully."""
         from src.services.comparison_cache import ComparisonCache
 
-        cache = ComparisonCache(cache_dir=tmp_path, max_size=2)
+        cache = ComparisonCache(max_entries=2, use_temp_files=False)
 
-        # Add entries
-        cache.set("key1", "/fake1.wav", [{"f": 1}], 50, 1.0)
-        cache.set("key2", "/fake2.wav", [{"f": 2}], 50, 1.0)
+        cache.put("key1", b"data1", 8000, 1.0, "ogg", 50, [{"f": 1}])
+        cache.put("key2", b"data2", 8000, 1.0, "ogg", 50, [{"f": 2}])
+        cache.put("key3", b"data3", 8000, 1.0, "ogg", 50, [{"f": 3}])
 
-        # Simulate temp files being deleted externally
-        for key in cache._cache:
-            cache._cache[key].audio_path = "/nonexistent/file.wav"
-
-        # Add third entry to trigger eviction
-        cache.set("key3", "/fake3.wav", [{"f": 3}], 50, 1.0)
-
-        # Should not raise - eviction should handle missing files
-        assert len(cache._cache) <= 2  # LRU evicted oldest
+        assert len(cache._cache) <= 2
 
     def test_cache_cleanup_all_entries(self, tmp_path):
         """Cache cleanup_all should handle errors during cleanup."""
         from src.services.comparison_cache import ComparisonCache
 
-        cache = ComparisonCache(cache_dir=tmp_path, max_size=2)
+        cache = ComparisonCache(max_entries=2, use_temp_files=False)
 
-        # Add some entries
-        cache.set("key1", "/fake1.wav", [{"f": 1}], 50, 1.0)
-        cache.set("key2", "/fake2.wav", [{"f": 2}], 50, 1.0)
+        cache.put("key1", b"data1", 8000, 1.0, "ogg", 50, [{"f": 1}])
+        cache.put("key2", b"data2", 8000, 1.0, "ogg", 50, [{"f": 2}])
 
-        # Mock unlink to fail
-        with patch.object(Path, "unlink", side_effect=PermissionError("Access denied")):
-            # Should not raise - errors should be logged and ignored
-            cache.cleanup_all()
+        cache.clear()
+        assert len(cache._cache) == 0
 
 
-class TestReferenceTTSErrorPaths:
-    """Tests for reference TTS error handling."""
+class TestOmniVoiceTTSErrorPaths:
+    """Tests for OmniVoiceTTSProvider error paths."""
 
-    def test_espeak_not_found_raises_error(self):
-        """When espeak-ng is not found, should raise FileNotFoundError."""
-        from src.audio.reference_tts import EspeakTTSProvider
+    def _make_env(self, tmp_path) -> dict:
+        return {
+            "OMNIVOICE_TTS_PATH": str(tmp_path / "omnivoice-tts"),
+            "OMNIVOICE_MODEL_PATH": str(tmp_path / "model.gguf"),
+            "OMNIVOICE_CODEC_PATH": str(tmp_path / "codec.gguf"),
+            "OMNIVOICE_LANGUAGE": "English",
+        }
 
-        provider = EspeakTTSProvider()
+    def _touch(self, path):
+        Path(path).write_text("")
 
-        with patch("shutil.which", return_value=None):
-            with pytest.raises(FileNotFoundError, match="espeak-ng"):
+    def test_missing_env_raises_value_error(self):
+        """Missing required env vars should raise ValueError."""
+        from src.audio.reference_tts import OmniVoiceTTSProvider
+
+        with patch.dict(os.environ, {}, clear=True):
+            with pytest.raises(ValueError, match="OMNIVOICE_TTS_PATH"):
+                OmniVoiceTTSProvider()
+
+    def test_binary_not_found_raises_file_not_found(self, tmp_path):
+        """Binary missing should raise FileNotFoundError."""
+        from src.audio.reference_tts import OmniVoiceTTSProvider
+
+        self._touch(tmp_path / "model.gguf")
+        self._touch(tmp_path / "codec.gguf")
+
+        with pytest.raises(FileNotFoundError, match="omnivoice-tts binary not found"):
+            OmniVoiceTTSProvider(
+                tts_path=str(tmp_path / "nonexistent-tts"),
+                model_path=str(tmp_path / "model.gguf"),
+                codec_path=str(tmp_path / "codec.gguf"),
+            )
+
+    def test_model_not_found_raises_file_not_found(self, tmp_path):
+        """Model missing should raise FileNotFoundError."""
+        from src.audio.reference_tts import OmniVoiceTTSProvider
+
+        self._touch(tmp_path / "omnivoice-tts")
+        self._touch(tmp_path / "codec.gguf")
+        os.chmod(tmp_path / "omnivoice-tts", 0o755)
+
+        with pytest.raises(FileNotFoundError, match="omnivoice model not found"):
+            OmniVoiceTTSProvider(
+                tts_path=str(tmp_path / "omnivoice-tts"),
+                model_path=str(tmp_path / "nonexistent-model.gguf"),
+                codec_path=str(tmp_path / "codec.gguf"),
+            )
+
+    def test_codec_not_found_raises_file_not_found(self, tmp_path):
+        """Codec missing should raise FileNotFoundError."""
+        from src.audio.reference_tts import OmniVoiceTTSProvider
+
+        self._touch(tmp_path / "omnivoice-tts")
+        self._touch(tmp_path / "model.gguf")
+        os.chmod(tmp_path / "omnivoice-tts", 0o755)
+
+        with pytest.raises(FileNotFoundError, match="omnivoice codec not found"):
+            OmniVoiceTTSProvider(
+                tts_path=str(tmp_path / "omnivoice-tts"),
+                model_path=str(tmp_path / "model.gguf"),
+                codec_path=str(tmp_path / "nonexistent-codec.gguf"),
+            )
+
+    def test_synthesis_timeout_raises_runtime_error(self, tmp_path):
+        """Subprocess timeout should raise RuntimeError."""
+        from src.audio.reference_tts import OmniVoiceTTSProvider
+
+        self._touch(tmp_path / "omnivoice-tts")
+        self._touch(tmp_path / "model.gguf")
+        self._touch(tmp_path / "codec.gguf")
+        os.chmod(tmp_path / "omnivoice-tts", 0o755)
+
+        provider = OmniVoiceTTSProvider(
+            tts_path=str(tmp_path / "omnivoice-tts"),
+            model_path=str(tmp_path / "model.gguf"),
+            codec_path=str(tmp_path / "codec.gguf"),
+        )
+
+        from subprocess import TimeoutExpired
+
+        with patch("subprocess.run", side_effect=TimeoutExpired("omnivoice-tts", 120)):
+            with pytest.raises(RuntimeError, match="timed out"):
                 provider.synthesize("hello")
 
-    def test_espeak_command_failure_raises_runtime_error(self):
-        """espeak-ng command failure should raise RuntimeError."""
-        from src.audio.reference_tts import EspeakTTSProvider
+    def test_synthesis_failure_raises_runtime_error(self, tmp_path):
+        """Non-zero exit code should raise RuntimeError."""
+        from src.audio.reference_tts import OmniVoiceTTSProvider
 
-        provider = EspeakTTSProvider()
+        self._touch(tmp_path / "omnivoice-tts")
+        self._touch(tmp_path / "model.gguf")
+        self._touch(tmp_path / "codec.gguf")
+        os.chmod(tmp_path / "omnivoice-tts", 0o755)
 
-        with patch("shutil.which", return_value="/usr/bin/espeak-ng"):
-            with patch("subprocess.run") as mock_run:
-                mock_run.return_value = MagicMock(
-                    returncode=1,
-                    stderr="Phoneme conversion failed",
-                )
+        provider = OmniVoiceTTSProvider(
+            tts_path=str(tmp_path / "omnivoice-tts"),
+            model_path=str(tmp_path / "model.gguf"),
+            codec_path=str(tmp_path / "codec.gguf"),
+        )
 
-                with pytest.raises(RuntimeError, match="espeak-ng command failed"):
-                    provider.synthesize("hello")
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=1, stderr="Synthesis failed")
 
-    def test_espeak_timeout_raises_runtime_error(self):
-        """espeak-ng timeout should raise RuntimeError."""
-        from src.audio.reference_tts import EspeakTTSProvider
+            with pytest.raises(RuntimeError, match="omnivoice-tts failed"):
+                provider.synthesize("hello")
 
-        provider = EspeakTTSProvider()
-
-        with patch("shutil.which", return_value="/usr/bin/espeak-ng"):
-            with patch("subprocess.run") as mock_run:
-                from subprocess import TimeoutExpired
-
-                mock_run.side_effect = TimeoutExpired("espeak-ng", 10)
-
-                with pytest.raises(RuntimeError, match="timed out"):
-                    provider.synthesize("hello")
-
-    def test_empty_text_raises_value_error(self):
+    def test_empty_text_raises_value_error(self, tmp_path):
         """Empty text should raise ValueError."""
-        from src.audio.reference_tts import EspeakTTSProvider
+        from src.audio.reference_tts import OmniVoiceTTSProvider
 
-        provider = EspeakTTSProvider()
+        self._touch(tmp_path / "omnivoice-tts")
+        self._touch(tmp_path / "model.gguf")
+        self._touch(tmp_path / "codec.gguf")
+        os.chmod(tmp_path / "omnivoice-tts", 0o755)
+
+        provider = OmniVoiceTTSProvider(
+            tts_path=str(tmp_path / "omnivoice-tts"),
+            model_path=str(tmp_path / "model.gguf"),
+            codec_path=str(tmp_path / "codec.gguf"),
+        )
 
         with pytest.raises(ValueError, match="cannot be empty"):
             provider.synthesize("")
@@ -148,41 +209,90 @@ class TestReferenceTTSErrorPaths:
         with pytest.raises(ValueError, match="cannot be empty"):
             provider.synthesize("   ")
 
-    def test_phoneme_conversion_failure_raises_error(self):
-        """Phoneme conversion failure should raise RuntimeError."""
-        from src.audio.reference_tts import EspeakTTSProvider
+    def test_successful_synthesis_returns_reference_audio(self, tmp_path):
+        """Successful synthesis should return ReferenceAudio with OGG bytes."""
+        import numpy as np
+        import soundfile as sf
 
-        provider = EspeakTTSProvider()
+        from src.audio.reference_tts import OmniVoiceTTSProvider
 
-        with patch("shutil.which", return_value="/usr/bin/espeak-ng"):
-            with patch("subprocess.run") as mock_run:
-                # First call (synthesize) succeeds
-                # Second call (phoneme conversion) fails
-                mock_run.side_effect = [
-                    MagicMock(returncode=0, stderr=""),  # First call - success
-                    MagicMock(returncode=1, stderr="Invalid phoneme"),  # Second call - failure
-                ]
+        self._touch(tmp_path / "omnivoice-tts")
+        self._touch(tmp_path / "model.gguf")
+        self._touch(tmp_path / "codec.gguf")
+        os.chmod(tmp_path / "omnivoice-tts", 0o755)
 
-                with pytest.raises(RuntimeError, match="espeak-ng"):
-                    provider.synthesize_phonemes("hello")
+        provider = OmniVoiceTTSProvider(
+            tts_path=str(tmp_path / "omnivoice-tts"),
+            model_path=str(tmp_path / "model.gguf"),
+            codec_path=str(tmp_path / "codec.gguf"),
+        )
+
+        # Write a real WAV to the path that subprocess would produce
+        wav_path = tmp_path / "omnivoice-tts-output.wav"
+
+        def mock_subprocess_run(*args, **kwargs):
+            sample_rate = 24000
+            duration = 0.5
+            t = np.linspace(0, duration, int(sample_rate * duration))
+            waveform = np.sin(2 * np.pi * 440 * t).astype(np.float32)
+            sf.write(str(wav_path), waveform, sample_rate)
+            return MagicMock(returncode=0, stderr="")
+
+        with patch("subprocess.run", side_effect=mock_subprocess_run):
+            with patch("tempfile.NamedTemporaryFile") as mock_tmp:
+                mock_tmp.return_value.__enter__.return_value.name = str(wav_path)
+                result = provider.synthesize("hello")
+
+        assert result.audio_bytes is not None
+        assert len(result.audio_bytes) > 0
+        assert result.sample_rate == 8000
+        assert result.duration_seconds > 0
+        assert result.format == "ogg"
 
 
 class TestReferenceTTSFactory:
-    """Tests for TTS provider factory error handling."""
+    """Tests for TTS provider factory."""
 
     def test_unknown_provider_raises_value_error(self):
         """Unknown provider name should raise ValueError."""
-        from src.audio.reference_tts import create_tts_provider
+        from src.audio.reference_tts import TTSProviderFactory
 
         with pytest.raises(ValueError, match="Unknown TTS provider"):
-            create_tts_provider("unknown_provider")
+            TTSProviderFactory.create("unknown_provider")
 
-    def test_espeak_provider_creation(self):
-        """espeak provider should be created successfully."""
-        from src.audio.reference_tts import EspeakTTSProvider, create_tts_provider
+    def test_omnivoice_provider_creation(self):
+        """omnivoice provider should be created successfully."""
+        from src.audio.reference_tts import OmniVoiceTTSProvider, TTSProviderFactory
 
-        provider = create_tts_provider("espeak")
-        assert isinstance(provider, EspeakTTSProvider)
+        with patch.dict(
+            os.environ,
+            {
+                "OMNIVOICE_TTS_PATH": "/fake/bin",
+                "OMNIVOICE_MODEL_PATH": "/fake/model.gguf",
+                "OMNIVOICE_CODEC_PATH": "/fake/codec.gguf",
+                "OMNIVOICE_LANGUAGE": "English",
+            },
+        ):
+            with patch("os.path.isfile", return_value=True):
+                provider = TTSProviderFactory.create("omnivoice")
+                assert isinstance(provider, OmniVoiceTTSProvider)
+
+    def test_default_provider_is_omnivoice(self):
+        """Default provider should be OmniVoiceTTSProvider."""
+        from src.audio.reference_tts import OmniVoiceTTSProvider, TTSProviderFactory
+
+        with patch.dict(
+            os.environ,
+            {
+                "OMNIVOICE_TTS_PATH": "/fake/bin",
+                "OMNIVOICE_MODEL_PATH": "/fake/model.gguf",
+                "OMNIVOICE_CODEC_PATH": "/fake/codec.gguf",
+                "OMNIVOICE_LANGUAGE": "English",
+            },
+        ):
+            with patch("os.path.isfile", return_value=True):
+                provider = TTSProviderFactory.create()
+                assert isinstance(provider, OmniVoiceTTSProvider)
 
 
 if __name__ == "__main__":

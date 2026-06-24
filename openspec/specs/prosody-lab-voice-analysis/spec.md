@@ -6,7 +6,7 @@ The system SHALL provide a Prosody Lab tab that uses the same hold-to-record int
 - **THEN** the system SHALL capture a short local audio recording for analysis
 
 ### Requirement: Prosody analysis pipeline
-The system SHALL analyze each recording with `my-voice-analysis` and pitch tracking with `librosa.pyin`.
+The system SHALL analyze each recording with numpy/scipy heuristics for syllable, pause, rhythm, and pitch data.
 
 #### Scenario: Recording is submitted for analysis
 - **WHEN** a recording is completed

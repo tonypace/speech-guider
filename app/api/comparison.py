@@ -9,14 +9,11 @@ import torch
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from src.audio.reference_tts import TTSProviderFactory
-from src.models.aai_adapter import (
-    AAIConversionMetadata,
-    aai_to_canonical_state,
-    decode_aai_row,
-)
-from src.models.ssl_aai_predictor import SSLAAIPredictor
+from src.audio.reference_tts import ReferenceAudio, TTSProviderFactory
+from src.models.aai_adapter import AAIConversionMetadata, aai_to_canonical_states_batch
+from src.models.ssl_common import DEFAULT_SSL_FEATURE_CONFIG
 from src.services.comparison_cache import ComparisonCache, ReferenceAsset, get_comparison_cache
+from src.services.model_cache import get_ssl_predictor
 
 router = APIRouter()
 
@@ -25,7 +22,7 @@ class ReferenceAnimationRequest(BaseModel):
     """Request for reference animation generation."""
 
     target_text: str = Field(..., min_length=1, max_length=500, description="Text to synthesize")
-    tts_provider: str = Field(default="espeak", description="TTS provider to use")
+    tts_provider: str = Field(default="omnivoice", description="TTS provider to use")
 
 
 class AnimationFrame(BaseModel):
@@ -66,118 +63,64 @@ class TrajectoryPayload(BaseModel):
     frame_count: int
 
 
-def _ssl_trajectory_to_canonical_frames(
-    trajectory: torch.Tensor,
-    sample_rate: int = 16000,
-) -> list[dict]:
-    """Convert SSL predictor trajectory to canonical animation frames.
+def _prepare_reference_audio_tensor(
+    reference_audio: ReferenceAudio,
+) -> torch.Tensor:
+    """Decode compressed reference audio and prepare tensor for SSL predictor."""
+    audio_buffer = io.BytesIO(reference_audio.audio_bytes)
+    audio_data, orig_rate = sf.read(audio_buffer, dtype="float32")
+    if len(audio_data.shape) > 1:
+        audio_data = np.mean(audio_data, axis=1)
+    if orig_rate != DEFAULT_SSL_FEATURE_CONFIG.sample_rate:
+        from scipy import signal
 
-    Args:
-        trajectory: Tensor of shape (T, 9) with robust_01 AAI TVs (values in [0, 1])
-        sample_rate: Original audio sample rate
-
-    Returns:
-        List of canonical animation state dictionaries
-    """
-    frames = []
-    metadata = AAIConversionMetadata(normalization="robust_01")
-
-    for i in range(trajectory.shape[0]):
-        # Get robust_01 TV row
-        tv_row = trajectory[i].tolist()
-
-        # Decode to named tract variables
-        tract_vars = decode_aai_row(tv_row)
-
-        # Convert to canonical animation state
-        canonical = aai_to_canonical_state(tract_vars, metadata=metadata)
-
-        frames.append(canonical)
-
-    return frames
+        num = int(len(audio_data) * DEFAULT_SSL_FEATURE_CONFIG.sample_rate / orig_rate)
+        audio_data = signal.resample(audio_data, num)
+    return torch.from_numpy(audio_data).float()
 
 
 def _generate_reference_asset(
     text: str,
-    tts_provider: str = "espeak",
+    tts_provider: str = "omnivoice",
     cache: Optional[ComparisonCache] = None,
-) -> ReferenceAsset:
+) -> tuple[ReferenceAsset, bool]:
     """Generate reference audio and animation frames.
 
-    Pipeline:
-        text -> TTS -> audio -> SSL predictor -> AAI TVs -> canonical frames
-
-    Args:
-        text: Target text to synthesize
-        tts_provider: TTS provider name
-        cache: Optional cache instance
-
-    Returns:
-        ReferenceAsset with audio and frames
+    Pipeline: text -> cache check -> TTS -> SSL predictor -> canonical frames
     """
-    # Check cache first
     cache = cache or get_comparison_cache()
     cached = cache.get(text)
     if cached:
         print(f"[ComparisonAPI] Cache hit for: '{text[:50]}...'")
-        return cached
+        return cached, True
 
     print(f"[ComparisonAPI] Cache miss, generating reference for: '{text[:50]}...'")
 
-    # Step 1: Generate reference audio via TTS
-    tts = TTSProviderFactory.create(tts_provider)
-    reference_audio = tts.synthesize(text, output_sample_rate=8000)
+    reference_audio = TTSProviderFactory.create(tts_provider).synthesize(
+        text, output_sample_rate=8000
+    )
 
-    # Step 2: Prepare audio for SSL predictor (needs 16kHz)
-    # Decode compressed audio and resample to 16kHz
-    audio_buffer = io.BytesIO(reference_audio.audio_bytes)
-    audio_data, orig_rate = sf.read(audio_buffer, dtype="float32")
+    audio_tensor = _prepare_reference_audio_tensor(reference_audio)
+    trajectory = get_ssl_predictor().predict(
+        audio_tensor, sample_rate=DEFAULT_SSL_FEATURE_CONFIG.sample_rate
+    )
 
-    # Resample to 16kHz for SSL predictor
-    if orig_rate != 16000:
-        from scipy import signal
+    frames = aai_to_canonical_states_batch(
+        trajectory.numpy(),
+        AAIConversionMetadata(normalization="robust_01"),
+    )
 
-        num_samples = int(len(audio_data) * 16000 / orig_rate)
-        audio_data = signal.resample(audio_data, num_samples)
+    asset = cache.put(
+        text=text,
+        audio_bytes=reference_audio.audio_bytes,
+        audio_sample_rate=reference_audio.sample_rate,
+        audio_duration=reference_audio.duration_seconds,
+        audio_format=reference_audio.format,
+        frame_rate=DEFAULT_SSL_FEATURE_CONFIG.frame_rate,
+        frames=frames,
+    )
 
-    # Ensure mono
-    if len(audio_data.shape) > 1:
-        audio_data = np.mean(audio_data, axis=1)
-
-    # Convert to tensor
-    audio_tensor = torch.from_numpy(audio_data).float()
-
-    # Step 3: Run SSL predictor to get AAI trajectory
-    predictor = SSLAAIPredictor()
-    predictor.load()
-
-    try:
-        trajectory = predictor.predict(audio_tensor, sample_rate=16000)
-        # trajectory shape: (T, 9) robust_01 normalized AAI TVs (values in [0, 1])
-
-        # Step 4: Convert trajectory to canonical frames
-        frames = _ssl_trajectory_to_canonical_frames(trajectory)
-
-        # Step 5: Store in cache
-        asset = cache.put(
-            text=text,
-            audio_bytes=reference_audio.audio_bytes,
-            audio_sample_rate=reference_audio.sample_rate,
-            audio_duration=reference_audio.duration_seconds,
-            audio_format=reference_audio.format,
-            frame_rate=50,  # SSL predictor frame rate
-            frames=frames,
-        )
-
-        print(
-            f"[ComparisonAPI] Generated reference: "
-            f"{len(frames)} frames, {reference_audio.duration_seconds:.1f}s audio"
-        )
-
-        return asset
-
-    finally:
-        predictor.cleanup()
+    return asset, False
 
 
 @router.post("/api/reference-animation", response_model=ReferenceAnimationResponse)
@@ -191,17 +134,15 @@ async def generate_reference_animation(request: ReferenceAnimationRequest):
     Results are cached by text content.
     """
     try:
-        asset = _generate_reference_asset(
+        asset, was_cached = _generate_reference_asset(
             text=request.target_text,
             tts_provider=request.tts_provider,
         )
 
-        # Encode audio to base64 for JSON response
         import base64
 
         audio_b64 = base64.b64encode(asset.audio_bytes).decode("utf-8")
 
-        # Convert frames to Pydantic models
         animation_frames = [AnimationFrame(**frame) for frame in asset.frames]
 
         return ReferenceAnimationResponse(
@@ -212,7 +153,7 @@ async def generate_reference_animation(request: ReferenceAnimationRequest):
             frame_rate=asset.frame_rate,
             frames=animation_frames,
             frame_count=asset.frame_count,
-            cached=False,  # TODO: track if was actually cached
+            cached=was_cached,
         )
 
     except Exception as e:

@@ -2,7 +2,7 @@
 
 The SSL AAI predictor is now operational and produces z-scored AAI tract variables from audio. The system needs to shift from automatic error detection to visual articulatory comparison. This requires:
 
-1. Reference audio generation from text (starting with espeak-ng)
+1. Reference audio generation from text (starting with omnivoice.cpp)
 2. Full trajectory extraction from SSL predictor (not just representative poses)
 3. Synchronized playback of two articulatory animations with audio
 4. Audio editing-style inspection controls
@@ -10,7 +10,7 @@ The SSL AAI predictor is now operational and produces z-scored AAI tract variabl
 ## Goals / Non-Goals
 
 **Goals:**
-- Generate reference audio and articulatory animation from target text using espeak-ng
+- Generate reference audio and articulatory animation from target text using omnivoice.cpp
 - Record student audio and generate their articulatory animation
 - Display both animations side-by-side with synchronized or independent playback
 - Provide audio editing controls: play/pause, scrub timeline, variable speed, zoom, loop
@@ -19,7 +19,7 @@ The SSL AAI predictor is now operational and produces z-scored AAI tract variabl
 - Cache reference assets by text to avoid regeneration
 
 **Non-Goals:**
-- Replacing espeak-ng with better TTS yet (keep swappable architecture)
+- Replacing omnivoice.cpp with better TTS yet (keep swappable architecture)
 - Automatic phoneme error detection (focus on visual comparison)
 - Rewriting the SVG renderer (use frame-by-frame feeding)
 - Full continuous trajectory playback in first version (can use representative frames)
@@ -27,7 +27,7 @@ The SSL AAI predictor is now operational and produces z-scored AAI tract variabl
 
 ## Decisions
 
-### Decision: Use espeak-ng as first TTS provider
+### Decision: Use omnivoice.cpp as first TTS provider
 
 Rationale:
 - Already integrated and tested in the system
@@ -127,7 +127,7 @@ Implementation:
 
 1. **Reference TTS Service** (`src/audio/reference_tts.py`)
    - Provider interface: `TextToSpeechProvider`
-   - espeak-ng implementation: `EspeakTTSProvider`
+   - omnivoice.cpp implementation: ``OmniVoiceTTSProvider``
    - Generate audio file from text
    - Downsample and compress for storage
 
@@ -214,7 +214,7 @@ Implementation:
 
 ## Risks / Trade-offs
 
-- [espeak-ng audio quality] → Acceptable for workflow validation, plan upgrade path
+- [omnivoice audio quality] → Acceptable for workflow validation, plan upgrade path
 - [Per-frame payload size] → Mitigated by downsampling and frame decimation
 - [Timing drift between audio and animation] → Use frame-rate-based indexing
 - [Browser audio compression support] → Use widely-supported WebM/Opus or compressed WAV

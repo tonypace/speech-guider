@@ -186,8 +186,8 @@ install_pytorch_arm64() {
             print_warning "Upgrading PyTorch from $CURRENT_TORCH to 2.6.0"
         fi
         
-        echo "Installing PyTorch 2.6.0 and torchaudio 2.6.0..."
-        pip install torch==2.6.0 torchaudio==2.6.0
+        echo "Installing PyTorch 2.6.0..."
+        pip install torch==2.6.0
         
         NEW_TORCH=$(pip show torch 2>/dev/null | grep Version | cut -d' ' -f2)
         print_status "PyTorch $NEW_TORCH installed"

@@ -50,7 +50,7 @@ Speech Guider is a local-first pronunciation and prosody evaluator built around 
 1. **Audio capture and normalization**: microphone or upload input is standardized for downstream processing
 2. **Articulatory extraction**: ContentVec + DANN-based AAI predictor for 9 tract variables (robust_01 normalized)
 3. **Articulatory inference**: SSL outputs are translated through `src/models/ssl_aai_predictor.py` and `src/models/aai_adapter.py`
-4. **Prosody extraction**: Parselmouth, `librosa.pyin`, and `my-voice-analysis` provide pitch, rhythm, and recording summaries
+4. **Prosody extraction**: Parselmouth and numpy/scipy heuristics provide pitch, rhythm, and recording summaries
 5. **Reference generation**: `src/audio/reference_tts.py` plus `src/services/comparison_cache.py` prepare cached comparison assets
 6. **Visualization**: frontend consumes canonical articulatory states and Plotly-ready prosody payloads
 

@@ -12,7 +12,7 @@ This moves the system from "detect and report errors" to "demonstrate correct vs
 
 ## What Changes
 
-- Add reference audio generation from text using espeak-ng (first provider, swappable later)
+- Add reference audio generation from text using omnivoice.cpp (first provider, swappable later)
 - Add backend pipeline to synthesize reference audio → SSL AAI predictor → canonical animation frames
 - Add student audio → SSL AAI predictor → canonical animation frames (reusing existing path)
 - Add new API endpoint for reference generation with caching by text content
@@ -36,7 +36,7 @@ This moves the system from "detect and report errors" to "demonstrate correct vs
 ## Impact
 
 - New backend endpoint `/api/reference-animation` for on-demand reference generation
-- New backend service `src/audio/reference_tts.py` for text-to-speech (espeak-ng provider, swappable)
+- New backend service `src/audio/reference_tts.py` for text-to-speech (omnivoice.cpp provider, swappable)
 - New backend module `src/services/comparison_cache.py` for caching reference assets by text
 - Modified `app/api/analyze.py` to emit trajectory data not just representative poses
 - New frontend module `static/js/ssl_comparison_controller.js` for comparison playback management

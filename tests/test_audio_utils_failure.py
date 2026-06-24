@@ -10,25 +10,21 @@ import scipy.io.wavfile as wavfile
 class TestAudioConversionFailureModes:
     """Tests for _convert_to_wav error handling."""
 
-    def test_pydub_not_available_uses_ffmpeg(self, tmp_path):
-        """When pydub is not available, should try ffmpeg."""
+    def test_ffmpeg_conversion_success(self, tmp_path):
+        """ffmpeg conversion should succeed."""
         from app.utils.audio import _convert_to_wav
 
-        # Create a test audio file
         input_path = str(tmp_path / "test.mp3")
-        # Write a dummy MP3 file (invalid but exists)
         Path(input_path).write_bytes(b"FAKE_MP3_DATA")
 
-        with patch.dict("sys.modules", {"pydub": None}):
-            with patch("subprocess.run") as mock_run:
-                # Simulate successful ffmpeg conversion
-                mock_run.return_value = MagicMock(returncode=0, stderr="")
-                wav_path = str(tmp_path / "test.wav")
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stderr="")
+            wav_path = str(tmp_path / "test.wav")
 
-                with patch("os.path.exists", side_effect=lambda p: p == wav_path):
-                    result = _convert_to_wav(input_path)
-                    assert result == wav_path
-                    mock_run.assert_called_once()
+            with patch("os.path.exists", side_effect=lambda p: p == wav_path):
+                result = _convert_to_wav(input_path)
+                assert result == wav_path
+                mock_run.assert_called_once()
 
     def test_ffmpeg_timeout_raises_error(self, tmp_path):
         """ffmpeg timeout should raise AudioConversionError."""
@@ -37,16 +33,15 @@ class TestAudioConversionFailureModes:
         input_path = str(tmp_path / "test.mp3")
         Path(input_path).write_bytes(b"FAKE_MP3_DATA")
 
-        with patch.dict("sys.modules", {"pydub": None}):
-            with patch("subprocess.run") as mock_run:
-                from subprocess import TimeoutExpired
+        with patch("subprocess.run") as mock_run:
+            from subprocess import TimeoutExpired
 
-                mock_run.side_effect = TimeoutExpired("ffmpeg", 30)
+            mock_run.side_effect = TimeoutExpired("ffmpeg", 30)
 
-                with pytest.raises(AudioConversionError) as exc_info:
-                    _convert_to_wav(input_path)
+            with pytest.raises(AudioConversionError) as exc_info:
+                _convert_to_wav(input_path)
 
-                assert "timed out" in str(exc_info.value).lower()
+            assert "timed out" in str(exc_info.value).lower()
 
     def test_ffmpeg_not_found_raises_error(self, tmp_path):
         """ffmpeg not in PATH should raise AudioConversionError."""
@@ -55,14 +50,13 @@ class TestAudioConversionFailureModes:
         input_path = str(tmp_path / "test.mp3")
         Path(input_path).write_bytes(b"FAKE_MP3_DATA")
 
-        with patch.dict("sys.modules", {"pydub": None}):
-            with patch("subprocess.run") as mock_run:
-                mock_run.side_effect = FileNotFoundError("ffmpeg not found")
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = FileNotFoundError("ffmpeg not found")
 
-                with pytest.raises(AudioConversionError) as exc_info:
-                    _convert_to_wav(input_path)
+            with pytest.raises(AudioConversionError) as exc_info:
+                _convert_to_wav(input_path)
 
-                assert "ffmpeg not found" in str(exc_info.value).lower()
+            assert "ffmpeg not found" in str(exc_info.value).lower()
 
     def test_ffmpeg_failure_raises_error(self, tmp_path):
         """ffmpeg non-zero exit code should raise AudioConversionError."""
@@ -71,32 +65,13 @@ class TestAudioConversionFailureModes:
         input_path = str(tmp_path / "test.mp3")
         Path(input_path).write_bytes(b"FAKE_MP3_DATA")
 
-        with patch.dict("sys.modules", {"pydub": None}):
-            with patch("subprocess.run") as mock_run:
-                mock_run.return_value = MagicMock(returncode=1, stderr="Invalid data")
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=1, stderr="Invalid data")
 
-                with pytest.raises(AudioConversionError) as exc_info:
-                    _convert_to_wav(input_path)
+            with pytest.raises(AudioConversionError) as exc_info:
+                _convert_to_wav(input_path)
 
-                assert "ffmpeg conversion failed" in str(exc_info.value)
-
-    def test_pydub_import_error_falls_back(self, tmp_path):
-        """ImportError for pydub should trigger fallback to ffmpeg."""
-        from app.utils.audio import AudioConversionError, _convert_to_wav
-
-        input_path = str(tmp_path / "test.mp3")
-        Path(input_path).write_bytes(b"FAKE_MP3_DATA")
-
-        # Mock pydub to raise ImportError on import
-        mock_pydub = MagicMock()
-        mock_pydub.AudioSegment.from_file.side_effect = ImportError("No ffmpeg backend")
-
-        with patch.dict("sys.modules", {"pydub": mock_pydub}):
-            with patch("subprocess.run") as mock_run:
-                mock_run.return_value = MagicMock(returncode=1, stderr="Failed")
-
-                with pytest.raises(AudioConversionError):
-                    _convert_to_wav(input_path)
+            assert "ffmpeg conversion failed" in str(exc_info.value)
 
 
 class TestSaveUploadToTemp:
@@ -154,16 +129,12 @@ class TestSaveUploadToTemp:
 class TestCleanupTempFile:
     """Tests for cleanup_temp_file behavior."""
 
-    def test_cleanup_missing_file_logs_but_does_not_raise(self, capsys):
-        """Cleanup of missing file should log but not raise."""
+    def test_cleanup_missing_file_does_not_raise(self):
+        """Cleanup of missing file should not raise."""
         from app.utils.audio import cleanup_temp_file
 
         # Should not raise
         cleanup_temp_file("/nonexistent/path/file.wav")
-
-        # Check log output
-        captured = capsys.readouterr()
-        assert "Failed to cleanup" in captured.out or captured.err
 
     def test_cleanup_existing_file_succeeds(self, tmp_path):
         """Cleanup of existing file should succeed."""

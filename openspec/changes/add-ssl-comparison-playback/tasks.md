@@ -1,7 +1,7 @@
 ## 1. Backend Reference TTS Service
 
 - [x] 1.1 Create `src/audio/reference_tts.py` with TTS provider interface
-- [x] 1.2 Implement `EspeakTTSProvider` using existing espeak-ng integration
+- [x] 1.2 Implement `OmniVoiceTTSProvider` using omnivoice.cpp
 - [x] 1.3 Add audio downsampling from 16kHz to 8kHz for playback
 - [x] 1.4 Add audio compression (OGG/Vorbis)
 - [x] 1.5 Add provider factory for future swappable TTS

@@ -8,7 +8,7 @@
 ## 2. Suppression Reduction
 
 - [ ] 2.1 Replace structured-data `type: ignore` usage in `src/audio/processor.py` with typed models or equivalent explicit typing
-- [ ] 2.2 Replace avoidable `type: ignore` usage in `src/models/alignment.py` and `src/models/contentvec.py` with typed contracts
+- [ ] 2.2 Replace avoidable `type: ignore` usage in `src/models/alignment.py` with typed contracts
 - [ ] 2.3 Remove avoidable package-level ignores in `src/__init__.py` and other low-value suppressions
 - [ ] 2.4 Replace global mypy `ignore_missing_imports` with targeted overrides only where third-party libraries require them
 - [ ] 2.5 Revisit existing `noqa` and file-level suppression usage in tests and scripts, keeping only the ones with a clear justification

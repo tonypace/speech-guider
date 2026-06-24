@@ -4,16 +4,16 @@
 
 The system SHALL provide a backend service to synthesize reference audio from target text using a pluggable text-to-speech provider.
 
-#### Scenario: Reference audio is generated via espeak-ng
+#### Scenario: Reference audio is generated via omnivoice.cpp
 - **GIVEN** a `target_text` string
 - **WHEN** the reference generation endpoint is called
-- **THEN** the system uses espeak-ng to synthesize audio
+- **THEN** the system uses omnivoice.cpp to synthesize audio
 - **AND** the audio is downsampled and compressed for efficient storage
 
 #### Scenario: TTS provider is swappable
 - **GIVEN** a configured TTS provider
 - **WHEN** reference audio is requested
-- **THEN** the system uses the configured provider (espeak-ng default)
+- **THEN** the system uses the configured provider (omnivoice default)
 - **AND** the provider interface allows future substitution without changing callers
 
 ### Requirement: Reference Assets Must Be Cached By Text Content

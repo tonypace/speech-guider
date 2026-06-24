@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-import os
 
 import numpy as np
 import torch
@@ -12,38 +11,20 @@ from fastapi.responses import JSONResponse
 from app.api.sse import create_job_id, send_progress_update
 from app.services.concurrency import run_with_semaphore
 from app.utils.audio import cleanup_temp_file, save_upload_to_temp
+from src.models.ssl_common import DEFAULT_SSL_FEATURE_CONFIG, clear_torch_device_cache, get_best_torch_device
+from src.services.model_cache import get_ssl_predictor
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-# Cached model instances
-_cached_ssl_predictor = None
+# Cached device string for VRAM cleanup after inference
+_ssl_device: str | None = None
 
 
 class SSLAnalysisError(Exception):
     """Raised when SSL AAI analysis fails unexpectedly."""
 
     pass
-
-
-def get_ssl_predictor():
-    """Get or create cached SSL AAI predictor instance."""
-
-    global _cached_ssl_predictor
-    if _cached_ssl_predictor is None:
-        from src.models.ssl_aai_predictor import SSLAAIPredictor
-
-        checkpoint_path = os.getenv("SSL_AAI_CHECKPOINT_PATH")
-        logger.info("[get_ssl_predictor] Initializing SSL AAI predictor (first time)...")
-        if checkpoint_path:
-            logger.info(f"[get_ssl_predictor] Using checkpoint: {checkpoint_path}")
-        else:
-            logger.info("[get_ssl_predictor] Using default checkpoint path")
-
-        _cached_ssl_predictor = SSLAAIPredictor(checkpoint_path=checkpoint_path)
-        _cached_ssl_predictor.load()
-        logger.info("[get_ssl_predictor] SSL AAI predictor initialized and cached.")
-    return _cached_ssl_predictor
 
 
 def _ssl_aai_to_animation_state(
@@ -175,13 +156,14 @@ def _load_and_preprocess_audio(audio_path: str) -> tuple[torch.Tensor, int]:
     if len(audio_data.shape) > 1:
         audio_data = np.mean(audio_data, axis=1)
 
-    # Resample to 16kHz if needed
-    if sample_rate != 16000:
+    # Resample to config sample rate if needed
+    target_rate = DEFAULT_SSL_FEATURE_CONFIG.sample_rate
+    if sample_rate != target_rate:
         import scipy.signal as signal
 
-        num_samples = int(len(audio_data) * 16000 / sample_rate)
+        num_samples = int(len(audio_data) * target_rate / sample_rate)
         audio_data = signal.resample(audio_data, num_samples)
-        sample_rate = 16000
+        sample_rate = target_rate
 
     audio_tensor = torch.from_numpy(audio_data).float()
     return audio_tensor, sample_rate
@@ -225,6 +207,8 @@ async def _run_analysis_pipeline(audio_path: str, target_text: str, job_id: str)
             try_primary_ssl_analysis, audio_tensor, sample_rate, True
         )
         if ssl_animation_state is not None:
+            global _ssl_device
+            _ssl_device = get_ssl_predictor().device
             logger.debug(
                 "[analyze] SSL AAI analysis succeeded, animation state and trajectory generated"
             )
@@ -238,14 +222,9 @@ async def _run_analysis_pipeline(audio_path: str, target_text: str, job_id: str)
         ssl_error = f"Unexpected SSL analysis error: {e}"
         logger.error(f"[analyze] Unexpected SSL analysis error: {e}")
 
-    try:
-        predictor = get_ssl_predictor()
-        if predictor.device == "mps" and torch.backends.mps.is_available():
-            torch.mps.empty_cache()
-        elif predictor.device == "cuda" and torch.cuda.is_available():
-            torch.cuda.empty_cache()
-    except (FileNotFoundError, RuntimeError) as e:
-        logger.debug(f"[analyze] SSL predictor unavailable for cache cleanup: {e}")
+    # Clear device cache after SSL inference to free VRAM
+    if _ssl_device:
+        clear_torch_device_cache(_ssl_device)
 
     # Step 3: Extract prosody metrics
     await send_progress_update(job_id, 0.6, "Extracting prosody metrics...", "prosody")
@@ -274,7 +253,7 @@ async def _run_analysis_pipeline(audio_path: str, target_text: str, job_id: str)
     serialized_trajectory = None
     if ssl_trajectory:
         serialized_trajectory = {
-            "frame_rate": 50,  # SSL predictor outputs at 50Hz
+            "frame_rate": DEFAULT_SSL_FEATURE_CONFIG.frame_rate,
             "frame_count": len(ssl_trajectory),
             "frames": ssl_trajectory,
         }
@@ -375,32 +354,37 @@ def _build_npvi_bar_html(npvi: float) -> str:
     return bar_html
 
 
+def _voice_quality_payload(vq) -> dict | None:
+    """Serialize voice quality to dict if any metric is non-zero."""
+    if vq is None:
+        return None
+    payload = {
+        "jitter_local": vq.jitter_local,
+        "shimmer_local": vq.shimmer_local,
+        "cpps": vq.cpps,
+        "spectral_tilt": vq.spectral_tilt,
+    }
+    return payload if any(payload.values()) else None
+
+
 def serialize_prosody(prosody):
     """Convert ProsodyMetrics to dict."""
-    logger.debug(f"[serialize_prosody] Called with: {prosody}")
-    logger.debug(
-        f"[serialize_prosody] prosody.pitch: {prosody.pitch if prosody else 'prosody is None/False'}"
-    )
-    logger.debug(
-        f"[serialize_prosody] prosody.rhythm: {prosody.rhythm if prosody else 'prosody is None/False'}"
-    )
-    if prosody and prosody.rhythm:
-        logger.debug(f"[serialize_prosody] nPVI: {prosody.rhythm.npvi}")
-    elif prosody:
-        logger.debug("[serialize_prosody] rhythm is None, nPVI will be 0")
+    pitch = prosody.pitch if prosody else None
+    rhythm = prosody.rhythm if prosody else None
+    stress = prosody.stress if prosody else None
+    vq = prosody.voice_quality if prosody else None
 
-    pitch_mean = prosody.pitch.mean_f0 if prosody and prosody.pitch else 0
-    pitch_range = prosody.pitch.f0_range if prosody and prosody.pitch else 0
-    npvi = prosody.rhythm.npvi if prosody and prosody.rhythm else 0
+    pitch_mean = pitch.mean_f0 if pitch else 0
+    pitch_range = pitch.f0_range if pitch else 0
+    pitch_var = pitch.std_f0 if pitch else 0
+    npvi = rhythm.npvi if rhythm else 0
 
     return {
         "pitch_mean": pitch_mean,
         "pitch_range": pitch_range,
-        "pitch_variability": prosody.pitch.std_f0 if prosody and prosody.pitch else 0,
+        "pitch_variability": pitch_var,
         "npvi": npvi,
-        "stress_pattern": prosody.stress.primary_stress_word
-        if prosody and prosody.stress
-        else None,
+        "stress_pattern": stress.primary_stress_word if stress else None,
         "pitch_range_label": _get_pitch_range_label(pitch_range),
         "pitch_range_coaching": _get_pitch_range_coaching(pitch_range),
         "mean_pitch_label": _get_mean_pitch_label(pitch_mean),
@@ -409,6 +393,7 @@ def serialize_prosody(prosody):
         "npvi_color": _get_npvi_label(npvi)[1],
         "npvi_coaching": _get_npvi_coaching(npvi),
         "npvi_bar_html": _build_npvi_bar_html(npvi),
+        "voice_quality": _voice_quality_payload(vq),
     }
 
 

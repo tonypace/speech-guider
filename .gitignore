@@ -100,5 +100,11 @@ pyproject.toml.bak
 generate_test_audio.py
 external/
 
+# omnivoice.cpp local build
+omnivoice-tts/
+
+# Environment files
+.env
+
 # Local archived OpenSpec history
 openspec/changes/archive/2026-03-30-replace-pink-trombone-with-svg-articulatory-model/

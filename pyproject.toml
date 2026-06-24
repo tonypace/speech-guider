@@ -49,9 +49,7 @@ module = [
     "parselmouth",
     "pyclts",
     "clts",
-    "myspsolution",
-    "mysp",
-    "my_voice_analysis",
+
 ]
 ignore_missing_imports = true
 

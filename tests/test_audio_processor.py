@@ -56,11 +56,6 @@ def test_audio_context():
         assert samples.dtype == np.float32
         assert np.max(np.abs(samples)) <= 1.0
 
-        print("✓ AudioContext test passed")
-        print(f"  - Duration: {context.total_duration:.2f}s")
-        print(f"  - Original sample rate: {context.original_sample_rate}Hz")
-        print(f"  - Downsampled samples: {len(samples)}")
-
     finally:
         Path(wav_path).unlink()
 
@@ -78,11 +73,6 @@ def test_pitch_analysis():
         assert len(pitch.f0_values) > 0
         assert pitch.f0_range >= 0
 
-        print("✓ Pitch analysis test passed")
-        print(f"  - F0 values: {len(pitch.f0_values)} frames")
-        print(f"  - F0 range: {pitch.f0_range:.2f}Hz")
-        print(f"  - Mean F0: {pitch.mean_f0:.2f}Hz")
-
     finally:
         Path(wav_path).unlink()
 
@@ -95,7 +85,6 @@ def test_rhythm_analysis():
         context = AudioContext(wav_path)
         analyzer = ProsodyAnalyzer(context)
 
-        # Create some vowel timestamps
         vowel_timestamps = [
             (0.0, 0.1),
             (0.2, 0.25),
@@ -115,11 +104,6 @@ def test_rhythm_analysis():
         ]
         assert len(rhythm.vowel_durations) == len(vowel_timestamps)
 
-        print("✓ Rhythm analysis test passed")
-        print(f"  - nPVI: {rhythm.npvi:.2f}")
-        print(f"  - Classification: {rhythm.classification}")
-        print(f"  - Vowel durations: {rhythm.vowel_durations}")
-
     finally:
         Path(wav_path).unlink()
 
@@ -132,7 +116,6 @@ def test_stress_analysis():
         context = AudioContext(wav_path)
         analyzer = ProsodyAnalyzer(context)
 
-        # Create some word timestamps
         word_timestamps = [
             ("hello", 0.0, 0.2),
             ("world", 0.3, 0.5),
@@ -146,17 +129,12 @@ def test_stress_analysis():
         assert stress.primary_stress_time >= 0.0
         assert stress.prominence_score > 0.0
 
-        print("✓ Stress analysis test passed")
-        print(f"  - Primary stress: '{stress.primary_stress_word}'")
-        print(f"  - Stress time: {stress.primary_stress_time:.2f}s")
-        print(f"  - Prominence score: {stress.prominence_score:.2f}")
-
     finally:
         Path(wav_path).unlink()
 
 
 def test_complete_prosody_analysis():
-    """Test complete prosody analysis pipeline."""
+    """Test complete prosody analysis pipeline with voice quality."""
     wav_path = create_dummy_wav_file()
 
     try:
@@ -172,11 +150,28 @@ def test_complete_prosody_analysis():
         assert prosody.pitch is not None
         assert prosody.rhythm is not None
         assert prosody.stress is not None
+        assert prosody.voice_quality is not None
 
-        print("✓ Complete prosody analysis test passed")
-        print(f"  - Pitch range: {prosody.pitch.f0_range:.2f}Hz")
-        print(f"  - nPVI: {prosody.rhythm.npvi:.2f}")
-        print(f"  - Primary stress: '{prosody.stress.primary_stress_word}'")
+    finally:
+        Path(wav_path).unlink()
+
+
+def test_voice_quality_analysis():
+    """Test voice quality metrics extraction."""
+    wav_path = create_dummy_wav_file()
+
+    try:
+        context = AudioContext(wav_path)
+        analyzer = ProsodyAnalyzer(context)
+        vq = analyzer.analyze_voice_quality()
+
+        assert vq is not None
+        assert isinstance(vq.jitter_local, float)
+        assert isinstance(vq.shimmer_local, float)
+        assert isinstance(vq.cpps, float)
+        assert isinstance(vq.spectral_tilt, float)
+        assert vq.jitter_local >= 0
+        assert vq.shimmer_local >= 0
 
     finally:
         Path(wav_path).unlink()

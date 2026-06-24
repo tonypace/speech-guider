@@ -1,11 +1,11 @@
 ﻿App Implementation Plan: Pronunciation & Prosody Evaluator
 1. System Architecture
-Frontend: Gradio (Python-based UI, native microphone support).
+Frontend: HTML5/Tailwind CSS, vanilla JavaScript.
 Backend Processing: Local Python pipeline optimized for 12GB VRAM (RTX 3060).
 Synthesis Engine: Local LLM (via Ollama) or Remote LLM (Gemini/OpenAI) to translate metrics into readable feedback.
 2. Tech Stack & Dependencies
 Run the following to set up the environment:
-pip install gradio torch torchaudio transformers
+pip install torch transformers
 pip install praat-parselmouth numpy scipy
 # If using local LLM for feedback synthesis:
 pip install ollama
@@ -14,7 +14,7 @@ pip install ollama
 Step A: Audio Capture & Alignment
 1. Input: User presses record, reads a target sentence (e.g., "The weather is very hot today.").
 2. Capture: Gradio saves a 16kHz .wav file.
-3. Alignment: Use a Wav2Vec2 forced-aligner (e.g., torchaudio.pipelines.MMS_FA) to align the audio to the expected text. This provides exact start/end timestamps for every word and phoneme.
+3. Alignment: Use a Wav2Vec2 forced-aligner to align the audio to the expected text. This provides exact start/end timestamps for every word and phoneme.
 Step B: Pronunciation Extraction (Wav2Vec2 / PyGOP)
 1. Process: Pass the aligned audio through a Wav2Vec2 phoneme recognizer.
 2. Measure: Calculate the Log-Likelihood (GOP score) for each expected phoneme.
@@ -37,8 +37,7 @@ Data:
 
 Generate a 3-bullet-point correction for the student.
 
-4. Minimal Gradio Implementation Prototype
-import gradio as gr
+4. Minimal Implementation Prototype
 import parselmouth
 import numpy as np
 
