@@ -34,42 +34,13 @@ Speech Guider is a local-first pronunciation and prosody evaluator built around 
 - Voice-quality metrics such as jitter, shimmer, CPPS, and spectral tilt
 - User-facing documentation and help flows
 
-## Architecture
+## Architecture and development
 
-### Backend
-
-- **Framework**: FastAPI with Jinja2 templates and SSE support
-- **Primary endpoints**:
-  - `app/api/analyze.py` for pronunciation analysis
-  - `app/api/comparison.py` for reference animation generation
-  - `app/api/prosody_lab.py` for Prosody Lab workflows
-  - `app/api/presets.py`, `app/api/errors.py`, and `app/api/sse.py` for supporting UI behavior
-
-### Audio And Model Pipeline
-
-1. **Audio capture and normalization**: microphone or upload input is standardized for downstream processing
-2. **Articulatory extraction**: ContentVec + DANN-based AAI predictor for 9 tract variables (robust_01 normalized)
-3. **Articulatory inference**: SSL outputs are translated through `src/models/ssl_aai_predictor.py` and `src/models/aai_adapter.py`
-4. **Prosody extraction**: Parselmouth and numpy/scipy heuristics provide pitch, rhythm, and recording summaries
-5. **Reference generation**: `src/audio/reference_tts.py` plus `src/services/comparison_cache.py` prepare cached comparison assets
-6. **Visualization**: frontend consumes canonical articulatory states and Plotly-ready prosody payloads
-
-### Frontend
-
-- **Delivery model**: server-rendered HTML with static JS and CSS
-- **State model**: vanilla JavaScript on `window` plus module-based helpers
-- **Key UI modules**:
-  - `static/js/recorder.js`
-  - `static/js/prosody_lab.js`
-  - `static/js/comparison_lab.js`
-  - `static/js/ssl_comparison_controller.js`
-  - `static/js/svg_articulatory_renderer.js`
-  - `static/js/tauri_controller.js`
-
-### Desktop Shell
-
-- `src-tauri/` contains the native shell workspace
-- Phase 1 desktop support is focused on launch shortcuts, menu-bar presence, and classroom clicker semantics rather than a separate frontend rewrite
+The maintained [architecture guide](docs/architecture.md) describes implemented
+ownership and workflows. See [development](docs/development.md) for setup and
+checks, and [review/refactor](docs/review-refactor.md) for remaining cleanup.
+The default articulatory model is ContentVec-L7 plus R4; legacy DANN descriptions
+refer to historical implementations.
 
 ## OpenSpec Status
 
@@ -84,98 +55,6 @@ Speech Guider is a local-first pronunciation and prosody evaluator built around 
 - `add-student-friendly-prosody-feedback`
 - `add-musical-score-prosody-display`
 - `add-prosody-lab-voice-analysis`
-
-## Project Structure
-
-```text
-speech-guider/
-├── app/
-│   ├── api/
-│   ├── models/
-│   ├── services/
-│   ├── templates/
-│   ├── utils/
-│   └── main.py
-├── static/
-│   ├── css/
-│   └── js/
-├── src/
-│   ├── audio/
-│   ├── models/
-│   ├── services/
-│   └── llm/
-├── src-tauri/
-├── tests/
-│   ├── js/
-│   └── e2e/
-├── docs/
-├── openspec/
-├── requirements.txt
-├── package.json
-├── README.md
-└── PROJECT.md
-```
-
-## Key Files
-
-- `app/main.py`: FastAPI entrypoint, router setup, static mounting, and root page rendering
-- `app/templates/index.html`: main multi-tab UI shell
-- `app/api/analyze.py`: pronunciation analysis and feedback response assembly
-- `app/api/comparison.py`: reference animation generation endpoint
-- `app/api/prosody_lab.py`: Prosody Lab analysis routes
-- `src/models/aai_adapter.py`: AAI tract-variable to renderer-state conversion
-- `src/models/ssl_aai_predictor.py`: SSL articulatory prediction layer
-- `src/models/articulatory.py`: canonical articulatory mapping and preset behavior
-- `src/audio/reference_tts.py`: reference TTS provider abstraction
-- `src/services/comparison_cache.py`: cached reference asset storage for comparison playback
-
-## Running The Project
-
-### Setup
-
-```bash
-source speech-guider/bin/activate
-pip install -r requirements.txt
-npm install
-```
-
-### Web App
-
-```bash
-source speech-guider/bin/activate
-python -m app.main
-```
-
-Or:
-
-```bash
-uvicorn app.main:app --reload
-```
-
-### Tauri Shell
-
-```bash
-npm run tauri dev
-```
-
-## Development Commands
-
-### Python quality checks
-
-```bash
-ruff format .
-ruff check . --fix
-mypy .
-pytest
-```
-
-### JavaScript and browser tests
-
-```bash
-npm run test:run
-npm run test:e2e:mocked
-npm run test:e2e:real
-```
 
 ## Constraints And Priorities
 
@@ -193,4 +72,4 @@ npm run test:e2e:real
 
 ---
 
-Last updated: 2026-04-17
+Last updated: 2026-11-06

@@ -36,6 +36,13 @@ AAI_MASKED_FIELDS_BY_SOURCE: dict[str, set[str]] = {
     "xrmb": {"VEL", "GLO", "LAT"},
 }
 
+# Normalizations whose values are already in the renderer's normalized space
+# (unit interval) and need no denormalization. speaker_z_normalized is the
+# Haskins BiGRU speaker-Z contract: output = (raw_mm - mean) * (0.2 / std) + 0.5
+# is consumed directly as a normalized rig signal — never inverted with
+# training speaker statistics.
+UNIT_INTERVAL_NORMALIZATIONS: frozenset[str] = frozenset({"robust_01", "speaker_z_normalized"})
+
 
 @dataclass(frozen=True)
 class AAINormalizationProfile:
@@ -60,7 +67,7 @@ class AAIConversionMetadata:
     """Metadata required to convert AAI tract variables.
 
     Args:
-        normalization: One of "raw", "z_score", or "robust_01"
+        normalization: One of "raw", "z_score", "robust_01", or "speaker_z_normalized"
         source_dataset: Dataset source (affects masked fields)
         masked_fields: Fields to mask/fallback
     """
@@ -191,9 +198,8 @@ def representative_aai_pose(
     if normalization == "z_score":
         # z_score requires denormalization to physical units
         return denormalize_aai_row(center.tolist(), profile)
-    elif normalization == "robust_01":
-        # robust_01 values are already in [0, 1], use directly
-        # Clamp to [0, 1] for safety
+    if normalization in UNIT_INTERVAL_NORMALIZATIONS:
+        # Already in the normalized rig space, clamp to [0, 1] for safety
         center = np.clip(center, 0.0, 1.0)
         return decode_aai_row(center.tolist())
     else:
@@ -258,8 +264,8 @@ def _resolve_aai_input_variables(
             ],
             profile,
         )
-    elif metadata.normalization == "robust_01":
-        # Values already in [0, 1], no transformation needed
+    elif metadata.normalization in UNIT_INTERVAL_NORMALIZATIONS:
+        # Values already in the normalized rig space, no transformation needed
         # Just ensure they're properly bounded
         return AAITractVariables(
             lp=max(0.0, min(1.0, tract_variables.lp)),
@@ -329,7 +335,7 @@ def _resolved_aai_to_canonical_state(
     defaults = svg_state_to_dict(default_articulatory_state())
     fallback = dict(fallback_state or defaults)
 
-    if metadata.normalization == "robust_01":
+    if metadata.normalization in UNIT_INTERVAL_NORMALIZATIONS:
         values = [
             tract_variables.lp,
             tract_variables.la,
@@ -425,7 +431,7 @@ def aai_to_canonical_states_batch(
     defaults = svg_state_to_dict(default_articulatory_state())
     fallback = dict(fallback_state or defaults)
 
-    if metadata.normalization == "robust_01":
+    if metadata.normalization in UNIT_INTERVAL_NORMALIZATIONS:
         clamped = np.clip(tvs_array, 0.0, 1.0)
         frames = []
         for i in range(clamped.shape[0]):

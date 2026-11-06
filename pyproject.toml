@@ -8,6 +8,10 @@ requires-python = ">=3.12"
 line-length = 100
 target-version = "py312"
 exclude = [
+    "archive",
+    "external",
+    "omnivoice-tts",
+    "node_modules",
     "speech-guider/*",
     ".git",
     "__pycache__",
@@ -26,6 +30,10 @@ ignore = ["E501"]
 [tool.mypy]
 python_version = "3.12"
 exclude = [
+    "archive/",
+    "external/",
+    "omnivoice-tts/",
+    "node_modules/",
     "speech-guider/.*",
     "speech-guider/lib/.*",
     "\\.git",
@@ -49,11 +57,15 @@ module = [
     "parselmouth",
     "pyclts",
     "clts",
+    "scipy.*",
+    "soundfile",
+    "transformers.*",
 
 ]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
+pythonpath = ["."]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]

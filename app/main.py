@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from app.api import analyze, comparison, errors, presets, prosody_lab, sse
@@ -19,7 +20,7 @@ app = FastAPI(
 )
 
 # Get project root
-PROJECT_ROOT = Path(__file__).parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # Mount static files (CSS and JS)
 static_path = PROJECT_ROOT / "static"
@@ -33,22 +34,7 @@ jinja_env = Environment(
 )
 
 
-# Create Jinja2Templates wrapper
-class Jinja2TemplatesNoCache:
-    def __init__(self, env):
-        self.env = env
-
-    def TemplateResponse(self, name, context):  # noqa: N802
-        from starlette.templating import _TemplateResponse
-
-        return _TemplateResponse(
-            template=self.env.get_template(name),
-            context=context,
-            status_code=200,
-        )
-
-
-templates = Jinja2TemplatesNoCache(jinja_env)
+templates = Jinja2Templates(env=jinja_env)
 
 # Include API routers
 app.include_router(analyze.router)
@@ -60,11 +46,12 @@ app.include_router(sse.router)
 
 
 @app.get("/", response_class=HTMLResponse)
-async def root(request: Request):
+async def root(request: Request) -> HTMLResponse:
     """Serve the main UI page."""
     return templates.TemplateResponse(
-        "index.html",
-        {
+        request=request,
+        name="index.html",
+        context={
             "request": request,
             "phoneme_presets": load_presets(),
             "feature_flags": {
@@ -75,7 +62,7 @@ async def root(request: Request):
 
 
 @app.get("/health")
-async def health():
+async def health() -> dict[str, str]:
     """Health check endpoint."""
     return {"status": "ok", "service": "pronunciation-evaluator"}
 

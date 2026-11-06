@@ -17,7 +17,7 @@ import tempfile
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Optional, cast
 
 import numpy as np
 import soundfile as sf
@@ -53,7 +53,7 @@ def _require_file(path: str | None, env_name: str, label: str) -> str:
 def _to_mono(audio_data: np.ndarray) -> np.ndarray:
     """Convert stereo to mono by averaging channels."""
     if len(audio_data.shape) > 1:
-        return np.mean(audio_data, axis=1)
+        return cast(np.ndarray, np.mean(audio_data, axis=1))
     return audio_data
 
 
@@ -64,7 +64,7 @@ def _resample_audio(audio_data: np.ndarray, orig_rate: int, target_rate: int) ->
     from scipy import signal
 
     num_samples = int(len(audio_data) * target_rate / orig_rate)
-    return signal.resample(audio_data, num_samples)
+    return cast(np.ndarray, signal.resample(audio_data, num_samples))
 
 
 def _compress_ogg(audio_data: np.ndarray, sample_rate: int) -> bytes:

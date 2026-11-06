@@ -123,4 +123,9 @@ async def select_error(request: SelectErrorRequest):
     }
     print(f"[select_error] Returning response: {response_data}")
 
-    return SelectErrorResponse(**response_data)
+    return SelectErrorResponse(
+        incorrect_desc=incorrect_desc,
+        correct_desc=correct_desc,
+        animation_params={"left": predicted_params, "right": target_params},
+        highlight_params={"zone": highlight_zone},
+    )

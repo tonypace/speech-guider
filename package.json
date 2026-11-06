@@ -14,7 +14,7 @@
     "test:e2e:report": "playwright show-report",
     "test:py": "pytest",
     "lint": "npm run lint:js && npm run lint:py",
-    "lint:js": "eslint '**/*.{js,mjs,cjs,jsx}'",
+    "lint:js": "eslint . --no-warn-ignored",
     "lint:py": "ruff check . && ruff format . --check",
     "typecheck": "mypy .",
     "format:py": "ruff format .",
@@ -25,9 +25,10 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.58.2",
+    "@stylistic/eslint-plugin": "^5.10.0",
     "@tauri-apps/cli": "^2.10.1",
     "@vitest/coverage-v8": "^4.1.1",
-    "eslint": "^8.57.1",
+    "eslint": "^10.10.0",
     "globals": "^17.4.0",
     "jsdom": "^29.0.1",
     "vitest": "^4.1.1"

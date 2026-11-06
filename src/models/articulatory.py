@@ -29,17 +29,17 @@ class ArticulatoryParameters:
     """
 
     # Tongue body position (0.0 = back/velar, 1.0 = front/alveolar)
-    tongueIndex: float
+    tongueIndex: float  # noqa: N815 - serialized legacy animation field
     # Tongue constriction (0.0 = open/low, 1.0 = closed/high)
-    tongueDiameter: float
+    tongueDiameter: float  # noqa: N815 - serialized legacy animation field
     # Tongue tip retroflexion (0.0 = flat, 1.0 = curled back)
-    tongueCurl: float
+    tongueCurl: float  # noqa: N815 - serialized legacy animation field
     # Tongue root position (0.0 = advanced, 1.0 = retracted/pharyngeal)
-    tongueRoot: float
+    tongueRoot: float  # noqa: N815 - serialized legacy animation field
     # Lip rounding (0.0 = spread, 1.0 = rounded/protruded)
-    lipRounding: float
+    lipRounding: float  # noqa: N815 - serialized legacy animation field
     # Lip aperture (0.0 = open, 1.0 = sealed/closed)
-    lipClosure: float
+    lipClosure: float  # noqa: N815 - serialized legacy animation field
     # Nasality (0.0 = oral/closed velum, 1.0 = nasal/open velum)
     nasality: float
     # Voicing (0.0 = voiceless, 1.0 = voiced)
@@ -863,24 +863,24 @@ class ArticulatoryMapper:
             the zone to highlight with amber aura
         """
         # Calculate differences for each parameter
-        tongueIndex_delta = abs(target_params.tongueIndex - predicted_params.tongueIndex)
-        tongueDiameter_delta = abs(target_params.tongueDiameter - predicted_params.tongueDiameter)
-        tongueCurl_delta = abs(target_params.tongueCurl - predicted_params.tongueCurl)
-        tongueRoot_delta = abs(target_params.tongueRoot - predicted_params.tongueRoot)
-        lipRounding_delta = abs(target_params.lipRounding - predicted_params.lipRounding)
-        lipClosure_delta = abs(target_params.lipClosure - predicted_params.lipClosure)
+        tongue_index_delta = abs(target_params.tongueIndex - predicted_params.tongueIndex)
+        tongue_diameter_delta = abs(target_params.tongueDiameter - predicted_params.tongueDiameter)
+        tongue_curl_delta = abs(target_params.tongueCurl - predicted_params.tongueCurl)
+        tongue_root_delta = abs(target_params.tongueRoot - predicted_params.tongueRoot)
+        lip_rounding_delta = abs(target_params.lipRounding - predicted_params.lipRounding)
+        lip_closure_delta = abs(target_params.lipClosure - predicted_params.lipClosure)
         nasality_delta = abs(target_params.nasality - predicted_params.nasality)
         voicing_delta = abs(target_params.voicing - predicted_params.voicing)
         aspiration_delta = abs(target_params.aspiration - predicted_params.aspiration)
 
         # Determine which zone has the largest delta
         deltas = {
-            "tongueIndex": tongueIndex_delta,
-            "tongueDiameter": tongueDiameter_delta,
-            "tongueCurl": tongueCurl_delta,
-            "tongueRoot": tongueRoot_delta,
-            "lipRounding": lipRounding_delta,
-            "lipClosure": lipClosure_delta,
+            "tongueIndex": tongue_index_delta,
+            "tongueDiameter": tongue_diameter_delta,
+            "tongueCurl": tongue_curl_delta,
+            "tongueRoot": tongue_root_delta,
+            "lipRounding": lip_rounding_delta,
+            "lipClosure": lip_closure_delta,
             "nasality": nasality_delta,
             "voicing": voicing_delta,
             "aspiration": aspiration_delta,

@@ -67,6 +67,8 @@ models/
 *.ckpt
 !src/models/
 !src/models/*.py
+!app/models/
+!app/models/*.py
 
 # Audio/temp files
 *.wav
@@ -94,6 +96,8 @@ coverage/
 src-tauri/target/
 
 # Local backups and one-off files
+archive/
+AAI/
 speech-guider-py310-backup/
 speech-guider-x86-backup/
 pyproject.toml.bak

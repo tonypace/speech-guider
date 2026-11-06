@@ -653,7 +653,6 @@ if __name__ == "__main__":
     test_get_animation_params_template_hit()
     test_svg_state_to_dict()
     test_normalize_svg_state()
-    test_normalize_svg_state_legacy_degree_scale()
     test_normalize_svg_state_partial_svg_input_uses_defaults()
     test_legacy_to_svg_state()
     test_articulatory_state_dataclass()

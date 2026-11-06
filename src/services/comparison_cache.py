@@ -5,12 +5,16 @@ text content. Supports in-memory storage with optional temp file backing.
 """
 
 import hashlib
+import logging
 import tempfile
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
+from uuid import uuid4
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -23,7 +27,7 @@ class ReferenceAsset:
     audio_duration: float
     audio_format: str  # "ogg"
     frame_rate: int  # e.g., 50
-    frames: list[dict]  # Canonical animation states
+    frames: list[dict[str, Any]]  # Canonical animation states
     frame_count: int
     created_at: float  # Unix timestamp
     ttl_seconds: float = 3600.0  # 1 hour default TTL
@@ -32,7 +36,7 @@ class ReferenceAsset:
         """Check if cache entry has exceeded TTL."""
         return (time.time() - self.created_at) > self.ttl_seconds
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "text_key": self.text_key,
@@ -70,10 +74,13 @@ class ComparisonCache:
             use_temp_files: Store audio bytes in temp files vs memory
             temp_dir: Directory for temp audio files (uses system temp if None)
         """
+        if max_entries < 1:
+            raise ValueError("max_entries must be at least 1")
         self.max_entries = max_entries
         self.default_ttl_seconds = default_ttl_seconds
         self.use_temp_files = use_temp_files
-        self.temp_dir = temp_dir or Path(tempfile.gettempdir())
+        self.temp_dir = (temp_dir or Path(tempfile.gettempdir())).resolve()
+        self._file_namespace = uuid4().hex
 
         # LRU cache: OrderedDict maintains access order
         # Key: normalized text, Value: ReferenceAsset
@@ -102,7 +109,7 @@ class ComparisonCache:
     def _get_audio_path(self, text_key: str) -> Path:
         """Get temp file path for audio storage."""
         hash_key = hashlib.md5(text_key.encode()).hexdigest()[:16]
-        return self.temp_dir / f"ref_audio_{hash_key}.ogg"
+        return self.temp_dir / f"ref_audio_{self._file_namespace}_{hash_key}.ogg"
 
     def get(self, text: str) -> Optional[ReferenceAsset]:
         """Retrieve cached reference asset if available and not expired.
@@ -135,8 +142,8 @@ class ComparisonCache:
             audio_path = self._temp_files[text_key]
             try:
                 asset.audio_bytes = audio_path.read_bytes()
-            except Exception as e:
-                print(f"[ComparisonCache] Failed to load audio from {audio_path}: {e}")
+            except OSError:
+                logger.warning("Failed to load cached audio from %s", audio_path, exc_info=True)
                 self._remove(text_key)
                 self._misses += 1
                 return None
@@ -152,7 +159,7 @@ class ComparisonCache:
         audio_duration: float,
         audio_format: str,
         frame_rate: int,
-        frames: list[dict],
+        frames: list[dict[str, Any]],
         ttl_seconds: Optional[float] = None,
     ) -> ReferenceAsset:
         """Store reference asset in cache.
@@ -171,7 +178,7 @@ class ComparisonCache:
             Created ReferenceAsset
         """
         text_key = self._normalize_text(text)
-        ttl = ttl_seconds or self.default_ttl_seconds
+        ttl = self.default_ttl_seconds if ttl_seconds is None else ttl_seconds
 
         # Evict LRU if at capacity
         if len(self._cache) >= self.max_entries and text_key not in self._cache:
@@ -185,8 +192,10 @@ class ComparisonCache:
                 audio_path.write_bytes(audio_bytes)
                 self._temp_files[text_key] = audio_path
                 stored_audio_bytes = b""  # Empty, loaded from file
-            except Exception as e:
-                print(f"[ComparisonCache] Failed to write audio to {audio_path}: {e}")
+            except OSError:
+                logger.warning("Failed to write cached audio to %s", audio_path, exc_info=True)
+                # A failed replacement must not reload the previous audio.
+                self._remove(text_key)
                 # Fall back to in-memory storage
                 stored_audio_bytes = audio_bytes
 
@@ -228,8 +237,8 @@ class ComparisonCache:
             temp_path = self._temp_files.pop(text_key)
             try:
                 temp_path.unlink(missing_ok=True)
-            except Exception:
-                pass
+            except OSError:
+                logger.warning("Failed to remove cached audio %s", temp_path, exc_info=True)
 
     def invalidate(self, text: str) -> bool:
         """Explicitly invalidate cache entry for text.
@@ -249,13 +258,13 @@ class ComparisonCache:
         for temp_path in self._temp_files.values():
             try:
                 temp_path.unlink(missing_ok=True)
-            except Exception:
-                pass
+            except OSError:
+                logger.warning("Failed to remove cached audio %s", temp_path, exc_info=True)
 
         self._cache.clear()
         self._temp_files.clear()
 
-    def get_stats(self) -> dict:
+    def get_stats(self) -> dict[str, Any]:
         """Get cache statistics."""
         return {
             "entries": len(self._cache),

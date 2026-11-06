@@ -1,11 +1,7 @@
 #!/bin/bash
-# Wrapper script to run the FastAPI server with venv activated
-
+# Resolve the environment and import root independently of the caller's cwd.
+set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$SCRIPT_DIR/.."
-
-# Activate virtual environment
-source "$PROJECT_DIR/speech-guider/bin/activate"
-
-# Run the server
-python -m app.main
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJECT_DIR"
+exec "$PROJECT_DIR/speech-guider/bin/python" -m app.main

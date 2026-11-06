@@ -13,6 +13,13 @@ This is the source-of-truth API document for the current implemented renderer co
 - It documents the short slider aliases used in the Animation Lab UI.
 - It documents actual numeric ranges, including the fact that not all 9 variables are normalized today.
 
+## Model integration
+
+Student and reference audio use the same local ContentVec-L7 + frozen R4
+predictor. Raw speaker-Z oral outputs are clamped only for display and mapped
+directly into this canonical state. See [R4 integration](r4-model-integration.md)
+for checkpoint assets, temporal alignment, and model limitations.
+
 ## Canonical State Shape
 
 ```json

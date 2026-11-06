@@ -6,7 +6,7 @@ and voice quality metrics (jitter, shimmer, CPPS, spectral tilt).
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Optional, cast
 
 import numpy as np
 import parselmouth
@@ -112,11 +112,11 @@ class AudioContext:
             Audio waveform as float32 numpy array at target sample rate
         """
         if self.original_sample_rate == self.target_sample_rate:
-            samples = self.praat_sound.values[:, 0]
+            samples = self.praat_sound.values[0]
         else:
-            samples = self.praat_sound.resample(self.target_sample_rate).values[:, 0]
+            samples = self.praat_sound.resample(self.target_sample_rate).values[0]
 
-        return samples.astype(np.float32)
+        return cast(np.ndarray, samples.astype(np.float32))
 
 
 class ProsodyAnalyzer:
@@ -243,8 +243,8 @@ class ProsodyAnalyzer:
                 cepstrum_mag = np.abs(np.fft.rfft(np.log(np.abs(np.fft.rfft(frame)) + 1e-10)))
                 quef = np.fft.rfftfreq(fl, d=1.0 / sr)
                 lo, hi = (
-                    max(1, np.searchsorted(quef, 1.0 / 500.0)),
-                    min(len(cepstrum_mag), np.searchsorted(quef, 1.0 / 60.0)),
+                    max(1, int(np.searchsorted(quef, 1.0 / 500.0))),
+                    min(len(cepstrum_mag), int(np.searchsorted(quef, 1.0 / 60.0))),
                 )
                 if lo >= hi:
                     continue

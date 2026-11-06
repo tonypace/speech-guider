@@ -16,7 +16,7 @@ class TestComparisonCacheErrorPaths:
 
         cache = ComparisonCache(max_entries=2, use_temp_files=False)
         normalized = cache._normalize_text("test")
-        entry = cache.put(
+        cache.put(
             text="test",
             audio_bytes=b"test audio",
             audio_sample_rate=8000,

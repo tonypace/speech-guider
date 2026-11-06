@@ -3,12 +3,11 @@
 import io
 from typing import Optional
 
-import numpy as np
-import soundfile as sf
 import torch
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from app.utils.audio import load_audio_tensor
 from src.audio.reference_tts import ReferenceAudio, TTSProviderFactory
 from src.models.aai_adapter import AAIConversionMetadata, aai_to_canonical_states_batch
 from src.models.ssl_common import DEFAULT_SSL_FEATURE_CONFIG
@@ -67,16 +66,10 @@ def _prepare_reference_audio_tensor(
     reference_audio: ReferenceAudio,
 ) -> torch.Tensor:
     """Decode compressed reference audio and prepare tensor for SSL predictor."""
-    audio_buffer = io.BytesIO(reference_audio.audio_bytes)
-    audio_data, orig_rate = sf.read(audio_buffer, dtype="float32")
-    if len(audio_data.shape) > 1:
-        audio_data = np.mean(audio_data, axis=1)
-    if orig_rate != DEFAULT_SSL_FEATURE_CONFIG.sample_rate:
-        from scipy import signal
-
-        num = int(len(audio_data) * DEFAULT_SSL_FEATURE_CONFIG.sample_rate / orig_rate)
-        audio_data = signal.resample(audio_data, num)
-    return torch.from_numpy(audio_data).float()
+    audio_tensor, _ = load_audio_tensor(
+        io.BytesIO(reference_audio.audio_bytes), DEFAULT_SSL_FEATURE_CONFIG.sample_rate
+    )
+    return audio_tensor
 
 
 def _generate_reference_asset(
@@ -107,7 +100,7 @@ def _generate_reference_asset(
 
     frames = aai_to_canonical_states_batch(
         trajectory.numpy(),
-        AAIConversionMetadata(normalization="robust_01"),
+        AAIConversionMetadata(normalization="speaker_z_normalized"),
     )
 
     asset = cache.put(

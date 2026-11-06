@@ -5,7 +5,11 @@ import os
 import subprocess
 import tempfile
 from pathlib import Path
+from typing import BinaryIO
 
+import numpy as np
+import soundfile as sf
+import torch
 from fastapi import UploadFile
 
 
@@ -73,7 +77,8 @@ def _convert_to_wav(input_path: str) -> str:
     Raises:
         AudioConversionError: If conversion fails
     """
-    wav_path = input_path.rsplit(".", 1)[0] + ".wav"
+    wav_path = str(Path(input_path).with_suffix(".wav"))
+    conversion_succeeded = False
 
     try:
         result = subprocess.run(
@@ -95,6 +100,7 @@ def _convert_to_wav(input_path: str) -> str:
             timeout=30,
         )
         if result.returncode == 0 and os.path.exists(wav_path):
+            conversion_succeeded = True
             return wav_path
         else:
             error_msg = result.stderr if result.stderr else "ffmpeg returned non-zero exit code"
@@ -105,6 +111,9 @@ def _convert_to_wav(input_path: str) -> str:
         raise AudioConversionError("ffmpeg not found in PATH") from e
     except subprocess.SubprocessError as e:
         raise AudioConversionError(f"ffmpeg subprocess failed: {e}") from e
+    finally:
+        if not conversion_succeeded:
+            cleanup_temp_file(wav_path)
 
 
 def cleanup_temp_file(filepath: str) -> None:
@@ -133,3 +142,16 @@ async def upload_to_bytesio(upload_file: UploadFile) -> io.BytesIO:
     """
     contents = await upload_file.read()
     return io.BytesIO(contents)
+
+
+def load_audio_tensor(source: str | BinaryIO, target_rate: int) -> tuple[torch.Tensor, int]:
+    """Decode audio into the mono float tensor shared by both SSL paths."""
+    audio_data, sample_rate = sf.read(source, dtype="float32")
+    if audio_data.ndim > 1:
+        audio_data = np.mean(audio_data, axis=1)
+    if sample_rate != target_rate:
+        from scipy import signal
+
+        num_samples = int(len(audio_data) * target_rate / sample_rate)
+        audio_data = signal.resample(audio_data, num_samples)
+    return torch.from_numpy(audio_data).float(), target_rate

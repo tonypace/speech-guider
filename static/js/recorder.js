@@ -1,3 +1,5 @@
+import { convertAudioToWav } from './audio_conversion.js';
+
 /**
  * Intercom-style audio recorder with F5 support
  * Hold to record, release to send for analysis
@@ -403,24 +405,7 @@ class IntercomRecorder {
     }
 
     async convertToWav(audioBlob) {
-        // Read blob as array buffer
-        const arrayBuffer = await audioBlob.arrayBuffer();
-        
-        // Create audio context at 16kHz
-        const audioContext = new (window.AudioContext || window.webkitAudioContext)({
-            sampleRate: 16000
-        });
-        
-        // Decode audio
-        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-        
-        // Convert to mono 16-bit PCM WAV
-        const wavBlob = this.bufferToWave(audioBuffer, audioBuffer.length);
-        
-        // Close context
-        await audioContext.close();
-        
-        return wavBlob;
+        return convertAudioToWav(audioBlob, 16000, (buffer, length) => this.bufferToWave(buffer, length));
     }
 
     bufferToWave(abuffer, len) {

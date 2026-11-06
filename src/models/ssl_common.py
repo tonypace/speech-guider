@@ -6,6 +6,7 @@ for ContentVec).
 """
 
 from dataclasses import dataclass
+from typing import Any, cast
 
 import torch
 from transformers import Wav2Vec2FeatureExtractor
@@ -64,7 +65,7 @@ def build_contentvec_feature_extractor(
 
 
 def extract_hidden_states(
-    outputs,
+    outputs: Any,
     target_layer: int | None = None,
 ) -> torch.Tensor:
     """Extract hidden-state features from a single model output layer.
@@ -80,4 +81,4 @@ def extract_hidden_states(
     hidden = outputs.hidden_states[layer]
     if hidden.dim() == 3 and hidden.shape[0] == 1:
         hidden = hidden.squeeze(0)
-    return hidden
+    return cast(torch.Tensor, hidden)

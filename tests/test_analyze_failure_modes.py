@@ -72,13 +72,14 @@ class TestAnalyzeEndpointFailureModes:
         from app.api.analyze import try_primary_ssl_analysis
 
         audio_tensor = torch.zeros(16000)  # 1 second of silence
-        animation_state, trajectory = try_primary_ssl_analysis(
+        animation_state, trajectory, ssl_meta = try_primary_ssl_analysis(
             audio_tensor, 16000, return_trajectory=True
         )
 
         # Should return None for both when predictor unavailable
         assert animation_state is None
         assert trajectory is None
+        assert ssl_meta == {}
 
 
 class TestSSLAAIToAnimationState:

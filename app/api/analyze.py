@@ -3,15 +3,17 @@
 import asyncio
 import logging
 
-import numpy as np
 import torch
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 
 from app.api.sse import create_job_id, send_progress_update
 from app.services.concurrency import run_with_semaphore
-from app.utils.audio import cleanup_temp_file, save_upload_to_temp
-from src.models.ssl_common import DEFAULT_SSL_FEATURE_CONFIG, clear_torch_device_cache, get_best_torch_device
+from app.utils.audio import cleanup_temp_file, load_audio_tensor, save_upload_to_temp
+from src.models.ssl_common import (
+    DEFAULT_SSL_FEATURE_CONFIG,
+    clear_torch_device_cache,
+)
 from src.services.model_cache import get_ssl_predictor
 
 router = APIRouter()
@@ -31,10 +33,10 @@ def _ssl_aai_to_animation_state(
     audio_tensor: torch.Tensor,
     sample_rate: int,
     return_trajectory: bool = False,
-) -> dict | tuple[dict, list[dict]] | None:
+) -> dict | tuple[dict, list[dict] | None, dict] | None:
     """Convert audio to animation state via SSL AAI predictor.
 
-    Uses ContentVec + DANN predictor with robust_01 normalization.
+    Uses the same frozen R4 decoder and display normalization as reference audio.
 
     Args:
         audio_tensor: Audio tensor
@@ -42,8 +44,8 @@ def _ssl_aai_to_animation_state(
         return_trajectory: If True, also return full trajectory frames
 
     Returns:
-        Canonical animation state dict, or (state, frames) tuple if return_trajectory=True,
-        or None if predictor unavailable/failed.
+        Canonical animation state dict, or (state, frames, meta) tuple if
+        return_trajectory=True, or None if predictor unavailable/failed.
     """
 
     from src.models.aai_adapter import (
@@ -60,80 +62,71 @@ def _ssl_aai_to_animation_state(
         logger.debug(f"[_ssl_aai_to_animation_state] SSL predictor unavailable: {e}")
         return None
 
+    metadata = AAIConversionMetadata(normalization="speaker_z_normalized")
     try:
-        logger.debug(
-            f"[_ssl_aai_to_animation_state] Calling predictor.predict with audio shape={audio_tensor.shape}, sr={sample_rate}"
-        )
-        tvs_tensor = predictor.predict(audio_tensor, sample_rate)
-        logger.debug(
-            f"[_ssl_aai_to_animation_state] Prediction succeeded: shape={tvs_tensor.shape}"
-        )
-        tvs_array = tvs_tensor.numpy()
+        prediction = predictor.predict_with_metadata(audio_tensor, sample_rate)
+        tvs_array = prediction["tvs"].numpy()
+        ssl_meta = prediction["metadata"]
 
         # Get representative pose from trajectory
-        # For now, use the first frame if short, or median across trajectory
         if len(tvs_array) == 1:
             pose = decode_aai_row(tvs_array[0])
         else:
             pose = representative_aai_pose(
-                tvs_array,  # Pass numpy array directly
-                normalization="robust_01",
+                tvs_array,
+                normalization=metadata.normalization,
             )
 
-        # Convert to canonical animation state
-        # robust_01 means values are already in [0,1], no denormalization needed
-        metadata = AAIConversionMetadata(normalization="robust_01")
+        # Values are already in the normalized rig space; no denormalization
         animation_state = aai_to_canonical_state(pose, metadata=metadata)
 
         logger.debug("[_ssl_aai_to_animation_state] Generated animation state via SSL AAI path")
 
         if return_trajectory:
-            # Convert full trajectory using vectorized batch conversion
             frames = aai_to_canonical_states_batch(tvs_array, metadata)
             logger.debug(f"[_ssl_aai_to_animation_state] Generated {len(frames)} trajectory frames")
-            return animation_state, frames
+            return animation_state, frames, ssl_meta
 
         return animation_state
 
     except Exception as e:
-        import traceback
-
-        tb = traceback.format_exc()
-        msg = f"[_ssl_aai_to_animation_state] SSL AAI prediction failed: {e}\n{tb}"
-        logger.error(msg)
-        with open("/tmp/ssl_debug.log", "a") as f:
-            f.write(msg + "\n" + "=" * 80 + "\n")
+        logger.exception("R4 articulatory prediction failed")
         raise SSLAnalysisError(f"SSL AAI prediction failed: {e}") from e
 
 
 def try_primary_ssl_analysis(
     audio_tensor: torch.Tensor, sample_rate: int, return_trajectory: bool = False
-) -> tuple[dict | None, list[dict] | None]:
+) -> tuple[dict | None, list[dict] | None, dict]:
     """Run the SSL AAI analysis path.
 
     Returns:
-        tuple: (animation_state, ssl_trajectory)
+        tuple: (animation_state, ssl_trajectory, ssl_meta)
         - animation_state: canonical animation state dict or None
         - ssl_trajectory: list of canonical frame dicts or None (if return_trajectory=True)
+        - ssl_meta: integration metadata (decoder, device, layers, display clipping)
     """
 
     logger.debug("[try_primary_ssl_analysis] Attempting SSL AAI path...")
 
-    result = _ssl_aai_to_animation_state(
-        audio_tensor, sample_rate, return_trajectory=return_trajectory
-    )
+    try:
+        result = _ssl_aai_to_animation_state(
+            audio_tensor, sample_rate, return_trajectory=return_trajectory
+        )
+    except SSLAnalysisError as e:
+        logger.warning(f"[try_primary_ssl_analysis] SSL AAI path failed: {e}")
+        return None, None, {}
 
     if result is not None:
         logger.debug("[try_primary_ssl_analysis] SSL AAI path succeeded")
         if return_trajectory and isinstance(result, tuple):
-            animation_state, ssl_trajectory = result
-            return animation_state, ssl_trajectory
+            animation_state, ssl_trajectory, ssl_meta = result
+            return animation_state, ssl_trajectory, ssl_meta
         if isinstance(result, dict):
-            return result, None
+            return result, None, {}
 
     # If we reach here, SSL AAI path failed
     logger.debug("[try_primary_ssl_analysis] SSL AAI path failed")
-    return None, None
+    return None, None, {}
 
 
 def _load_and_preprocess_audio(audio_path: str) -> tuple[torch.Tensor, int]:
@@ -148,25 +141,7 @@ def _load_and_preprocess_audio(audio_path: str) -> tuple[torch.Tensor, int]:
     Raises:
         ValueError: If audio cannot be loaded or processed
     """
-    import soundfile as sf
-
-    audio_data, sample_rate = sf.read(audio_path, dtype="float32")
-
-    # Convert to mono if stereo
-    if len(audio_data.shape) > 1:
-        audio_data = np.mean(audio_data, axis=1)
-
-    # Resample to config sample rate if needed
-    target_rate = DEFAULT_SSL_FEATURE_CONFIG.sample_rate
-    if sample_rate != target_rate:
-        import scipy.signal as signal
-
-        num_samples = int(len(audio_data) * target_rate / sample_rate)
-        audio_data = signal.resample(audio_data, num_samples)
-        sample_rate = target_rate
-
-    audio_tensor = torch.from_numpy(audio_data).float()
-    return audio_tensor, sample_rate
+    return load_audio_tensor(audio_path, DEFAULT_SSL_FEATURE_CONFIG.sample_rate)
 
 
 async def _run_analysis_pipeline(audio_path: str, target_text: str, job_id: str) -> dict:
@@ -199,11 +174,12 @@ async def _run_analysis_pipeline(audio_path: str, target_text: str, job_id: str)
 
     ssl_animation_state = None
     ssl_trajectory = None
+    ssl_meta: dict = {}
     ssl_error = None
 
     # Run SSL AAI analysis in thread to avoid blocking
     try:
-        ssl_animation_state, ssl_trajectory = await asyncio.to_thread(
+        ssl_animation_state, ssl_trajectory, ssl_meta = await asyncio.to_thread(
             try_primary_ssl_analysis, audio_tensor, sample_rate, True
         )
         if ssl_animation_state is not None:
@@ -263,6 +239,7 @@ async def _run_analysis_pipeline(audio_path: str, target_text: str, job_id: str)
         "prosody": serialize_prosody(prosody_metrics) if prosody_metrics else None,
         "ssl_animation_state": ssl_animation_state,
         "ssl_trajectory": serialized_trajectory,
+        "integration_meta": ssl_meta,
         "success": True,
         "message": "Analysis complete",
     }
@@ -406,7 +383,7 @@ def _generate_comprehensive_feedback(prosody_metrics):
     # Pronunciation summary
     # NOTE: Phoneme-level error detection requires a phoneme CTC model.
     # This feature is currently non-functional pending model integration.
-    sections.append("<strong>Pronunciation:</strong> Articulatory analysis via ContentVec+AAI")
+    sections.append("<strong>Pronunciation:</strong> Articulatory analysis via ContentVec-L7 + R4")
 
     # Prosody summary with student-friendly labels
     if prosody_metrics:
@@ -448,7 +425,7 @@ async def analyze_audio(
 
     Returns:
         Analysis results with articulatory feedback, prosody metrics, and feedback.
-        Uses ContentVec + DANN AAI predictor for articulatory inference.
+        Uses local ContentVec-L7 + frozen R4 for articulatory inference.
     """
     if not target_text.strip():
         raise HTTPException(status_code=400, detail="Please enter the target sentence.")

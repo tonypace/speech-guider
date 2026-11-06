@@ -31,6 +31,8 @@ async def run_with_semaphore(coro: Coroutine[Any, Any, Any]) -> Any:
     global currently_processing
 
     if currently_processing:
+        # Caller already created this coroutine; rejection must release its frame.
+        coro.close()
         raise HTTPException(status_code=503, detail=BUSY_MESSAGE)
 
     async with _analysis_lock:

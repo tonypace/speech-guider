@@ -23,7 +23,7 @@ Speech Guider is a local-first pronunciation and prosody coaching app for ESL pr
 - **Frontend**: HTML5, Tailwind CSS, vanilla JavaScript
 - **Backend**: FastAPI, Jinja2, Server-Sent Events
 - **Speech and audio**: PyTorch, Parselmouth, numpy/scipy heuristics
-- **Models**: ContentVec-based SSL with DANN predictor for articulatory inversion (9 tract variables)
+- **Models**: local ContentVec-L7 + frozen R4 bounded temporal decoder (9 tract variables)
 - **Visualization**: custom SVG articulatory renderer and Plotly-based prosody charts
 - **Desktop shell**: Tauri workspace in `src-tauri/`
 
@@ -31,17 +31,23 @@ Speech Guider is a local-first pronunciation and prosody coaching app for ESL pr
 
 ### Prerequisites
 
-- Python 3.10 or later
+- Python 3.12 or later
 - Node.js for JS tests and Tauri tooling
 - macOS: Build omnivoice.cpp for reference TTS (see `omnivoice-tts/` in repo root)
 
 ### Setup
 
 ```bash
+python3.12 -m venv speech-guider  # first setup only
 source speech-guider/bin/activate
 pip install -r requirements.txt
-npm install
+npm ci
 ```
+
+Copy the R4 evaluation bundle to `external/R4 26-11-06/` before articulatory
+analysis. It includes the local ContentVec encoder and `weights/r4.pt`.
+See [R4 integration and configuration](docs/r4-model-integration.md) for asset
+layout, inference timing, device checks, and migration details.
 
 ## Running The App
 
@@ -53,15 +59,15 @@ python -m app.main
 Or:
 
 ```bash
-uvicorn app.main:app --reload
+uvicorn app.main:app --reload --port 7860
 ```
 
 The web app runs at `http://localhost:7860`.
 
-For the desktop shell:
+For the desktop shell and backend together:
 
 ```bash
-npm run tauri dev
+npm run dev
 ```
 
 ## How To Use
@@ -98,7 +104,10 @@ npm run test:e2e:mocked
 npm run test:e2e:real
 ```
 
-For detailed development guidance, see `AGENTS.md`.
+See the [documentation index](docs/README.md), [development guide](docs/development.md),
+and [architecture](docs/architecture.md). Contributor rules remain in `AGENTS.md`.
+
+For archived legacy research and backup instructions, see [workspace archive](docs/workspace-archive.md).
 
 For the canonical 9-variable articulatory animation contract, see `docs/articulatory-animation-api.md`.
 
@@ -165,4 +174,5 @@ speech-guider/
 
 ## License
 
-This project is licensed under the MIT License.
+This project is licensed under the MIT License. The R4 model integration and
+assets retain their supplied terms; see [R4 source and terms](docs/r4-model-integration.md#source-and-terms).

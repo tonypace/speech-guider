@@ -1,261 +1,244 @@
-"""SSL-based AAI tract-variable predictor using ContentVec + DANN.
+"""Local ContentVec-L7 + frozen R4 inference for both student and reference audio."""
 
-Loads a trained DANN checkpoint and predicts tract variables from audio
-waveforms. Uses ContentVec as the SSL backbone and a DANN-based predictor
-head with LayerNorm and Dropout.
-
-Normalization: robust_01 (outputs already in [0, 1] range)
-"""
-
+import logging
 from pathlib import Path
-from typing import Optional
+from threading import RLock
+from typing import Any, cast
 
+import numpy as np
 import torch
-import torch.nn as nn
-from transformers import AutoModel
+import yaml
+from transformers import AutoFeatureExtractor, AutoModel  # type: ignore[import-untyped]
 
+from src.models.aai_adapter import AAI_TV_ORDER as AAI_TV_ORDER
+from src.models.legacy_aai_predictor import AAIHead, DANNPredictorHead  # noqa: F401
+from src.models.r4_decoder import R4Decoder, load_r4_decoder
 from src.models.ssl_common import (
     DEFAULT_SSL_FEATURE_CONFIG,
     SSLFeatureConfig,
-    build_contentvec_feature_extractor,
     clear_torch_device_cache,
-    extract_hidden_states,
     get_best_torch_device,
 )
 
-# AAI TV field order confirmed by training
-AAI_TV_ORDER = ("LP", "LA", "TTCL", "TTCD", "TBCL", "TBCD", "VEL", "GLO", "LAT")
+logger = logging.getLogger(__name__)
+DEFAULT_R4_BUNDLE = Path(__file__).resolve().parents[2] / "external" / "R4 26-11-06"
 
 
 def _get_default_checkpoint_path() -> Path:
-    """Return the default checkpoint path relative to project root."""
-    return Path(__file__).parent.parent.parent / "external" / "aai_portable0.1" / "best_model.pt"
-
-
-class DANNPredictorHead(nn.Module):
-    """DANN predictor head: 768 -> 256 -> 9 as nn.Sequential.
-
-    Architecture matches checkpoint from external/aai_portable0.1/models.py:
-    Sequential(Linear(768->256), LayerNorm(256), ReLU, Dropout(0.1), Linear(256->9))
-
-    Output is in robust_01 normalization ([0, 1] range).
-    """
-
-    def __init__(self, input_dim: int = 768, hidden_dim: int = 256, output_dim: int = 9) -> None:
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
-            nn.ReLU(),
-            nn.Dropout(0.1),
-            nn.Linear(hidden_dim, output_dim),
-        )
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass returning (T, 9) tract variables in [0, 1] range."""
-        return torch.clamp(self.net(x), 0.0, 1.0)
-
-
-AAIHead = DANNPredictorHead
+    """Resolve the self-contained R4 successor, never the provenance base path."""
+    return DEFAULT_R4_BUNDLE / "weights" / "r4.pt"
 
 
 class SSLAAIPredictor:
-    """SSL-based predictor for AAI tract variables using ContentVec + DANN.
+    """Replay uploaded audio through R4's batch-one fixed-window contract.
 
-    Loads a trained DANN checkpoint with ContentVec backbone and provides
-    inference for audio waveforms. Outputs are tract variables in [0, 1]
-    range (robust_01 normalization) in the order:
-    LP, LA, TTCL, TTCD, TBCL, TBCD, VEL, GLO, LAT
-
-    Configuration sourced from SSLFeatureConfig (see ssl_common.py).
-    Extracts features from ContentVec layer 7 by default.
-
-    Usage:
-        predictor = SSLAAIPredictor()
-        predictor.load()
-        tvs = predictor.predict(audio_tensor, sample_rate=16000)
+    Uses 1.2 s windows, 100 ms hops/lookahead, 50 Hz output. Each call owns its
+    rolling buffer. Tail silence supplies lookahead and is trimmed from output.
+    Raw oral values retain speaker-Z bounds [-0.1, 1.1]; display alone clamps.
     """
 
     MODEL_NAME = DEFAULT_SSL_FEATURE_CONFIG.model_name
-    SAMPLE_RATE = DEFAULT_SSL_FEATURE_CONFIG.sample_rate
-    FEATURE_DIM = DEFAULT_SSL_FEATURE_CONFIG.feature_dim
+    SAMPLE_RATE = 16000
+    FEATURE_DIM = 768
     NUM_TVS = 9
+    FRAME_RATE = 50
+    HOP_SAMPLES = 1600
+    WINDOW_SAMPLES = 19200
+    LOOKAHEAD_SAMPLES = 1600
+    STRIDE_SAMPLES = 320
+    FEATURE_FRAMES = 59
+    COMMITTED_SLICE = slice(49, 54)
 
     def __init__(
         self,
-        checkpoint_path: Optional[str | Path] = None,
-        device: Optional[str] = None,
+        checkpoint_path: str | Path | None = None,
+        device: str | None = None,
         ssl_config: SSLFeatureConfig | None = None,
+        bundle_path: str | Path | None = None,
     ) -> None:
-        """Initialize SSL AAI predictor.
-
-        Args:
-            checkpoint_path: Path to DANN checkpoint (uses default if None)
-            device: Target device (auto-detected if None)
-            ssl_config: SSL backbone configuration (uses default if None)
-        """
+        self.bundle_path = Path(bundle_path or DEFAULT_R4_BUNDLE).expanduser().resolve()
         self.checkpoint_path = (
-            Path(checkpoint_path) if checkpoint_path else _get_default_checkpoint_path()
+            Path(checkpoint_path or self.bundle_path / "weights" / "r4.pt").expanduser().resolve()
         )
         self.ssl_config = ssl_config or DEFAULT_SSL_FEATURE_CONFIG
+        if (
+            self.ssl_config.sample_rate != 16000
+            or self.ssl_config.target_layer != 7
+            or self.ssl_config.feature_dim != 768
+            or self.ssl_config.frame_rate != 50
+        ):
+            raise ValueError("R4 requires 16 kHz, ContentVec-L7 width 768, 50 Hz output")
         self.device = device or get_best_torch_device()
-        self._ssl_model: Optional[AutoModel] = None
-        self._feature_extractor = build_contentvec_feature_extractor(self.ssl_config.sample_rate)
-        self._predictor_head: Optional[DANNPredictorHead] = None
+        self._ssl_model: Any = None
+        self._feature_extractor: Any = None
+        self._predictor_head: R4Decoder | None = None
+        self._metadata: dict[str, Any] = {}
         self._loaded = False
         self._warmed_up = False
+        self._lock = RLock()
 
-    def warmup(self) -> None:
-        """Run a dummy inference to trigger kernel compilation on the device.
+    def load(self, checkpoint_path: str | Path | None = None) -> None:
+        """Load only local assets; publish state only after all validation passes."""
+        with self._lock:
+            path = (
+                Path(checkpoint_path).expanduser().resolve()
+                if checkpoint_path
+                else self.checkpoint_path
+            )
+            if not path.is_file():
+                raise FileNotFoundError(f"R4 checkpoint not found: {path}")
+            self._validate_contract()
+            encoder_path = self.bundle_path / "weights" / "contentvec"
+            if not (encoder_path / "model.safetensors").is_file():
+                raise FileNotFoundError(f"R4 local ContentVec weights not found: {encoder_path}")
+            decoder, metadata = load_r4_decoder(path, self.device)
+            encoder = AutoModel.from_pretrained(encoder_path, local_files_only=True)
+            if encoder.config.num_hidden_layers != 7 or encoder.config.hidden_size != 768:
+                raise ValueError("R4 local encoder must be truncated to seven layers, width 768")
+            processor = AutoFeatureExtractor.from_pretrained(encoder_path, local_files_only=True)
+            self._ssl_model = encoder.to(self.device).eval()
+            self._feature_extractor = processor
+            self._predictor_head = decoder
+            self._metadata = metadata
+            self.checkpoint_path = path
+            self._loaded = True
+            self._warmed_up = False
+            logger.info("R4 loaded on %s from %s", self.device, path)
 
-        Call once after load() to reduce latency on first real prediction.
-        """
-        if self._warmed_up or not self._loaded:
-            return
-        import time
-
-        start = time.time()
-        dummy_audio = torch.randn(self.ssl_config.sample_rate, device="cpu")
-        try:
-            self.predict(dummy_audio, sample_rate=self.ssl_config.sample_rate)
-            elapsed = time.time() - start
-            print(f"[SSLAAIPredictor] Warmup complete ({elapsed:.2f}s)")
-        except Exception as e:
-            print(f"[SSLAAIPredictor] Warmup failed (non-critical): {e}")
-        self._warmed_up = True
-
-    def load(self, checkpoint_path: Optional[str | Path] = None) -> None:
-        """Load SSL backbone and predictor head from checkpoint.
-
-        Args:
-            checkpoint_path: Optional override path. Uses init path if not provided.
-
-        Raises:
-            FileNotFoundError: If checkpoint does not exist.
-            RuntimeError: If checkpoint loading fails or state dict incompatible.
-        """
-        path = Path(checkpoint_path) if checkpoint_path else self.checkpoint_path
-        if not path.exists():
-            raise FileNotFoundError(f"SSL AAI checkpoint not found: {path}")
-
-        print(f"[SSLAAIPredictor] Loading checkpoint from {path}")
-        print(f"[SSLAAIPredictor] Device: {self.device}")
-
-        # Load SSL backbone (ContentVec)
-        self._ssl_model = AutoModel.from_pretrained(self.ssl_config.model_name)
-        self._ssl_model.to(self.device)
-        self._ssl_model.eval()
-
-        # Create predictor head
-        self._predictor_head = DANNPredictorHead(
-            input_dim=self.ssl_config.feature_dim,
-            hidden_dim=256,
-            output_dim=self.NUM_TVS,
-        )
-        self._predictor_head.to(self.device)
-        self._predictor_head.eval()
-
-        # Load checkpoint state dict
-        state_dict = torch.load(path, map_location=self.device, weights_only=True)
-
-        # Load predictor head weights into self.net (nn.Sequential)
-        predictor_state = {
-            key[len("predictor.") :]: value
-            for key, value in state_dict.items()
-            if key.startswith("predictor.")
+    def _validate_contract(self) -> None:
+        """Reject bundles whose sample-clock policy differs from this adapter."""
+        config_path = self.bundle_path / "configs" / "nine_channel_v12_100ms.yaml"
+        config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        expected_temporal = {
+            "frame_rate_hz": 50,
+            "hop_samples": 1600,
+            "window_samples": 19200,
+            "lookahead_samples": 1600,
+            "contentvec_stride_samples": 320,
+            "contentvec_receptive_field_samples": 400,
         }
-
-        self._predictor_head.net.load_state_dict(predictor_state, strict=True)
-
-        print("[SSLAAIPredictor] Loaded successfully")
-        print(f"[SSLAAIPredictor] SSL model: {self.ssl_config.model_name}")
-        print(
-            f"[SSLAAIPredictor] Predictor head: {self.ssl_config.feature_dim} -> 256 -> {self.NUM_TVS}"
-        )
-        print(f"[SSLAAIPredictor] Output: robust_01 normalized TVs, order: {AAI_TV_ORDER}")
-
-        self._loaded = True
+        if (
+            not isinstance(config, dict)
+            or config.get("version") != "nine_channel_streaming_v1"
+            or config.get("audio", {}).get("sample_rate_hz") != 16000
+            or config.get("audio", {}).get("channels") != 1
+            or config.get("audio", {}).get("normalization")
+            != "huggingface_hubert_zero_mean_unit_variance_v1"
+            or config.get("temporal") != expected_temporal
+            or config.get("model", {}).get("contentvec_layer") != 7
+            or config.get("model", {}).get("feature_width") != 768
+            or tuple(config.get("model", {}).get("channels", ())) != AAI_TV_ORDER
+            or config.get("policy", {}).get("emit_after_samples") != 3200
+            or config.get("policy", {}).get("contact_augmentation") != "disabled"
+        ):
+            raise ValueError("Unsupported R4 streaming contract")
 
     def _validate_output(self, output: torch.Tensor) -> None:
-        """Validate predictor output shape and values."""
         if output.ndim != 2:
-            raise ValueError(f"Predictor output must be 2D (T, 9), got shape {output.shape}")
-        if output.shape[1] != self.NUM_TVS:
-            raise ValueError(
-                f"Predictor output must have {self.NUM_TVS} channels, got {output.shape[1]}"
-            )
+            raise ValueError(f"Predictor output must be 2D (T, 9), got {output.shape}")
+        if output.shape[1] != 9:
+            raise ValueError(f"Predictor output must have 9 channels, got {output.shape[1]}")
         if output.shape[0] == 0:
             raise ValueError("Predictor output has no time frames")
         if not torch.isfinite(output).all():
             raise ValueError("Predictor output contains NaN or Inf values")
-        if output.min() < 0.0 or output.max() > 1.0:
-            print(
-                f"[SSLAAIPredictor] Warning: Output outside [0,1] range: [{output.min():.3f}, {output.max():.3f}]"
-            )
 
-    def predict(
-        self,
-        audio_tensor: torch.Tensor,
-        sample_rate: int = DEFAULT_SSL_FEATURE_CONFIG.sample_rate,
-    ) -> torch.Tensor:
-        """Predict AAI tract variables from audio.
-
-        Args:
-            audio_tensor: Audio waveform as 1D tensor
-            sample_rate: Audio sample rate (must match config)
-
-        Returns:
-            torch.Tensor: Tract variables in robust_01 normalization,
-                         shape (T, 9), values in [0, 1]
-
-        Raises:
-            RuntimeError: If predictor not loaded.
-            ValueError: If sample rate mismatch or invalid output.
-        """
-        import time
-
-        start = time.time()
-
-        if not self._loaded:
-            raise RuntimeError("Predictor not loaded. Call load() first.")
-
-        if sample_rate != self.ssl_config.sample_rate:
-            raise ValueError(f"Audio sample rate must be {self.ssl_config.sample_rate}Hz")
-
-        if audio_tensor.dim() == 2:
-            audio_tensor = audio_tensor.squeeze()
-
-        inputs = self._feature_extractor(
-            audio_tensor.cpu().numpy(),
-            sampling_rate=self.ssl_config.sample_rate,
-            return_tensors="pt",
+    def _predict_window(self, samples: np.ndarray) -> torch.Tensor:
+        processed = self._feature_extractor(samples, sampling_rate=16000, return_tensors="pt")
+        inputs = {key: value.to(self.device) for key, value in processed.items()}
+        features = self._ssl_model(**inputs).last_hidden_state
+        if features.shape != (1, self.FEATURE_FRAMES, 768):
+            raise ValueError(f"Unexpected R4 encoder feature shape: {tuple(features.shape)}")
+        assert self._predictor_head is not None
+        prediction = self._predictor_head(features)[0]
+        if prediction.shape != (self.FEATURE_FRAMES, 9):
+            raise ValueError(f"Unexpected R4 trajectory shape: {tuple(prediction.shape)}")
+        self._validate_output(prediction)
+        return cast(
+            torch.Tensor, prediction[self.COMMITTED_SLICE].detach().to("cpu", dtype=torch.float32)
         )
-        inputs = {k: v.to(self.device) for k, v in inputs.items()}
 
-        with torch.inference_mode():
-            outputs = self._ssl_model(
-                **inputs,
-                output_hidden_states=True,
-                return_dict=True,
-            )
-            hidden_states = extract_hidden_states(outputs, self.ssl_config.target_layer)
-            tvs = self._predictor_head(hidden_states)
+    def predict_with_metadata(
+        self, audio_tensor: torch.Tensor, sample_rate: int = 16000
+    ) -> dict[str, Any]:
+        """Return raw/display trajectories and sample-clock centers for one clip."""
+        with self._lock, torch.inference_mode():
+            if not self._loaded:
+                raise RuntimeError("Predictor not loaded. Call load() first.")
+            if sample_rate != 16000:
+                raise ValueError("Audio sample rate must be 16000Hz")
+            audio = audio_tensor.detach().to("cpu", dtype=torch.float32)
+            if audio.ndim == 2 and audio.shape[0] == 1:
+                audio = audio[0]
+            if audio.ndim != 1 or audio.numel() == 0:
+                raise ValueError("Audio must be one nonempty mono waveform")
+            if not torch.isfinite(audio).all():
+                raise ValueError("Audio contains NaN or Inf values")
+            samples = audio.numpy()
+            frame_count = (len(samples) + self.STRIDE_SAMPLES - 1) // self.STRIDE_SAMPLES
+            hops = (len(samples) + self.HOP_SAMPLES - 1) // self.HOP_SAMPLES
+            # One extra hop supplies future context for the final real audio hop.
+            padded = np.pad(samples, (0, (hops + 1) * self.HOP_SAMPLES - len(samples)))
+            window = np.zeros(self.WINDOW_SAMPLES, dtype=np.float32)
+            packets: list[torch.Tensor] = []
+            for hop_index in range(hops + 1):
+                offset = hop_index * self.HOP_SAMPLES
+                window[: -self.HOP_SAMPLES] = window[self.HOP_SAMPLES :]
+                window[-self.HOP_SAMPLES :] = padded[offset : offset + self.HOP_SAMPLES]
+                if hop_index >= 1:
+                    packets.append(self._predict_window(window))
+            raw = torch.cat(packets, dim=0)[:frame_count]
+            self._validate_output(raw)
+            outside = (raw < 0.0) | (raw > 1.0)
+            return {
+                "tvs": raw.clamp(0.0, 1.0),
+                "tvs_raw": raw,
+                "center_samples": torch.arange(frame_count) * self.STRIDE_SAMPLES + 160,
+                "metadata": {
+                    "decoder": "r4_bounded_v12",
+                    "device": self.device,
+                    "supra_decoder": "r4_lat_temporal_v12",
+                    "layers": [7],
+                    "normalization": "speaker_z_normalized",
+                    "frame_rate": 50,
+                    "lookahead_ms": 100,
+                    "contact_augmentation": "disabled",
+                    "clip_fraction": float(outside.float().mean().item()),
+                    "source_commit": self._metadata.get("git_commit"),
+                },
+            }
 
-        self._validate_output(tvs)
+    def predict(self, audio_tensor: torch.Tensor, sample_rate: int = 16000) -> torch.Tensor:
+        """Return display-safe (T, 9) output shared by both application paths."""
+        return cast(torch.Tensor, self.predict_with_metadata(audio_tensor, sample_rate)["tvs"])
 
-        elapsed = time.time() - start
-        if elapsed > 1.0:
-            print(
-                f"[SSLAAIPredictor] Prediction took {elapsed:.2f}s for {audio_tensor.shape[-1]} samples"
-            )
+    def predict_combined(
+        self, audio_tensor: torch.Tensor, sample_rate: int = 16000
+    ) -> dict[str, Any]:
+        """Compatibility entry point; all nine channels now come from R4."""
+        result = self.predict_with_metadata(audio_tensor, sample_rate)
+        result.update(
+            {
+                "oral": result["tvs"][:, :6],
+                "oral_raw": result["tvs_raw"][:, :6],
+                "suprasegmental": result["tvs"][:, 6:],
+                "clip_fraction": result["metadata"]["clip_fraction"],
+            }
+        )
+        return result
 
-        return tvs.cpu()
+    def warmup(self) -> None:
+        with self._lock:
+            if self._loaded and not self._warmed_up:
+                self.predict(torch.zeros(self.HOP_SAMPLES))
+                self._warmed_up = True
 
     def cleanup(self) -> None:
-        """Free model resources."""
-        for attr in ("_ssl_model", "_predictor_head"):
-            setattr(self, attr, None)
-        self._feature_extractor = None
-        clear_torch_device_cache(self.device)
-        self._loaded = False
-        print("[SSLAAIPredictor] Cleaned up resources")
+        with self._lock:
+            self._ssl_model = None
+            self._predictor_head = None
+            self._feature_extractor = None
+            self._metadata = {}
+            self._loaded = False
+            self._warmed_up = False
+            clear_torch_device_cache(self.device)

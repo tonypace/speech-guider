@@ -36,9 +36,9 @@ def test_predictor_default_checkpoint_path():
     from src.models.ssl_aai_predictor import _get_default_checkpoint_path
 
     path = _get_default_checkpoint_path()
-    expected_suffix = Path("external/aai_portable0.1/best_model.pt")
-    assert path.name == "best_model.pt"
-    assert expected_suffix.parts[-3:] == path.parts[-3:]
+    expected_suffix = Path("external/R4 26-11-06/weights/r4.pt")
+    assert path.is_absolute()
+    assert expected_suffix.parts == path.parts[-4:]
 
 
 def test_predictor_initialization():
@@ -48,7 +48,7 @@ def test_predictor_initialization():
 
     predictor = SSLAAIPredictor()
 
-    assert predictor.checkpoint_path.name == "best_model.pt"
+    assert predictor.checkpoint_path.name == "r4.pt"
     assert predictor.device in ["cpu", "cuda", "mps"]
     assert not predictor._loaded
 
@@ -66,9 +66,7 @@ def test_predictor_unloaded_raises():
 
 
 @pytest.mark.skipif(
-    not Path(
-        "/Users/tonypace/Documents/Code/speech-guider/external/aai_portable0.1/best_model.pt"
-    ).exists(),
+    not Path(Path(__file__).resolve().parents[1] / "external/R4 26-11-06/weights/r4.pt").exists(),
     reason="Checkpoint not available",
 )
 def test_predictor_loads_checkpoint():
@@ -89,9 +87,7 @@ def test_predictor_loads_checkpoint():
 
 
 @pytest.mark.skipif(
-    not Path(
-        "/Users/tonypace/Documents/Code/speech-guider/external/aai_portable0.1/best_model.pt"
-    ).exists(),
+    not Path(Path(__file__).resolve().parents[1] / "external/R4 26-11-06/weights/r4.pt").exists(),
     reason="Checkpoint not available",
 )
 def test_predictor_produces_valid_output():

@@ -6,7 +6,7 @@ import shutil
 import tempfile
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 from scipy.io import wavfile as scipy_wavfile
@@ -22,7 +22,7 @@ _NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
 
 def _hz_to_midi_value(frequency: float) -> float:
-    return 69.0 + 12.0 * np.log2(frequency / 440.0)
+    return float(69.0 + 12.0 * np.log2(frequency / 440.0))
 
 
 def _midi_to_note_name(midi: float) -> str:
@@ -42,7 +42,7 @@ def _framed_energy(y: np.ndarray, frame_length: int = 2048, hop_length: int = 25
         return np.array([], dtype=np.float64)
     padded = np.pad(y, (0, max(0, frame_length - len(y))), mode="constant")
     frames = np.lib.stride_tricks.sliding_window_view(padded, frame_length)[::hop_length]
-    return np.mean(np.abs(frames), axis=1)
+    return cast(np.ndarray, np.mean(np.abs(frames), axis=1))
 
 
 def _heuristic_syllable_markers(y: np.ndarray, sr: int) -> list[float]:

@@ -8,11 +8,11 @@
 const { test, expect } = require('@playwright/test');
 
 test.describe('Recording UI (legacy — see new spec files)', () => {
-  test('recorder section is present in the DOM', async ({ page }) => {
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
-    // smoke check — real recorder UI coverage is now in mocked/analysis.spec.js
-    const recorder = page.locator('#recorder');
-    await expect(recorder).toBeAttached();
-  });
+    test('recorder section is present in the DOM', async ({ page }) => {
+        await page.goto('/');
+        await page.waitForLoadState('networkidle');
+        // smoke check — real recorder UI coverage is now in mocked/analysis.spec.js
+        const recorder = page.locator('#recorder');
+        await expect(recorder).toBeAttached();
+    });
 });

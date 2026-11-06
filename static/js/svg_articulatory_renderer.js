@@ -1,62 +1,62 @@
-    const DEFAULT_STATE = {
-      lip_aperture: 0.25,
-      lip_protrusion: 0.71,
-      tongue_tip_constriction_location: 0.2,
-      tongue_tip_constriction_degree: 1,
-      lateral_tongue_drop: 0,
-      velic_aperture: 0,
-      tongue_body_constriction_location: 0.7,
-      tongue_body_constriction_degree: 1,
-      glottal_aperture: 0,
-    };
+const DEFAULT_STATE = {
+    lip_aperture: 0.25,
+    lip_protrusion: 0.71,
+    tongue_tip_constriction_location: 0.2,
+    tongue_tip_constriction_degree: 1,
+    lateral_tongue_drop: 0,
+    velic_aperture: 0,
+    tongue_body_constriction_location: 0.7,
+    tongue_body_constriction_degree: 1,
+    glottal_aperture: 0,
+};
 
-    const TIP_DOMAIN_END = 0.25;
-    const BODY_DOMAIN_START = 0.35;
-    const TONGUE_TIP_REST_DISTANCE = 32;
-    const TONGUE_BODY_REST_DISTANCE = 36;
-    const LIP_APERTURE_MAX = 40;
-    const LIP_PROTRUSION_MAX = 14;
-    const VELIC_APERTURE_MAX = 40;
-    const ORAL_REFERENCE_POINT = { x: 190, y: 300 };
-    const FRAME_RENDER_INTERVAL_MS = 33;
+const TIP_DOMAIN_END = 0.25;
+const BODY_DOMAIN_START = 0.35;
+const TONGUE_TIP_REST_DISTANCE = 32;
+const TONGUE_BODY_REST_DISTANCE = 36;
+const LIP_APERTURE_MAX = 40;
+const LIP_PROTRUSION_MAX = 14;
+const VELIC_APERTURE_MAX = 40;
+const ORAL_REFERENCE_POINT = { x: 190, y: 300 };
+const FRAME_RENDER_INTERVAL_MS = 33;
 
-    function clamp(value, min, max) {
-      return Math.max(min, Math.min(max, value));
-    }
+function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+}
 
-    function lerp(start, end, t) {
-      return start + (end - start) * t;
-    }
+function lerp(start, end, t) {
+    return start + (end - start) * t;
+}
 
-    function normalizeScalar(value, legacyMax, fallback) {
-      const numericValue = Number(value);
-      void legacyMax;
-      if (!Number.isFinite(numericValue)) return fallback;
-      return clamp(numericValue, 0, 1);
-    }
+function normalizeScalar(value, legacyMax, fallback) {
+    const numericValue = Number(value);
+    void legacyMax;
+    if (!Number.isFinite(numericValue)) return fallback;
+    return clamp(numericValue, 0, 1);
+}
 
-    function cubicPoint(p0, p1, p2, p3, t) {
-      const mt = 1 - t;
-      return {
+function cubicPoint(p0, p1, p2, p3, t) {
+    const mt = 1 - t;
+    return {
         x: (mt ** 3) * p0.x + 3 * (mt ** 2) * t * p1.x + 3 * mt * (t ** 2) * p2.x + (t ** 3) * p3.x,
         y: (mt ** 3) * p0.y + 3 * (mt ** 2) * t * p1.y + 3 * mt * (t ** 2) * p2.y + (t ** 3) * p3.y,
-      };
-    }
+    };
+}
 
-    function quadraticPoint(p0, p1, p2, t) {
-      const mt = 1 - t;
-      return {
+function quadraticPoint(p0, p1, p2, t) {
+    const mt = 1 - t;
+    return {
         x: (mt ** 2) * p0.x + 2 * mt * t * p1.x + (t ** 2) * p2.x,
         y: (mt ** 2) * p0.y + 2 * mt * t * p1.y + (t ** 2) * p2.y,
-      };
-    }
+    };
+}
 
-    function distance(a, b) {
-      return Math.hypot(b.x - a.x, b.y - a.y);
-    }
+function distance(a, b) {
+    return Math.hypot(b.x - a.x, b.y - a.y);
+}
 
-    function createSvgMarkup(prefix) {
-      return `
+function createSvgMarkup(prefix) {
+    return `
       <svg id="${prefix}-mouth-svg" width="100%" height="100%" class="border rounded bg-gray-50 w-full" viewBox="0 90 310 310">
         <defs>
           <marker id="${prefix}-arrow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
@@ -109,10 +109,10 @@
           <line id="${prefix}-vf-right" x1="0" y1="-10" x2="0" y2="10" stroke="#f8fafc" stroke-width="2" stroke-linecap="round" />
         </g>
       </svg>`;
-    }
+}
 
-    export class SvgArticulatoryRenderer {
-      constructor(container, options = {}) {
+export class SvgArticulatoryRenderer {
+    constructor(container, options = {}) {
         this.container = container;
         this.prefix = options.prefix || 'svg-articulatory';
         this.state = this._normalizeState({ ...DEFAULT_STATE, ...(options.state || {}) });
@@ -124,164 +124,164 @@
         this._elements = {};
         this._frameDirty = true;
         this._lastFrameRenderAt = 0;
-      }
+    }
 
-      mount() {
+    mount() {
         if (!this.container || this._mounted) return;
         this.container.innerHTML = createSvgMarkup(this.prefix);
         this._cacheElements();
         this._mounted = true;
         this.render();
-      }
+    }
 
-      _cacheElements() {
+    _cacheElements() {
         const ids = [
-          'mouth-svg', 'outside-air', 'nasal-tract-fill', 'oral-tract-fill', 'nasal-voicing',
-          'oral-voicing', 'oral-voicing-clip-rect', 'upper-face', 'nasal-floor', 'palate',
-          'jaw-group', 'lower-face', 'tongue', 'roof-track-debug', 'normal-line', 'anchor-point', 'wind-icon',
-          'glottis-hole', 'vf-left', 'vf-right', 'voicing-pattern', 'voicing-line',
-          'larynx-view',
+            'mouth-svg', 'outside-air', 'nasal-tract-fill', 'oral-tract-fill', 'nasal-voicing',
+            'oral-voicing', 'oral-voicing-clip-rect', 'upper-face', 'nasal-floor', 'palate',
+            'jaw-group', 'lower-face', 'tongue', 'roof-track-debug', 'normal-line', 'anchor-point', 'wind-icon',
+            'glottis-hole', 'vf-left', 'vf-right', 'voicing-pattern', 'voicing-line',
+            'larynx-view',
         ];
         for (const id of ids) {
-          this._elements[id] = this.container.querySelector(`#${this.prefix}-${id}`);
+            this._elements[id] = this.container.querySelector(`#${this.prefix}-${id}`);
         }
-      }
+    }
 
-      $(name) {
+    $(name) {
         return this._elements[name];
-      }
+    }
 
-      setState(nextState) {
+    setState(nextState) {
         this.state = this._normalizeState({ ...this.state, ...nextState });
         this._frameDirty = true;
         if (!this._mounted) this.mount();
         this.render();
-      }
+    }
 
-      setParameters(nextState) {
+    setParameters(nextState) {
         this.setState(nextState);
-      }
+    }
 
-      updateFromSchema(nextState) {
+    updateFromSchema(nextState) {
         this.setState(nextState);
-      }
+    }
 
-      setHighlightZone(zone) {
+    setHighlightZone(zone) {
         this.highlightZone = zone;
         this._frameDirty = true;
         this.render();
-      }
+    }
 
-      setPhonemePreset(params) {
+    setPhonemePreset(params) {
         this.setState(params);
-      }
+    }
 
-      startAnimation() {
+    startAnimation() {
         if (this.isRunning) return;
         this.isRunning = true;
         const tick = (timestamp) => {
-          if (!this.isRunning) return;
-          this._renderVoicing(timestamp);
-          if (this._frameDirty && (timestamp - this._lastFrameRenderAt >= FRAME_RENDER_INTERVAL_MS)) {
-            this._renderFrame();
-            this._lastFrameRenderAt = timestamp;
-            this._frameDirty = false;
-          }
-          this.animationId = requestAnimationFrame(tick);
+            if (!this.isRunning) return;
+            this._renderVoicing(timestamp);
+            if (this._frameDirty && (timestamp - this._lastFrameRenderAt >= FRAME_RENDER_INTERVAL_MS)) {
+                this._renderFrame();
+                this._lastFrameRenderAt = timestamp;
+                this._frameDirty = false;
+            }
+            this.animationId = requestAnimationFrame(tick);
         };
         this.animationId = requestAnimationFrame(tick);
-      }
+    }
 
-      stopAnimation() {
+    stopAnimation() {
         this.isRunning = false;
         if (this.animationId) {
-          cancelAnimationFrame(this.animationId);
-          this.animationId = null;
+            cancelAnimationFrame(this.animationId);
+            this.animationId = null;
         }
-      }
+    }
 
-      destroy() {
+    destroy() {
         this.stopAnimation();
         if (this.container) this.container.innerHTML = '';
         this._mounted = false;
-      }
+    }
 
-      render() {
+    render() {
         if (!this._mounted) this.mount();
         this._renderFrame();
         this._lastFrameRenderAt = performance.now();
         this._frameDirty = false;
         this._renderVoicing(performance.now());
-      }
+    }
 
-      _buildRoofTrack() {
+    _buildRoofTrack() {
         const roofEnd = { x: 300, y: 350 };
         const segments = [
-          {
-            type: 'cubic',
-            p0: { x: 50, y: 265 },
-            p1: { x: 53, y: 256 },
-            p2: { x: 56, y: 247 },
-            p3: { x: 60, y: 239 },
-          },
-          {
-            type: 'cubic',
-            p0: { x: 60, y: 239 },
-            p1: { x: 75, y: 225 },
-            p2: { x: 95, y: 205 },
-            p3: { x: 122, y: 192 },
-          },
-          {
-            type: 'cubic',
-            p0: { x: 122, y: 192 },
-            p1: { x: 155, y: 172 },
-            p2: { x: 205, y: 172 },
-            p3: { x: 240, y: 190 },
-          },
-          {
-            type: 'cubic',
-            p0: { x: 240, y: 190 },
-            p1: { x: 264, y: 206 },
-            p2: { x: 282, y: 236 },
-            p3: { x: 292, y: 272 },
-          },
-          {
-            type: 'quadratic',
-            p0: { x: 292, y: 272 },
-            p1: { x: 300, y: 310 },
-            p2: roofEnd,
-          },
+            {
+                type: 'cubic',
+                p0: { x: 50, y: 265 },
+                p1: { x: 53, y: 256 },
+                p2: { x: 56, y: 247 },
+                p3: { x: 60, y: 239 },
+            },
+            {
+                type: 'cubic',
+                p0: { x: 60, y: 239 },
+                p1: { x: 75, y: 225 },
+                p2: { x: 95, y: 205 },
+                p3: { x: 122, y: 192 },
+            },
+            {
+                type: 'cubic',
+                p0: { x: 122, y: 192 },
+                p1: { x: 155, y: 172 },
+                p2: { x: 205, y: 172 },
+                p3: { x: 240, y: 190 },
+            },
+            {
+                type: 'cubic',
+                p0: { x: 240, y: 190 },
+                p1: { x: 264, y: 206 },
+                p2: { x: 282, y: 236 },
+                p3: { x: 292, y: 272 },
+            },
+            {
+                type: 'quadratic',
+                p0: { x: 292, y: 272 },
+                p1: { x: 300, y: 310 },
+                p2: roofEnd,
+            },
         ];
 
         const samples = [];
         let totalLength = 0;
         let previous = null;
         segments.forEach((segment) => {
-          const steps = segment.type === 'quadratic' ? 50 : 70;
-          for (let i = 0; i <= steps; i += 1) {
-            const t = i / steps;
-            const point = segment.type === 'quadratic'
-              ? quadraticPoint(segment.p0, segment.p1, segment.p2, t)
-              : cubicPoint(segment.p0, segment.p1, segment.p2, segment.p3, t);
-            if (previous) totalLength += distance(previous, point);
-            samples.push({ ...point, length: totalLength });
-            previous = point;
-          }
+            const steps = segment.type === 'quadratic' ? 50 : 70;
+            for (let i = 0; i <= steps; i += 1) {
+                const t = i / steps;
+                const point = segment.type === 'quadratic'
+                    ? quadraticPoint(segment.p0, segment.p1, segment.p2, t)
+                    : cubicPoint(segment.p0, segment.p1, segment.p2, segment.p3, t);
+                if (previous) totalLength += distance(previous, point);
+                samples.push({ ...point, length: totalLength });
+                previous = point;
+            }
         });
 
         const path = [
-          'M 50 265',
-          'C 53 256, 56 247, 60 239',
-          'C 75 225, 95 205, 122 192',
-          'C 155 172, 205 172, 240 190',
-          'C 264 206, 282 236, 292 272',
-          'Q 300 310 300 350',
+            'M 50 265',
+            'C 53 256, 56 247, 60 239',
+            'C 75 225, 95 205, 122 192',
+            'C 155 172, 205 172, 240 190',
+            'C 264 206, 282 236, 292 272',
+            'Q 300 310 300 350',
         ].join(' ');
 
         return { path, samples, totalLength, end: roofEnd };
-      }
+    }
 
-      _buildVisiblePalateGeometry(vel) {
+    _buildVisiblePalateGeometry(vel) {
         const velFactor = clamp(vel / 40, 0, 1);
         
         const velumEndX = lerp(280, 250, velFactor);
@@ -300,66 +300,66 @@
         const throatCurveControl2Y = lerp(320, 320, velFactor);
 
         const path = [
-          'M 60 239',
-          'C 75 225, 95 205, 122 192',
-          'C 155 172, 205 172, 240 190',
-          `C ${softPalateControl1X} ${softPalateControl1Y}, ${softPalateControl2X} ${softPalateControl2Y}, ${velumEndX} ${velumEndY}`,
+            'M 60 239',
+            'C 75 225, 95 205, 122 192',
+            'C 155 172, 205 172, 240 190',
+            `C ${softPalateControl1X} ${softPalateControl1Y}, ${softPalateControl2X} ${softPalateControl2Y}, ${velumEndX} ${velumEndY}`,
         ].join(' ');
 
         const throatClosure = `C ${throatCurveControl1X} ${throatCurveControl1Y}, ${throatCurveControl2X} ${throatCurveControl2Y}, 300 350`;
 
         return {
-          path,
-          throatClosure,
-          velumEndX,
-          velumEndY,
-          throatCurveControl1X,
-          throatCurveControl1Y,
-          throatCurveControl2X,
-          throatCurveControl2Y,
-          softPalateControl1X,
-          softPalateControl1Y,
-          softPalateControl2X,
-          softPalateControl2Y,
+            path,
+            throatClosure,
+            velumEndX,
+            velumEndY,
+            throatCurveControl1X,
+            throatCurveControl1Y,
+            throatCurveControl2X,
+            throatCurveControl2Y,
+            softPalateControl1X,
+            softPalateControl1Y,
+            softPalateControl2X,
+            softPalateControl2Y,
         };
-      }
+    }
 
-      _buildVisiblePalatePath(vel) {
+    _buildVisiblePalatePath(vel) {
         return this._buildVisiblePalateGeometry(vel).path;
-      }
+    }
 
-      _normalizeState(state) {
+    _normalizeState(state) {
         return {
-          ...DEFAULT_STATE,
-          ...state,
-          lip_aperture: normalizeScalar(state.lip_aperture, LIP_APERTURE_MAX, DEFAULT_STATE.lip_aperture),
-          lip_protrusion: normalizeScalar(state.lip_protrusion, LIP_PROTRUSION_MAX, DEFAULT_STATE.lip_protrusion),
-          tongue_tip_constriction_location: clamp(Number(state.tongue_tip_constriction_location ?? DEFAULT_STATE.tongue_tip_constriction_location), 0, 1),
-          tongue_tip_constriction_degree: this._normalizeDegree(
-            state.tongue_tip_constriction_degree ?? DEFAULT_STATE.tongue_tip_constriction_degree,
-            40,
-          ),
-          lateral_tongue_drop: clamp(Number(state.lateral_tongue_drop ?? DEFAULT_STATE.lateral_tongue_drop), 0, 1),
-          velic_aperture: normalizeScalar(state.velic_aperture, VELIC_APERTURE_MAX, DEFAULT_STATE.velic_aperture),
-          tongue_body_constriction_location: clamp(Number(state.tongue_body_constriction_location ?? DEFAULT_STATE.tongue_body_constriction_location), 0, 1),
-          tongue_body_constriction_degree: this._normalizeDegree(
-            state.tongue_body_constriction_degree ?? DEFAULT_STATE.tongue_body_constriction_degree,
-            30,
-          ),
-          glottal_aperture: normalizeScalar(state.glottal_aperture, 30, DEFAULT_STATE.glottal_aperture),
+            ...DEFAULT_STATE,
+            ...state,
+            lip_aperture: normalizeScalar(state.lip_aperture, LIP_APERTURE_MAX, DEFAULT_STATE.lip_aperture),
+            lip_protrusion: normalizeScalar(state.lip_protrusion, LIP_PROTRUSION_MAX, DEFAULT_STATE.lip_protrusion),
+            tongue_tip_constriction_location: clamp(Number(state.tongue_tip_constriction_location ?? DEFAULT_STATE.tongue_tip_constriction_location), 0, 1),
+            tongue_tip_constriction_degree: this._normalizeDegree(
+                state.tongue_tip_constriction_degree ?? DEFAULT_STATE.tongue_tip_constriction_degree,
+                40,
+            ),
+            lateral_tongue_drop: clamp(Number(state.lateral_tongue_drop ?? DEFAULT_STATE.lateral_tongue_drop), 0, 1),
+            velic_aperture: normalizeScalar(state.velic_aperture, VELIC_APERTURE_MAX, DEFAULT_STATE.velic_aperture),
+            tongue_body_constriction_location: clamp(Number(state.tongue_body_constriction_location ?? DEFAULT_STATE.tongue_body_constriction_location), 0, 1),
+            tongue_body_constriction_degree: this._normalizeDegree(
+                state.tongue_body_constriction_degree ?? DEFAULT_STATE.tongue_body_constriction_degree,
+                30,
+            ),
+            glottal_aperture: normalizeScalar(state.glottal_aperture, 30, DEFAULT_STATE.glottal_aperture),
         };
-      }
+    }
 
-      _sampleRoofTrack(roofTrack, s) {
+    _sampleRoofTrack(roofTrack, s) {
         const targetLength = clamp(s, 0, 1) * roofTrack.totalLength;
         const samples = roofTrack.samples;
         if (!samples.length) {
-          return {
-            anchorX: 0,
-            anchorY: 0,
-            inwardNormalX: 0,
-            inwardNormalY: 1,
-          };
+            return {
+                anchorX: 0,
+                anchorY: 0,
+                inwardNormalX: 0,
+                inwardNormalY: 1,
+            };
         }
         let index = samples.findIndex((sample) => sample.length >= targetLength);
         if (index < 0) index = samples.length - 1;
@@ -377,42 +377,42 @@
         const towardOralX = ORAL_REFERENCE_POINT.x - current.x;
         const towardOralY = ORAL_REFERENCE_POINT.y - current.y;
         if ((normalX * towardOralX) + (normalY * towardOralY) < 0) {
-          normalX *= -1;
-          normalY *= -1;
+            normalX *= -1;
+            normalY *= -1;
         }
 
         return {
-          anchorX: current.x,
-          anchorY: current.y,
-          inwardNormalX: normalX,
-          inwardNormalY: normalY,
+            anchorX: current.x,
+            anchorY: current.y,
+            inwardNormalX: normalX,
+            inwardNormalY: normalY,
         };
-      }
+    }
 
-      _mapLocation(location, domain) {
+    _mapLocation(location, domain) {
         if (domain === 'tip') return lerp(0, TIP_DOMAIN_END, clamp(location, 0, 1));
         return lerp(BODY_DOMAIN_START, 1, clamp(location, 0, 1));
-      }
+    }
 
-      _normalizeDegree(value, legacyRestDistance) {
+    _normalizeDegree(value, legacyRestDistance) {
         const numericValue = Number(value);
         void legacyRestDistance;
         return clamp(numericValue, 0, 1);
-      }
+    }
 
-      _projectInside(anchor, normal, point, minimumDistance = 2) {
+    _projectInside(anchor, normal, point, minimumDistance = 2) {
         const offsetX = point.x - anchor.x;
         const offsetY = point.y - anchor.y;
         const inwardDistance = (offsetX * normal.x) + (offsetY * normal.y);
         if (inwardDistance >= minimumDistance) return point;
         const correction = minimumDistance - inwardDistance;
         return {
-          x: point.x + normal.x * correction,
-          y: point.y + normal.y * correction,
+            x: point.x + normal.x * correction,
+            y: point.y + normal.y * correction,
         };
-      }
+    }
 
-      _getTonguePoint(location, degree, domain, roofTrack) {
+    _getTonguePoint(location, degree, domain, roofTrack) {
         const roofPosition = this._mapLocation(location, domain);
         const anchor = this._sampleRoofTrack(roofTrack, roofPosition);
         const restDistance = domain === 'tip' ? TONGUE_TIP_REST_DISTANCE : TONGUE_BODY_REST_DISTANCE;
@@ -421,41 +421,41 @@
         const distanceFromRoof = normalizedDegree * restDistance;
 
         return {
-          ...anchor,
-          roofPosition,
-          distanceFromRoof,
-          targetX: anchor.anchorX + anchor.inwardNormalX * distanceFromRoof,
-          targetY: anchor.anchorY + anchor.inwardNormalY * distanceFromRoof,
+            ...anchor,
+            roofPosition,
+            distanceFromRoof,
+            targetX: anchor.anchorX + anchor.inwardNormalX * distanceFromRoof,
+            targetY: anchor.anchorY + anchor.inwardNormalY * distanceFromRoof,
         };
-      }
+    }
 
-      _isEffectiveTongueClosure(normalizedDegree, lateralDrop) {
+    _isEffectiveTongueClosure(normalizedDegree, lateralDrop) {
         return normalizedDegree <= 0.03 && lateralDrop < 8;
-      }
+    }
 
-      _isEffectiveLipClosure(lipAperture) {
+    _isEffectiveLipClosure(lipAperture) {
         return lipAperture <= 2;
-      }
+    }
 
-      _getOralVoicingClipX({ lipAperture, lipProtrusion, lateralDrop, ttcd, tbcd, tip, body }) {
+    _getOralVoicingClipX({ lipAperture, lipProtrusion, lateralDrop, ttcd, tbcd, tip, body }) {
         let clipX = 0;
 
         if (this._isEffectiveLipClosure(lipAperture)) {
-          clipX = Math.max(clipX, 52 - lipProtrusion * 0.2);
+            clipX = Math.max(clipX, 52 - lipProtrusion * 0.2);
         }
 
         if (this._isEffectiveTongueClosure(ttcd, lateralDrop)) {
-          clipX = Math.max(clipX, tip.anchorX);
+            clipX = Math.max(clipX, tip.anchorX);
         }
 
         if (this._isEffectiveTongueClosure(tbcd, lateralDrop)) {
-          clipX = Math.max(clipX, body.anchorX);
+            clipX = Math.max(clipX, body.anchorX);
         }
 
         return clipX;
-      }
+    }
 
-      _renderFrame() {
+    _renderFrame() {
         const s = this.state;
         const jaw = this.$('jaw-group');
         const upperFace = this.$('upper-face');
@@ -489,18 +489,18 @@
         const roofTrack = this._buildRoofTrack();
         const visiblePalateGeometry = this._buildVisiblePalateGeometry(vel);
         const {
-          path: visiblePalatePath,
-          throatClosure,
-          velumEndX,
-          velumEndY,
-          throatCurveControl1X,
-          throatCurveControl1Y,
-          throatCurveControl2X,
-          throatCurveControl2Y,
-          softPalateControl1X,
-          softPalateControl1Y,
-          softPalateControl2X,
-          softPalateControl2Y,
+            path: visiblePalatePath,
+            throatClosure,
+            velumEndX,
+            velumEndY,
+            throatCurveControl1X,
+            throatCurveControl1Y,
+            throatCurveControl2X,
+            throatCurveControl2Y,
+            softPalateControl1X,
+            softPalateControl1Y,
+            softPalateControl2X,
+            softPalateControl2Y,
         } = visiblePalateGeometry;
 
         if (jaw) jaw.setAttribute('transform', `translate(0, ${la})`);
@@ -531,43 +531,43 @@
         const dy2 = (v2y / len2) * 40;
 
         const tipIn = this._projectInside(
-          { x: tip.anchorX, y: tip.anchorY },
-          { x: tip.inwardNormalX, y: tip.inwardNormalY },
-          { x: tip.targetX - dx1, y: tip.targetY - dy1 },
-          2,
+            { x: tip.anchorX, y: tip.anchorY },
+            { x: tip.inwardNormalX, y: tip.inwardNormalY },
+            { x: tip.targetX - dx1, y: tip.targetY - dy1 },
+            2,
         );
         const tipOut = this._projectInside(
-          { x: tip.anchorX, y: tip.anchorY },
-          { x: tip.inwardNormalX, y: tip.inwardNormalY },
-          { x: tip.targetX + dx1, y: tip.targetY + dy1 },
-          2,
+            { x: tip.anchorX, y: tip.anchorY },
+            { x: tip.inwardNormalX, y: tip.inwardNormalY },
+            { x: tip.targetX + dx1, y: tip.targetY + dy1 },
+            2,
         );
         const bodyIn = this._projectInside(
-          { x: body.anchorX, y: body.anchorY },
-          { x: body.inwardNormalX, y: body.inwardNormalY },
-          { x: body.targetX - dx2, y: body.targetY - dy2 },
-          2,
+            { x: body.anchorX, y: body.anchorY },
+            { x: body.inwardNormalX, y: body.inwardNormalY },
+            { x: body.targetX - dx2, y: body.targetY - dy2 },
+            2,
         );
         const bodyOut = this._projectInside(
-          { x: body.anchorX, y: body.anchorY },
-          { x: body.inwardNormalX, y: body.inwardNormalY },
-          { x: body.targetX + dx2, y: body.targetY + dy2 },
-          2,
+            { x: body.anchorX, y: body.anchorY },
+            { x: body.inwardNormalX, y: body.inwardNormalY },
+            { x: body.targetX + dx2, y: body.targetY + dy2 },
+            2,
         );
 
         const tongueOpacity = 1.0 - (lat / 40) * 0.8;
         if (tongue) {
-          tongue.setAttribute('opacity', String(tongueOpacity));
-          tongue.setAttribute(
-            'd',
-            `M ${frX} ${frY} C ${frX} ${frY - 30}, ${tipIn.x} ${tipIn.y}, ${tip.targetX} ${tip.targetY} C ${tipOut.x} ${tipOut.y}, ${bodyIn.x} ${bodyIn.y}, ${body.targetX} ${body.targetY} C ${bodyOut.x} ${bodyOut.y}, ${brX} ${brY - 40}, ${brX} ${brY} Z`,
-          );
+            tongue.setAttribute('opacity', String(tongueOpacity));
+            tongue.setAttribute(
+                'd',
+                `M ${frX} ${frY} C ${frX} ${frY - 30}, ${tipIn.x} ${tipIn.y}, ${tip.targetX} ${tip.targetY} C ${tipOut.x} ${tipOut.y}, ${bodyIn.x} ${bodyIn.y}, ${body.targetX} ${body.targetY} C ${bodyOut.x} ${bodyOut.y}, ${brX} ${brY - 40}, ${brX} ${brY} Z`,
+            );
         }
 
         const windOpacity = lat >= 20 ? (lat - 20) / 20 : 0;
         if (wind) {
-          wind.setAttribute('opacity', String(windOpacity));
-          wind.setAttribute('transform', `translate(${(tip.targetX + body.targetX) / 2}, ${(tip.targetY + body.targetY) / 2 - 15}) scale(-0.75, 0.75)`);
+            wind.setAttribute('opacity', String(windOpacity));
+            wind.setAttribute('transform', `translate(${(tip.targetX + body.targetX) / 2}, ${(tip.targetY + body.targetY) / 2 - 15}) scale(-0.75, 0.75)`);
         }
 
         const nasalD = `M 15 190 C 120 70, 250 70, 280 230 C 290 270, 300 320, 300 350 C ${throatCurveControl2X} ${throatCurveControl2Y}, ${throatCurveControl1X} ${throatCurveControl1Y}, ${velumEndX} ${velumEndY} C ${softPalateControl2X} ${softPalateControl2Y}, ${softPalateControl1X} ${softPalateControl1Y}, 240 190 C 220 140, 100 130, 40 215 Z`;
@@ -575,23 +575,23 @@
         if (nasalTractFill) nasalTractFill.setAttribute('d', nasalD);
         if (oralTractFill) oralTractFill.setAttribute('d', oralD);
         if (nasalVoicing) {
-          nasalVoicing.setAttribute('d', nasalD);
-          nasalVoicing.setAttribute('opacity', String(vel / 40));
+            nasalVoicing.setAttribute('d', nasalD);
+            nasalVoicing.setAttribute('opacity', String(vel / 40));
         }
         if (oralVoicing) oralVoicing.setAttribute('d', oralD);
 
         const clipX = this._getOralVoicingClipX({
-          lipAperture: la,
-          lipProtrusion: lp,
-          lateralDrop: lat,
-          ttcd,
-          tbcd,
-          tip,
-          body,
+            lipAperture: la,
+            lipProtrusion: lp,
+            lateralDrop: lat,
+            ttcd,
+            tbcd,
+            tip,
+            body,
         });
         if (clipRect) {
-          clipRect.setAttribute('x', String(clipX));
-          clipRect.setAttribute('width', String(400 - clipX));
+            clipRect.setAttribute('x', String(clipX));
+            clipRect.setAttribute('width', String(400 - clipX));
         }
 
         const uFacePoints = `90 20 C 75 60, 60 90, 65 110 C 70 120, 65 130, 50 145 C 30 165, 10 170, 15 190 C 20 205, 40 205, 40 215 C 35 225, 22 230, ${27 - lp} 240 C 32 255, 43 260, 46 260`;
@@ -604,76 +604,76 @@
         if (vfRight) vfRight.setAttribute('x2', String(halfGlo));
 
         if (anchor) {
-          anchor.setAttribute('cx', String(tip.anchorX));
-          anchor.setAttribute('cy', String(tip.anchorY));
+            anchor.setAttribute('cx', String(tip.anchorX));
+            anchor.setAttribute('cy', String(tip.anchorY));
         }
         if (normalLine) {
-          normalLine.setAttribute('x1', String(tip.anchorX));
-          normalLine.setAttribute('y1', String(tip.anchorY));
-          normalLine.setAttribute('x2', String(tip.targetX));
-          normalLine.setAttribute('y2', String(tip.targetY));
+            normalLine.setAttribute('x1', String(tip.anchorX));
+            normalLine.setAttribute('y1', String(tip.anchorY));
+            normalLine.setAttribute('x2', String(tip.targetX));
+            normalLine.setAttribute('y2', String(tip.targetY));
         }
 
         const highlight = this.highlightZone;
         const accent = '#f59e0b';
         if (highlight === 'glottis' && larynxView) {
-          larynxView.querySelector('circle')?.setAttribute('stroke', accent);
-          glottisHole?.setAttribute('fill', accent);
-          vfLeft?.setAttribute('stroke', accent);
-          vfRight?.setAttribute('stroke', accent);
+            larynxView.querySelector('circle')?.setAttribute('stroke', accent);
+            glottisHole?.setAttribute('fill', accent);
+            vfLeft?.setAttribute('stroke', accent);
+            vfRight?.setAttribute('stroke', accent);
         } else {
-          larynxView?.querySelector('circle')?.setAttribute('stroke', '#334155');
-          glottisHole?.setAttribute('fill', '#0f172a');
-          vfLeft?.setAttribute('stroke', '#f8fafc');
-          vfRight?.setAttribute('stroke', '#f8fafc');
+            larynxView?.querySelector('circle')?.setAttribute('stroke', '#334155');
+            glottisHole?.setAttribute('fill', '#0f172a');
+            vfLeft?.setAttribute('stroke', '#f8fafc');
+            vfRight?.setAttribute('stroke', '#f8fafc');
         }
 
         if (highlight === 'lips') {
-          upperFace?.setAttribute('stroke', accent);
-          lowerFace?.setAttribute('stroke', accent);
+            upperFace?.setAttribute('stroke', accent);
+            lowerFace?.setAttribute('stroke', accent);
         } else {
-          upperFace?.setAttribute('stroke', '#334155');
-          lowerFace?.setAttribute('stroke', '#475569');
+            upperFace?.setAttribute('stroke', '#334155');
+            lowerFace?.setAttribute('stroke', '#475569');
         }
 
         if (highlight === 'tongue_body' || highlight === 'tongue_tip' || highlight === 'tongue_root') {
-          tongue?.setAttribute('stroke', accent);
-          normalLine?.setAttribute('stroke', accent);
-          roofTrackDebug?.setAttribute('opacity', '0.8');
+            tongue?.setAttribute('stroke', accent);
+            normalLine?.setAttribute('stroke', accent);
+            roofTrackDebug?.setAttribute('opacity', '0.8');
         } else {
-          tongue?.setAttribute('stroke', '#e11d48');
-          normalLine?.setAttribute('stroke', '#ef4444');
-          roofTrackDebug?.setAttribute('opacity', '0');
+            tongue?.setAttribute('stroke', '#e11d48');
+            normalLine?.setAttribute('stroke', '#ef4444');
+            roofTrackDebug?.setAttribute('opacity', '0');
         }
 
         if (highlight === 'velum') {
-          palate?.setAttribute('stroke', accent);
-          this.$('nasal-floor')?.setAttribute('stroke', accent);
-          roofTrackDebug?.setAttribute('opacity', '0.8');
+            palate?.setAttribute('stroke', accent);
+            this.$('nasal-floor')?.setAttribute('stroke', accent);
+            roofTrackDebug?.setAttribute('opacity', '0.8');
         } else {
-          palate?.setAttribute('stroke', '#e11d48');
-          this.$('nasal-floor')?.setAttribute('stroke', '#e11d48');
+            palate?.setAttribute('stroke', '#e11d48');
+            this.$('nasal-floor')?.setAttribute('stroke', '#e11d48');
         }
-      }
+    }
 
-      _renderVoicing(timestamp) {
+    _renderVoicing(timestamp) {
         const line = this.$('voicing-line');
         const pattern = this.$('voicing-pattern');
         const intensity = 1 - this.state.glottal_aperture;
         if (!line || !pattern) return;
         if (intensity > 0) {
-          const speed = 0.5 + intensity * 2.5;
-          this._voicingOffset = (this._voicingOffset - speed) % 24;
-          const wobble = Math.sin(timestamp * 0.005) * 3;
-          pattern.setAttribute('patternTransform', `rotate(45) translate(${this._voicingOffset}, ${wobble})`);
-          line.setAttribute('stroke-width', String(intensity * 5));
+            const speed = 0.5 + intensity * 2.5;
+            this._voicingOffset = (this._voicingOffset - speed) % 24;
+            const wobble = Math.sin(timestamp * 0.005) * 3;
+            pattern.setAttribute('patternTransform', `rotate(45) translate(${this._voicingOffset}, ${wobble})`);
+            line.setAttribute('stroke-width', String(intensity * 5));
         } else {
-          line.setAttribute('stroke-width', '0');
+            line.setAttribute('stroke-width', '0');
         }
-      }
     }
+}
 
 if (typeof window !== 'undefined') {
-  window.SvgArticulatoryRenderer = SvgArticulatoryRenderer;
-  window.SvgArticulatoryDefaultState = DEFAULT_STATE;
+    window.SvgArticulatoryRenderer = SvgArticulatoryRenderer;
+    window.SvgArticulatoryDefaultState = DEFAULT_STATE;
 }
