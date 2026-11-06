@@ -7,8 +7,10 @@ text content. Supports in-memory storage with optional temp file backing.
 import hashlib
 import logging
 import tempfile
+import threading
 import time
 from collections import OrderedDict
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
@@ -81,6 +83,7 @@ class ComparisonCache:
         self.use_temp_files = use_temp_files
         self.temp_dir = (temp_dir or Path(tempfile.gettempdir())).resolve()
         self._file_namespace = uuid4().hex
+        self._lock = threading.RLock()
 
         # LRU cache: OrderedDict maintains access order
         # Key: normalized text, Value: ReferenceAsset
@@ -94,24 +97,19 @@ class ComparisonCache:
         self._misses = 0
         self._evictions = 0
 
-    def _normalize_text(self, text: str) -> str:
-        """Normalize text for cache key.
-
-        Lowercases, strips whitespace, and generates consistent key.
-        """
-        normalized = text.lower().strip()
-        # Hash long text to keep keys manageable
-        if len(normalized) > 200:
-            hash_suffix = hashlib.md5(normalized.encode()).hexdigest()[:12]
-            normalized = normalized[:188] + f"...{hash_suffix}"
-        return normalized
+    def _normalize_text(self, text: str, namespace: str = "") -> str:
+        """Build versioned identity preserving exact text and synthesis namespace."""
+        identity = (
+            b"comparison-cache-v2\0" + namespace.encode("utf-8") + b"\0" + text.encode("utf-8")
+        )
+        return "v2:" + hashlib.sha256(identity).hexdigest()
 
     def _get_audio_path(self, text_key: str) -> Path:
         """Get temp file path for audio storage."""
         hash_key = hashlib.md5(text_key.encode()).hexdigest()[:16]
         return self.temp_dir / f"ref_audio_{self._file_namespace}_{hash_key}.ogg"
 
-    def get(self, text: str) -> Optional[ReferenceAsset]:
+    def get(self, text: str, namespace: str = "") -> Optional[ReferenceAsset]:
         """Retrieve cached reference asset if available and not expired.
 
         Args:
@@ -120,8 +118,12 @@ class ComparisonCache:
         Returns:
             ReferenceAsset if cache hit and not expired, else None
         """
-        text_key = self._normalize_text(text)
+        text_key = self._normalize_text(text, namespace)
 
+        with self._lock:
+            return self._get_locked(text_key)
+
+    def _get_locked(self, text_key: str) -> Optional[ReferenceAsset]:
         if text_key not in self._cache:
             self._misses += 1
             return None
@@ -137,11 +139,12 @@ class ComparisonCache:
         # Move to end (most recently used)
         self._cache.move_to_end(text_key)
 
-        # Load audio from temp file if needed
+        # Load audio into the response snapshot; never retain disk-backed audio.
+        audio_bytes = asset.audio_bytes
         if self.use_temp_files and text_key in self._temp_files:
             audio_path = self._temp_files[text_key]
             try:
-                asset.audio_bytes = audio_path.read_bytes()
+                audio_bytes = audio_path.read_bytes()
             except OSError:
                 logger.warning("Failed to load cached audio from %s", audio_path, exc_info=True)
                 self._remove(text_key)
@@ -149,7 +152,23 @@ class ComparisonCache:
                 return None
 
         self._hits += 1
-        return asset
+        return self._copy_asset(asset, audio_bytes)
+
+    @staticmethod
+    def _copy_asset(asset: ReferenceAsset, audio_bytes: bytes) -> ReferenceAsset:
+        """Return an independent response object so callers cannot mutate cache state."""
+        return ReferenceAsset(
+            text_key=asset.text_key,
+            audio_bytes=audio_bytes,
+            audio_sample_rate=asset.audio_sample_rate,
+            audio_duration=asset.audio_duration,
+            audio_format=asset.audio_format,
+            frame_rate=asset.frame_rate,
+            frames=deepcopy(asset.frames),
+            frame_count=asset.frame_count,
+            created_at=asset.created_at,
+            ttl_seconds=asset.ttl_seconds,
+        )
 
     def put(
         self,
@@ -161,6 +180,7 @@ class ComparisonCache:
         frame_rate: int,
         frames: list[dict[str, Any]],
         ttl_seconds: Optional[float] = None,
+        namespace: str = "",
     ) -> ReferenceAsset:
         """Store reference asset in cache.
 
@@ -177,9 +197,32 @@ class ComparisonCache:
         Returns:
             Created ReferenceAsset
         """
-        text_key = self._normalize_text(text)
+        text_key = self._normalize_text(text, namespace)
         ttl = self.default_ttl_seconds if ttl_seconds is None else ttl_seconds
 
+        with self._lock:
+            return self._put_locked(
+                text_key,
+                audio_bytes,
+                audio_sample_rate,
+                audio_duration,
+                audio_format,
+                frame_rate,
+                frames,
+                ttl,
+            )
+
+    def _put_locked(
+        self,
+        text_key: str,
+        audio_bytes: bytes,
+        audio_sample_rate: int,
+        audio_duration: float,
+        audio_format: str,
+        frame_rate: int,
+        frames: list[dict[str, Any]],
+        ttl: float,
+    ) -> ReferenceAsset:
         # Evict LRU if at capacity
         if len(self._cache) >= self.max_entries and text_key not in self._cache:
             self._evict_lru()
@@ -196,6 +239,10 @@ class ComparisonCache:
                 logger.warning("Failed to write cached audio to %s", audio_path, exc_info=True)
                 # A failed replacement must not reload the previous audio.
                 self._remove(text_key)
+                try:
+                    audio_path.unlink(missing_ok=True)
+                except OSError:
+                    logger.warning("Failed to remove partial cache audio %s", audio_path)
                 # Fall back to in-memory storage
                 stored_audio_bytes = audio_bytes
 
@@ -206,7 +253,7 @@ class ComparisonCache:
             audio_duration=audio_duration,
             audio_format=audio_format,
             frame_rate=frame_rate,
-            frames=frames,
+            frames=deepcopy(frames),
             frame_count=len(frames),
             created_at=time.time(),
             ttl_seconds=ttl,
@@ -216,10 +263,14 @@ class ComparisonCache:
         self._cache[text_key] = asset
         self._cache.move_to_end(text_key)
 
-        return asset
+        return self._copy_asset(asset, audio_bytes)
 
     def _evict_lru(self) -> None:
         """Remove least recently used entry."""
+        with self._lock:
+            self._evict_lru_locked()
+
+    def _evict_lru_locked(self) -> None:
         if not self._cache:
             return
 
@@ -230,6 +281,10 @@ class ComparisonCache:
 
     def _remove(self, text_key: str) -> None:
         """Remove entry from cache and cleanup temp files."""
+        with self._lock:
+            self._remove_locked(text_key)
+
+    def _remove_locked(self, text_key: str) -> None:
         if text_key in self._cache:
             del self._cache[text_key]
 
@@ -240,20 +295,25 @@ class ComparisonCache:
             except OSError:
                 logger.warning("Failed to remove cached audio %s", temp_path, exc_info=True)
 
-    def invalidate(self, text: str) -> bool:
+    def invalidate(self, text: str, namespace: str = "") -> bool:
         """Explicitly invalidate cache entry for text.
 
         Returns:
             True if entry existed and was removed
         """
-        text_key = self._normalize_text(text)
-        if text_key in self._cache:
-            self._remove(text_key)
-            return True
-        return False
+        text_key = self._normalize_text(text, namespace)
+        with self._lock:
+            if text_key in self._cache:
+                self._remove_locked(text_key)
+                return True
+            return False
 
     def clear(self) -> None:
         """Clear all cached entries and cleanup temp files."""
+        with self._lock:
+            self._clear_locked()
+
+    def _clear_locked(self) -> None:
         # Cleanup temp files
         for temp_path in self._temp_files.values():
             try:
@@ -266,40 +326,45 @@ class ComparisonCache:
 
     def get_stats(self) -> dict[str, Any]:
         """Get cache statistics."""
-        return {
-            "entries": len(self._cache),
-            "hits": self._hits,
-            "misses": self._misses,
-            "evictions": self._evictions,
-            "hit_rate": self._hits / (self._hits + self._misses)
-            if (self._hits + self._misses) > 0
-            else 0.0,
-            "temp_files": len(self._temp_files),
-        }
+        with self._lock:
+            return {
+                "entries": len(self._cache),
+                "hits": self._hits,
+                "misses": self._misses,
+                "evictions": self._evictions,
+                "hit_rate": self._hits / (self._hits + self._misses)
+                if (self._hits + self._misses) > 0
+                else 0.0,
+                "temp_files": len(self._temp_files),
+            }
 
     def cleanup_expired(self) -> int:
         """Remove all expired entries. Returns count removed."""
-        expired_keys = [key for key, asset in self._cache.items() if asset.is_expired()]
-        for key in expired_keys:
-            self._remove(key)
-        return len(expired_keys)
+        with self._lock:
+            expired_keys = [key for key, asset in self._cache.items() if asset.is_expired()]
+            for key in expired_keys:
+                self._remove_locked(key)
+            return len(expired_keys)
 
 
 # Global cache instance
 _comparison_cache: Optional[ComparisonCache] = None
+_comparison_cache_lock = threading.RLock()
 
 
 def get_comparison_cache() -> ComparisonCache:
     """Get or create global comparison cache instance."""
     global _comparison_cache
-    if _comparison_cache is None:
-        _comparison_cache = ComparisonCache()
-    return _comparison_cache
+    with _comparison_cache_lock:
+        if _comparison_cache is None:
+            _comparison_cache = ComparisonCache()
+        return _comparison_cache
 
 
 def reset_comparison_cache() -> None:
     """Reset global comparison cache (for testing)."""
     global _comparison_cache
-    if _comparison_cache is not None:
-        _comparison_cache.clear()
-    _comparison_cache = None
+    with _comparison_cache_lock:
+        if _comparison_cache is not None:
+            _comparison_cache.clear()
+        _comparison_cache = None

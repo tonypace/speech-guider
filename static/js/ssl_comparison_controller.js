@@ -8,6 +8,7 @@
 
 class SSLComparisonController {
     constructor(options = {}) {
+        this.destroyed = false;
         this.referenceFrames = options.referenceFrames || [];
         this.studentFrames = options.studentFrames || [];
         this.referenceAudio = options.referenceAudio || null;
@@ -48,6 +49,7 @@ class SSLComparisonController {
    * Initialize or resume AudioContext
    */
     initAudioContext() {
+        if (this.destroyed) throw new Error('Playback controller disposed');
         if (!this.audioContext) {
             this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
         }
@@ -60,7 +62,7 @@ class SSLComparisonController {
     /**
    * Load base64 audio data and decode to AudioBuffer
    */
-    async loadAudio(base64Audio, type) {
+    async loadAudio(base64Audio, type, isCurrent = () => true) {
         const version = ++this.audioLoadVersions[type];
         const binaryString = atob(base64Audio);
         const bytes = new Uint8Array(binaryString.length);
@@ -70,10 +72,11 @@ class SSLComparisonController {
 
         const ctx = this.initAudioContext();
         const buffer = await ctx.decodeAudioData(bytes.buffer);
-        if (version === this.audioLoadVersions[type]) {
+        if (version === this.audioLoadVersions[type] && isCurrent()) {
             this.audioBuffers[type] = buffer;
+            return buffer;
         }
-        return buffer;
+        return null;
     }
 
     /**
@@ -375,25 +378,40 @@ class SSLComparisonController {
     /**
    * Load reference data (frames + audio)
    */
-    loadReference(frames, base64Audio) {
-        this.resetTrack('reference');
-        this.referenceFrames = frames || [];
-        if (base64Audio) {
-            return this.loadAudio(base64Audio, 'reference');
-        }
-        return Promise.resolve();
+    async loadReference(frames, audio, isCurrent = () => true) {
+        return this.loadTrack('reference', frames, audio, isCurrent);
     }
 
-    /**
-   * Load student data (frames + audio)
-   */
-    loadStudent(frames, base64Audio) {
-        this.resetTrack('student');
-        this.studentFrames = frames || [];
-        if (base64Audio) {
-            return this.loadAudio(base64Audio, 'student');
+    async loadStudent(frames, audio, isCurrent = () => true) {
+        return this.loadTrack('student', frames, audio, isCurrent);
+    }
+
+    async loadTrack(type, frames, audio, isCurrent) {
+        if (this.destroyed) return false;
+        const version = ++this.audioLoadVersions[type];
+        let buffer = null;
+        if (audio) {
+            if (typeof audio === 'string') {
+                const bytes = Uint8Array.from(atob(audio), char => char.charCodeAt(0));
+                buffer = await this.initAudioContext().decodeAudioData(bytes.buffer);
+            } else {
+                const bytes = await audio.arrayBuffer();
+                if (this.destroyed || !isCurrent()) return false;
+                buffer = await this.initAudioContext().decodeAudioData(bytes);
+            }
         }
-        return Promise.resolve();
+        if (this.destroyed || version !== this.audioLoadVersions[type] || !isCurrent()) return false;
+        this.pause(type);
+        if (type === 'reference') {
+            this.referenceFrames = frames || [];
+            this.referenceTime = 0;
+        } else {
+            this.studentFrames = frames || [];
+            this.studentTime = 0;
+        }
+        this.audioBuffers[type] = buffer;
+        this.pauseOffsets[type] = 0;
+        return true;
     }
 
     resetTrack(type) {
@@ -403,6 +421,12 @@ class SSLComparisonController {
         this.pauseOffsets[type] = 0;
         if (type === 'reference') this.referenceTime = 0;
         else this.studentTime = 0;
+    }
+
+    clearTrack(type) {
+        this.resetTrack(type);
+        if (type === 'reference') this.referenceFrames = [];
+        else this.studentFrames = [];
     }
 
     /**
@@ -425,6 +449,17 @@ class SSLComparisonController {
     /**
    * Get current state for UI updates
    */
+    destroy() {
+        if (this.destroyed) return;
+        this.destroyed = true;
+        this.clear();
+        const context = this.audioContext;
+        this.audioContext = null;
+        if (context && context.state !== 'closed') {
+            Promise.resolve(context.close()).catch((error) => console.warn('Audio close failed', error));
+        }
+    }
+
     getState() {
         return {
             reference: {

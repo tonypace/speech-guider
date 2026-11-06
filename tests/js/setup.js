@@ -1,5 +1,10 @@
 // Test environment setup for Vitest
 import { vi } from 'vitest';
+import { JSDOM } from 'jsdom';
+
+// Node's optional Web Storage must not override the browser test environment.
+const storage = new JSDOM('', { url: 'https://localhost/' }).window.localStorage;
+Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: storage });
 
 // Mock window.matchMedia
 Object.defineProperty(window, 'matchMedia', {
@@ -40,6 +45,7 @@ global.performance = {
 // Cleanup after each test
 afterEach(() => {
     vi.clearAllMocks();
+    storage.clear();
     document.body.innerHTML = '';
 });
 

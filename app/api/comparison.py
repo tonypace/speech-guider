@@ -1,20 +1,24 @@
 """Comparison API endpoints for reference generation and student analysis."""
 
 import io
+import json
+import logging
 from typing import Optional
 
 import torch
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from app.services.concurrency import run_inference
 from app.utils.audio import load_audio_tensor
 from src.audio.reference_tts import ReferenceAudio, TTSProviderFactory
 from src.models.aai_adapter import AAIConversionMetadata, aai_to_canonical_states_batch
 from src.models.ssl_common import DEFAULT_SSL_FEATURE_CONFIG
 from src.services.comparison_cache import ComparisonCache, ReferenceAsset, get_comparison_cache
-from src.services.model_cache import get_ssl_predictor
+from src.services.model_cache import get_ssl_cache_identity, get_ssl_predictor
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class ReferenceAnimationRequest(BaseModel):
@@ -82,16 +86,25 @@ def _generate_reference_asset(
     Pipeline: text -> cache check -> TTS -> SSL predictor -> canonical frames
     """
     cache = cache or get_comparison_cache()
-    cached = cache.get(text)
+    provider = TTSProviderFactory.create(tts_provider)
+    namespace = json.dumps(
+        {
+            "version": 2,
+            "provider_name": tts_provider,
+            "tts": provider.cache_identity(),
+            "ssl": get_ssl_cache_identity(),
+            "audio_sample_rate": 8000,
+        },
+        sort_keys=True,
+    )
+    cached = cache.get(text, namespace=namespace)
     if cached:
         print(f"[ComparisonAPI] Cache hit for: '{text[:50]}...'")
         return cached, True
 
     print(f"[ComparisonAPI] Cache miss, generating reference for: '{text[:50]}...'")
 
-    reference_audio = TTSProviderFactory.create(tts_provider).synthesize(
-        text, output_sample_rate=8000
-    )
+    reference_audio = provider.synthesize(text, output_sample_rate=8000)
 
     audio_tensor = _prepare_reference_audio_tensor(reference_audio)
     trajectory = get_ssl_predictor().predict(
@@ -111,6 +124,7 @@ def _generate_reference_asset(
         audio_format=reference_audio.format,
         frame_rate=DEFAULT_SSL_FEATURE_CONFIG.frame_rate,
         frames=frames,
+        namespace=namespace,
     )
 
     return asset, False
@@ -126,8 +140,11 @@ async def generate_reference_animation(request: ReferenceAnimationRequest):
 
     Results are cached by text content.
     """
+    if not request.target_text.strip():
+        raise HTTPException(status_code=400, detail="Please enter reference text.")
     try:
-        asset, was_cached = _generate_reference_asset(
+        asset, was_cached = await run_inference(
+            _generate_reference_asset,
             text=request.target_text,
             tts_provider=request.tts_provider,
         )
@@ -149,12 +166,14 @@ async def generate_reference_animation(request: ReferenceAnimationRequest):
             cached=was_cached,
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
-        print(f"[ComparisonAPI] Error generating reference: {e}")
+        logger.exception("Reference generation failed")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to generate reference animation: {str(e)}",
-        )
+            detail="Failed to generate reference animation. Please check local model configuration.",
+        ) from e
 
 
 @router.get("/api/comparison-cache/stats")

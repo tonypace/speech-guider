@@ -102,6 +102,14 @@ describe('IPATooltips', () => {
             expect(result).toContain('/unknown/');
         });
 
+        it('escapes unknown phonemes before inserting tooltip wrapper markup', () => {
+            const result = wrapIPATooltip('" onmouseover="alert(1)<img>');
+            const container = document.createElement('div');
+            container.innerHTML = result;
+            expect(container.querySelector('img')).toBeNull();
+            expect(container.firstElementChild.getAttribute('data-phoneme')).toBe('" onmouseover="alert(1)<img>');
+        });
+
         it('should include example word and highlight in tooltip', () => {
             const result = wrapIPATooltip('p');
             expect(result).toContain('data-tooltip');
@@ -152,6 +160,19 @@ describe('IPATooltips', () => {
             if (tooltip) {
                 expect(tooltip.classList.contains('visible')).toBe(true);
             }
+        });
+
+        it('renders tooltip attribute content as text, allowing only explicit bold markers', () => {
+            const phonemeEl = document.createElement('span');
+            phonemeEl.className = 'ipa-phoneme';
+            phonemeEl.setAttribute('data-tooltip', '**safe** <img src=x onerror=alert(1)>');
+            document.body.appendChild(phonemeEl);
+            phonemeEl.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+
+            const tooltip = phonemeEl.querySelector('.ipa-tooltip');
+            expect(tooltip.querySelector('img')).toBeNull();
+            expect(tooltip.querySelector('strong').textContent).toBe('safe');
+            expect(tooltip.textContent).toContain('<img src=x onerror=alert(1)>');
         });
 
         it('should hide tooltip on mouseout', () => {

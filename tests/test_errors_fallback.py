@@ -106,6 +106,35 @@ class TestSelectErrorEndpointFallback:
     """Tests for select_error endpoint fallback behavior."""
 
     @patch("app.api.errors.ArticulatoryMapper")
+    def test_phoneme_markup_is_escaped_in_intentionally_formatted_descriptions(
+        self, mock_mapper_class
+    ):
+        mock_mapper = MagicMock()
+        mock_mapper.get_animation_params.side_effect = KeyError("Unknown phoneme")
+        mock_mapper_class.return_value = mock_mapper
+
+        response = client.post(
+            "/api/select-error",
+            json={
+                "error_index": 0,
+                "errors": [
+                    {
+                        "target_phoneme": '<img src=x onerror="alert(1)">',
+                        "predicted_phoneme": "<script>alert(2)</script>",
+                    }
+                ],
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "<strong>What you're doing:</strong>" in data["incorrect_desc"]
+        assert "&lt;script&gt;alert(2)&lt;/script&gt;" in data["incorrect_desc"]
+        assert "&lt;img src=x onerror=&quot;alert(1)&quot;&gt;" in data["correct_desc"]
+        assert "<script>" not in data["incorrect_desc"]
+        assert "<img" not in data["correct_desc"]
+
+    @patch("app.api.errors.ArticulatoryMapper")
     def test_aai_payload_error_uses_default_params(self, mock_mapper_class):
         """AAI payload error should fall back to default articulatory state."""
         response = client.post(

@@ -17,7 +17,7 @@ import tempfile
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, cast
+from typing import Any, Optional, cast
 
 import numpy as np
 import soundfile as sf
@@ -50,6 +50,13 @@ def _require_file(path: str | None, env_name: str, label: str) -> str:
     return path
 
 
+def file_identity(path: str | Path) -> tuple[str, int, int]:
+    """Cheap local asset revision; do not hash multi-gigabyte weights per request."""
+    resolved = Path(path).expanduser().resolve()
+    info = resolved.stat()
+    return str(resolved), info.st_size, info.st_mtime_ns
+
+
 def _to_mono(audio_data: np.ndarray) -> np.ndarray:
     """Convert stereo to mono by averaging channels."""
     if len(audio_data.shape) > 1:
@@ -77,6 +84,10 @@ def _compress_ogg(audio_data: np.ndarray, sample_rate: int) -> bytes:
 
 class TTSProvider(ABC):
     """Abstract base class for text-to-speech providers."""
+
+    def cache_identity(self) -> dict[str, Any]:
+        """Custom providers should include every setting that affects synthesis."""
+        return {"implementation": f"{type(self).__module__}.{type(self).__qualname__}"}
 
     @abstractmethod
     def synthesize(self, text: str, output_sample_rate: int = 8000) -> ReferenceAudio:
@@ -112,6 +123,18 @@ class OmniVoiceTTSProvider(TTSProvider):
             "omnivoice codec",
         )
         self.language = language or os.environ.get("OMNIVOICE_LANGUAGE", "English")
+
+    def cache_identity(self) -> dict[str, Any]:
+        identity = super().cache_identity()
+        identity.update(
+            {
+                "language": self.language,
+                "binary": file_identity(self.tts_path),
+                "model": file_identity(self.model_path),
+                "codec": file_identity(self.codec_path),
+            }
+        )
+        return identity
 
     def synthesize(self, text: str, output_sample_rate: int = 8000) -> ReferenceAudio:
         if not text.strip():

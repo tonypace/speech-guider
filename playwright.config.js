@@ -41,7 +41,7 @@ module.exports = defineConfig({
     ],
 
     webServer: {
-        command: 'bash -c "source speech-guider/bin/activate && python -m app.main"',
+        command: 'speech-guider/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 7860',
         url: 'http://localhost:7860',
         reuseExistingServer: !process.env.CI,
         timeout: 120 * 1000,

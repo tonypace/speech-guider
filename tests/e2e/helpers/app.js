@@ -9,8 +9,9 @@
  * @param {import('@playwright/test').Page} page
  */
 async function openHome(page) {
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => typeof window.recorder?.displayResults === 'function' &&
+        typeof window.switchTab === 'function');
 }
 
 /**

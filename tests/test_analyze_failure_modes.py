@@ -61,7 +61,8 @@ class TestAnalyzeEndpointFailureModes:
         data = response.json()
         assert data["success"] is False
         assert "error" in data
-        assert "traceback" in data
+        assert "traceback" not in data
+        assert "Invalid audio format" not in data["error"]
 
     @patch("app.api.analyze.get_ssl_predictor")
     def test_ssl_predictor_unavailable_returns_error(self, mock_get_predictor):

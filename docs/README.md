@@ -6,6 +6,8 @@ PROJECT.md records product goals, and AGENTS.md defines contributor rules.
 | Guide | Purpose |
 | --- | --- |
 | [Development](development.md) | Setup, commands, checks, and coding boundaries |
+| [Progress API](progress-api.md) | Reservation, events, replay, cancellation and worker ownership |
+| [Release contracts](release-contracts.md) | Student audio, desktop packaging, offline assets and acoustic validation |
 | [Architecture](architecture.md) | Runtime ownership and data flow |
 | [Review and refactor](review-refactor.md) | Changes, validation, and prioritized remaining work |
 | [Backend review](review-backend.md) | API and resource-lifecycle findings |

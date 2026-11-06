@@ -8,7 +8,8 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 
 from app.api.sse import create_job_id, send_progress_update
-from app.services.concurrency import run_with_semaphore
+from app.services.concurrency import run_blocking, run_with_semaphore
+from app.services.jobs import claim_job, finish_job
 from app.utils.audio import cleanup_temp_file, load_audio_tensor, save_upload_to_temp
 from src.models.ssl_common import (
     DEFAULT_SSL_FEATURE_CONFIG,
@@ -164,13 +165,13 @@ async def _run_analysis_pipeline(audio_path: str, target_text: str, job_id: str)
 
     from src.audio.processor import AudioContext, ProsodyAnalyzer
 
-    audio_context = AudioContext(audio_path)
+    audio_context = await run_blocking(AudioContext, audio_path)
 
     # Step 2: Analyze pronunciation
     await send_progress_update(job_id, 0.3, "Analyzing pronunciation...", "pronunciation")
 
     # Load audio in thread to avoid blocking
-    audio_tensor, sample_rate = await asyncio.to_thread(_load_and_preprocess_audio, audio_path)
+    audio_tensor, sample_rate = await run_blocking(_load_and_preprocess_audio, audio_path)
 
     ssl_animation_state = None
     ssl_trajectory = None
@@ -179,7 +180,7 @@ async def _run_analysis_pipeline(audio_path: str, target_text: str, job_id: str)
 
     # Run SSL AAI analysis in thread to avoid blocking
     try:
-        ssl_animation_state, ssl_trajectory, ssl_meta = await asyncio.to_thread(
+        ssl_animation_state, ssl_trajectory, ssl_meta = await run_blocking(
             try_primary_ssl_analysis, audio_tensor, sample_rate, True
         )
         if ssl_animation_state is not None:
@@ -200,7 +201,7 @@ async def _run_analysis_pipeline(audio_path: str, target_text: str, job_id: str)
 
     # Clear device cache after SSL inference to free VRAM
     if _ssl_device:
-        clear_torch_device_cache(_ssl_device)
+        await run_blocking(clear_torch_device_cache, _ssl_device)
 
     # Step 3: Extract prosody metrics
     await send_progress_update(job_id, 0.6, "Extracting prosody metrics...", "prosody")
@@ -209,7 +210,9 @@ async def _run_analysis_pipeline(audio_path: str, target_text: str, job_id: str)
 
     # Run prosody analysis without phoneme alignment (alignment requires phoneme model)
     logger.debug("[analyze] Running prosody analysis without alignment timestamps")
-    prosody_metrics = prosody_analyzer.analyze_complete(vowel_timestamps=[], word_timestamps=[])
+    prosody_metrics = await run_blocking(
+        prosody_analyzer.analyze_complete, vowel_timestamps=[], word_timestamps=[]
+    )
 
     if prosody_metrics:
         logger.debug(f"[analyze] prosody_metrics type: {type(prosody_metrics)}")
@@ -222,8 +225,11 @@ async def _run_analysis_pipeline(audio_path: str, target_text: str, job_id: str)
     await send_progress_update(job_id, 0.9, "Generating feedback...", "feedback")
 
     feedback = _generate_comprehensive_feedback(prosody_metrics)
-
-    await send_progress_update(job_id, 1.0, "Analysis complete!", "complete")
+    if ssl_animation_state is None:
+        feedback = feedback.replace(
+            "Articulatory analysis via ContentVec-L7 + R4",
+            "Articulatory analysis unavailable; prosody feedback only",
+        )
 
     # Serialize trajectory if available
     serialized_trajectory = None
@@ -245,7 +251,9 @@ async def _run_analysis_pipeline(audio_path: str, target_text: str, job_id: str)
     }
 
     if ssl_error:
-        result["ssl_warning"] = ssl_error
+        result["ssl_warning"] = (
+            "Articulatory analysis unavailable; prosody feedback is still available."
+        )
 
     return result
 
@@ -362,8 +370,9 @@ def serialize_prosody(prosody):
         "pitch_variability": pitch_var,
         "npvi": npvi,
         "stress_pattern": stress.primary_stress_word if stress else None,
-        "pitch_range_label": _get_pitch_range_label(pitch_range),
-        "pitch_range_coaching": _get_pitch_range_coaching(pitch_range),
+        "pitch_range_semitones": pitch.range_semitones if pitch else 0.0,
+        "pitch_range_label": _get_pitch_range_label(pitch.range_semitones if pitch else 0.0),
+        "pitch_range_coaching": _get_pitch_range_coaching(pitch.range_semitones if pitch else 0.0),
         "mean_pitch_label": _get_mean_pitch_label(pitch_mean),
         "mean_pitch_coaching": _get_mean_pitch_coaching(pitch_mean),
         "npvi_label": _get_npvi_label(npvi)[0],
@@ -391,8 +400,8 @@ def _generate_comprehensive_feedback(prosody_metrics):
         if prosody_metrics.pitch:
             f0_range = prosody_metrics.pitch.f0_range
             f0_mean = prosody_metrics.pitch.mean_f0
-            range_label = _get_pitch_range_label(f0_range)
-            range_coaching = _get_pitch_range_coaching(f0_range)
+            range_label = _get_pitch_range_label(prosody_metrics.pitch.range_semitones)
+            range_coaching = _get_pitch_range_coaching(prosody_metrics.pitch.range_semitones)
             pitch_label = _get_mean_pitch_label(f0_mean)
             pitch_coaching = _get_mean_pitch_coaching(f0_mean)
             sections.append(f"- Pitch range: {range_label} — {range_coaching} ({f0_range:.1f} Hz)")
@@ -415,6 +424,7 @@ def _generate_comprehensive_feedback(prosody_metrics):
 async def analyze_audio(
     audio: UploadFile = File(..., description="Audio file to analyze"),
     target_text: str = Form(..., description="Target sentence to practice"),
+    job_id: str | None = Form(default=None, description="Optional reserved analysis job ID"),
 ):
     """
     Main analysis endpoint - performs articulatory and prosody analysis.
@@ -433,33 +443,34 @@ async def analyze_audio(
     if not audio.filename:
         raise HTTPException(status_code=400, detail="Please upload an audio file.")
 
-    # Create job ID for progress tracking
-    job_id = create_job_id()
-
-    # Save uploaded file to temp location
-    temp_path = await save_upload_to_temp(audio)
-
+    job = claim_job(job_id or create_job_id())
+    temp_path: str | None = None
     try:
-        # Run analysis with concurrency protection
-        result = await run_with_semaphore(_run_analysis_pipeline(temp_path, target_text, job_id))
-        return JSONResponse(content=result)
-    except HTTPException:
-        # Re-raise HTTPExceptions directly (from validation errors)
+        temp_path = await save_upload_to_temp(audio)
+        result = await run_with_semaphore(
+            _run_analysis_pipeline(temp_path, target_text, job.job_id)
+        )
+        result["job_id"] = job.job_id
+        response = JSONResponse(content=result)
+        finish_job(job, "complete", "Analysis complete!")
+        return response
+    except asyncio.CancelledError:
+        finish_job(job, "cancelled", "Analysis request cancelled")
         raise
-    except Exception as e:
-        # Catch-all for unexpected errors
-        import traceback
-
-        logger.error(f"[analyze] UNEXPECTED ERROR: {e}")
-        logger.error(traceback.format_exc())
+    except HTTPException:
+        finish_job(job, "failed", "Analysis could not be started")
+        raise
+    except Exception:
+        logger.exception("Analysis failed for job %s", job.job_id)
+        finish_job(job, "failed", "Analysis failed. Please try another recording.")
         return JSONResponse(
             content={
                 "success": False,
-                "error": f"Unexpected error: {str(e)}",
-                "traceback": traceback.format_exc(),
+                "error": "Analysis failed. Please try another recording.",
+                "job_id": job.job_id,
             },
             status_code=500,
         )
     finally:
-        # Cleanup temp file in all cases
-        cleanup_temp_file(temp_path)
+        if temp_path is not None:
+            cleanup_temp_file(temp_path)

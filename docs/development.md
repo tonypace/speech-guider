@@ -18,16 +18,22 @@ Reference speech requires a built OmniVoice executable and its model/codec files
 `.env.sample` lists the settings; the server does not automatically load `.env`.
 Export the configured variables in the launching shell.
 
-`setup-arm64.sh` is a legacy environment migration script, not the default setup:
-it can modify shell configuration, move an existing environment, and pin older
-PyTorch. Prefer the explicit setup above for new environments.
+`bash setup-arm64.sh` is an optional native ARM setup wrapper. It checks native
+Python architecture, creates the environment only if missing, and installs the
+same requirements/lockfile. It does not edit shell configuration or replace an
+existing environment. `SPEECH_GUIDER_SETUP_PYTHON` selects a Python executable.
+
+Preset storage defaults to repository-root `presets.json`. Override with
+`SPEECH_GUIDER_PRESETS_FILE`; relative overrides resolve against the repository,
+not the launching directory. Existing preset files in other working directories
+are not migrated automatically. Copy them deliberately if desired.
 
 ## Run
 
 ```bash
 python -m app.main
 # Equivalent development server with an explicit port:
-uvicorn app.main:app --reload --port 7860
+uvicorn app.main:app --reload --port 7860  # one worker
 ```
 
 Visit http://localhost:7860. `bash scripts/start-server.sh` resolves the repository
@@ -79,6 +85,6 @@ to specific third-party packages; application typing remains checked.
   conversion currently uses 44.1 kHz. Do not normalize scientific values merely
   to make implementations look alike.
 - Resolve persistent paths against an explicit root. Existing preset persistence
-  is still an exception documented in the backend review.
+  must follow the persistence contract.
 - Changes to sample rate, tract-variable order, timing, normalization, or cache
   keys require behavior-focused regression coverage.

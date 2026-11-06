@@ -1,5 +1,10 @@
 # Audio, model, and cache review
 
+This is the initial review inventory. Several findings below were resolved in the
+[prioritized follow-up](review-refactor.md#follow-up-implementation); consult that
+report and the architecture guide for current status.
+
+
 ## Scope and preservation
 
 Reviewed `src/` boundaries, model inference contracts, audio extraction, adapters, cache ownership, and associated existing tests. Existing uncommitted R4 integration (`ssl_aai_predictor`, `aai_adapter`, `model_cache`, decoder additions, and existing model tests) remains intact. No checkpoint layout, trained weights, normalization policy, temporal window, phoneme templates, or acoustic formula was changed.

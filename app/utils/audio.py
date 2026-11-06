@@ -1,5 +1,6 @@
 """Utility functions for handling audio file uploads."""
 
+import asyncio
 import io
 import os
 import subprocess
@@ -11,6 +12,8 @@ import numpy as np
 import soundfile as sf
 import torch
 from fastapi import UploadFile
+
+from app.services.concurrency import await_owned
 
 
 class AudioConversionError(Exception):
@@ -34,7 +37,14 @@ async def save_upload_to_temp(upload_file: UploadFile, target_format: str = "wav
         AudioConversionError: If conversion to WAV fails and original format is unusable
     """
     contents = await upload_file.read()
-    original_filename = upload_file.filename or "audio.wav"
+    task = asyncio.create_task(
+        asyncio.to_thread(_save_contents_to_temp, contents, upload_file.filename or "audio.wav")
+    )
+    return await await_owned(task, discard=cleanup_temp_file)
+
+
+def _save_contents_to_temp(contents: bytes, original_filename: str) -> str:
+    """Own file creation and ffmpeg conversion entirely within one worker."""
     suffix = Path(original_filename).suffix.lower() or ".wav"
 
     # Create temp file with original extension

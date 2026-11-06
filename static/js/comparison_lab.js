@@ -8,6 +8,7 @@
  * - Student recording integration
  */
 
+import { listen } from './capture_resources.js';
 import { SSLComparisonController } from './ssl_comparison_controller.js';
 
 class ComparisonLab {
@@ -19,8 +20,13 @@ class ComparisonLab {
         this.referenceLoaded = false;
         this.studentLoaded = false;
         this.isRecording = false;
+        this.isStartingRecording = false;
         this.mediaRecorder = null;
         this.recordedChunks = [];
+        this.destroyed = false;
+        this.eventListeners = [];
+        this.stream = null;
+        this.initialized = false;
 
         // Debounce timer
         this.debounceTimer = null;
@@ -30,6 +36,8 @@ class ComparisonLab {
         this.pendingRequestController = null;
         this.pendingRequestText = null; // What text we're generating for
         this.currentRequestId = 0; // Incremental ID to detect stale requests
+        this.studentRequestId = 0;
+        this.permissionRequestId = 0;
 
         // Bind methods
         this.handleTextInput = this.handleTextInput.bind(this);
@@ -52,6 +60,8 @@ class ComparisonLab {
    * Initialize the Comparison Lab
    */
     init() {
+        if (this.initialized || this.destroyed) return;
+        this.initialized = true;
         this.setupController();
         this.setupEventListeners();
         this.initRenderers();
@@ -161,60 +171,61 @@ class ComparisonLab {
    * Setup event listeners for UI elements
    */
     setupEventListeners() {
-    // Text input debounce
+        listen(this, window, 'beforeunload', () => this.destroy());
+        // Text input debounce
         const textInput = document.getElementById('comparison-target-text');
         if (textInput) {
-            textInput.addEventListener('input', this.handleTextInput);
+            listen(this, textInput, 'input', this.handleTextInput);
         }
 
         // Scrub bars
         const refScrub = document.getElementById('comparison-ref-scrub');
         const studentScrub = document.getElementById('comparison-student-scrub');
         if (refScrub) {
-            refScrub.addEventListener('input', (e) => this.handleScrub('reference', e.target.value));
+            listen(this, refScrub, 'input', (e) => this.handleScrub('reference', e.target.value));
         }
         if (studentScrub) {
-            studentScrub.addEventListener('input', (e) => this.handleScrub('student', e.target.value));
+            listen(this, studentScrub, 'input', (e) => this.handleScrub('student', e.target.value));
         }
 
         // Play/pause buttons
         const refPlayBtn = document.getElementById('comparison-ref-play');
         const studentPlayBtn = document.getElementById('comparison-student-play');
         if (refPlayBtn) {
-            refPlayBtn.addEventListener('click', () => this.handlePlayPause('reference'));
+            listen(this, refPlayBtn, 'click', () => this.handlePlayPause('reference'));
         }
         if (studentPlayBtn) {
-            studentPlayBtn.addEventListener('click', () => this.handlePlayPause('student'));
+            listen(this, studentPlayBtn, 'click', () => this.handlePlayPause('student'));
         }
 
         // Speed selector
         const speedSelect = document.getElementById('comparison-speed');
         if (speedSelect) {
-            speedSelect.addEventListener('change', this.handleSpeedChange);
+            listen(this, speedSelect, 'change', this.handleSpeedChange);
         }
 
         // Zoom slider
         const zoomSlider = document.getElementById('comparison-zoom');
         if (zoomSlider) {
-            zoomSlider.addEventListener('input', this.handleZoomChange);
+            listen(this, zoomSlider, 'input', this.handleZoomChange);
         }
 
         // Loop toggle
         const loopToggle = document.getElementById('comparison-loop');
         if (loopToggle) {
-            loopToggle.addEventListener('change', this.handleLoopToggle);
+            listen(this, loopToggle, 'change', this.handleLoopToggle);
         }
 
         // Link playheads toggle
         const linkToggle = document.getElementById('comparison-link');
         if (linkToggle) {
-            linkToggle.addEventListener('change', this.handleLinkToggle);
+            listen(this, linkToggle, 'change', this.handleLinkToggle);
         }
 
         // Record button
         const recordBtn = document.getElementById('comparison-record-btn');
         if (recordBtn) {
-            recordBtn.addEventListener('click', () => {
+            listen(this, recordBtn, 'click', () => {
                 if (this.isRecording) {
                     this.stopRecording();
                 } else {
@@ -227,10 +238,10 @@ class ComparisonLab {
         const loopInBtn = document.getElementById('comparison-loop-in');
         const loopOutBtn = document.getElementById('comparison-loop-out');
         if (loopInBtn) {
-            loopInBtn.addEventListener('click', () => this.setLoopIn());
+            listen(this, loopInBtn, 'click', () => this.setLoopIn());
         }
         if (loopOutBtn) {
-            loopOutBtn.addEventListener('click', () => this.setLoopOut());
+            listen(this, loopOutBtn, 'click', () => this.setLoopOut());
         }
     }
 
@@ -239,6 +250,10 @@ class ComparisonLab {
    */
     handleTextInput(event) {
         const text = event.target.value.trim();
+        const generation = ++this.currentRequestId;
+        if (this.pendingRequestController) this.pendingRequestController.abort();
+        this.pendingRequestController = null;
+        this.pendingRequestText = null;
 
         // Cancel pending timer
         if (this.debounceTimer) {
@@ -249,52 +264,46 @@ class ComparisonLab {
         if (!text) {
             this.currentTargetText = '';
             this.referenceLoaded = false;
+            if (this.controller) this.controller.clearTrack('reference');
             this.updateUIState();
             return;
         }
+
+        this.referenceLoaded = false;
+        this.updateUIState();
 
         // Show preparing indicator immediately
         this.showReferenceStatus('preparing');
 
         // If we already have a pending request for DIFFERENT text, cancel it
         // and start new generation immediately
-        if (this.pendingRequestController && this.pendingRequestText !== text) {
-            console.log('[ComparisonLab] Cancelling stale request for:', this.pendingRequestText);
-            this.pendingRequestController.abort();
-            this.pendingRequestController = null;
-            this.pendingRequestText = null;
-            // Clear any existing reference since text changed
-            this.referenceLoaded = false;
-            if (this.controller) {
-                this.controller.referenceFrames = [];
-            }
-        }
-
         // Debounce generation - wait for user to stop typing
         this.debounceTimer = setTimeout(() => {
             this.debounceTimer = null;
+            if (generation !== this.currentRequestId) return;
             this.currentTargetText = text;
-            this.generateReference(text);
+            this.generateReference(text, generation);
         }, this.debounceDelay);
     }
 
     /**
    * Generate reference audio and animation
    */
-    async generateReference(text) {
+    async generateReference(text, generation = ++this.currentRequestId) {
     // Increment request ID to track staleness
-        const requestId = ++this.currentRequestId;
+        const requestId = generation;
 
         // Track what we're generating
         this.pendingRequestText = text;
-        this.pendingRequestController = new AbortController();
+        const requestController = new AbortController();
+        this.pendingRequestController = requestController;
 
         try {
             const response = await fetch('/api/reference-animation', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ target_text: text, tts_provider: 'omnivoice' }),
-                signal: this.pendingRequestController.signal,
+                signal: requestController.signal,
             });
 
             if (!response.ok) {
@@ -317,7 +326,8 @@ class ComparisonLab {
             }
 
             // Load into controller
-            await this.controller.loadReference(data.frames, data.audio_base64);
+            await this.controller.loadReference(data.frames, data.audio_base64, () => requestId === this.currentRequestId);
+            if (requestId !== this.currentRequestId) return;
 
             this.referenceLoaded = true;
             this.showReferenceStatus(data.cached ? 'cached' : 'ready');
@@ -506,8 +516,17 @@ class ComparisonLab {
    * Start recording student audio
    */
     async startRecording() {
+        if (this.destroyed || this.isRecording || this.isStartingRecording) return;
+        this.isStartingRecording = true;
+        const permission = ++this.permissionRequestId;
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            if (this.destroyed || permission !== this.permissionRequestId || !this.isStartingRecording || this.isRecording) {
+                stream.getTracks().forEach((track) => track.stop());
+                return;
+            }
+            this.isStartingRecording = false;
+            this.stream = stream;
             this.mediaRecorder = new MediaRecorder(stream);
             this.recordedChunks = [];
 
@@ -518,15 +537,21 @@ class ComparisonLab {
             };
 
             this.mediaRecorder.onstop = () => {
-                this.processRecording();
+                if (!this.destroyed) this.processRecording();
                 // Stop all tracks
                 stream.getTracks().forEach((track) => track.stop());
+                if (this.stream === stream) this.stream = null;
             };
 
             this.mediaRecorder.start();
             this.isRecording = true;
             this.updateRecordButton();
         } catch (error) {
+            if (permission !== this.permissionRequestId) return;
+            this.isStartingRecording = false;
+            this.stream?.getTracks().forEach((track) => track.stop());
+            this.stream = null;
+            if (this.destroyed) return;
             console.error('[ComparisonLab] Recording error:', error);
             alert('Could not access microphone. Please check permissions.');
         }
@@ -536,6 +561,8 @@ class ComparisonLab {
    * Stop recording
    */
     stopRecording() {
+        this.permissionRequestId++;
+        this.isStartingRecording = false;
         if (this.mediaRecorder && this.isRecording) {
             this.mediaRecorder.stop();
             this.isRecording = false;
@@ -547,7 +574,9 @@ class ComparisonLab {
    * Process recorded audio
    */
     async processRecording() {
+        if (this.destroyed) return;
         const blob = new Blob(this.recordedChunks, { type: 'audio/webm' });
+        const generation = ++this.studentRequestId;
         const formData = new FormData();
         formData.append('audio', blob, 'recording.webm');
         formData.append('target_text', this.currentTargetText);
@@ -586,10 +615,12 @@ class ComparisonLab {
             }
 
             const data = JSON.parse(responseText);
+            if (this.destroyed || generation !== this.studentRequestId) return;
 
             // Load student trajectory if available
             if (data.ssl_trajectory && data.ssl_trajectory.frames) {
-                await this.controller.loadStudent(data.ssl_trajectory.frames, null);
+                await this.controller.loadStudent(data.ssl_trajectory.frames, blob, () => !this.destroyed && generation === this.studentRequestId);
+                if (this.destroyed || generation !== this.studentRequestId) return;
                 this.studentLoaded = true;
                 this.showStudentStatus('ready');
                 this.updateUIState();
@@ -602,7 +633,7 @@ class ComparisonLab {
             }
         } catch (error) {
             console.error('[ComparisonLab] Analysis error:', error);
-            this.showStudentStatus('error');
+            if (generation === this.studentRequestId) this.showStudentStatus('error');
         }
     }
 
@@ -705,7 +736,28 @@ class ComparisonLab {
     /**
    * Clear all data
    */
+    destroy() {
+        if (this.destroyed) return;
+        this.destroyed = true;
+        this.permissionRequestId++;
+        this.isStartingRecording = false;
+        this.clear();
+        this.eventListeners.forEach(([target, type, handler, options]) => target.removeEventListener(type, handler, options));
+        this.eventListeners = [];
+        if (this.mediaRecorder?.state === 'recording') this.mediaRecorder.stop();
+        this.stream?.getTracks().forEach((track) => track.stop());
+        this.stream = null;
+        this.isRecording = false;
+        this.controller?.destroy();
+        this.leftRenderer?.destroy?.();
+        this.rightRenderer?.destroy?.();
+    }
+
     clear() {
+        this.currentRequestId++;
+        this.studentRequestId++;
+        clearTimeout(this.debounceTimer);
+        this.pendingRequestController?.abort();
         if (this.controller) {
             this.controller.clear();
         }
@@ -726,6 +778,7 @@ window.comparisonLab = null;
 // Initialize when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
     if (document.getElementById('tab-panel-comparison')) {
+        window.comparisonLab?.destroy?.();
         window.comparisonLab = new ComparisonLab();
         window.comparisonLab.init();
     }

@@ -28,29 +28,49 @@ and [frontend](review-frontend.md).
 | Documentation | Added indexed architecture/development/review guides, reduced PROJECT duplication, corrected default model and port guidance. |
 
 No model weights, temporal-window policy, canonical renderer field names, prosody
-formulas, or frontend framework were replaced. Code remains intentionally split
+extraction formulas, or frontend framework were replaced. Code remains intentionally split
 between HTTP orchestration and scientific/model modules.
+
+## Follow-up implementation
+
+The next prioritized pass used Luna agents for bounded HTML, preset, cache, and
+comparison work; the main agent completed integration and partial recorder edits
+when agent usage limits were reached.
+
+| Priority | Completed change | Acceptance evidence |
+| --- | --- | --- |
+| High | Shared inference ownership across primary, reference and Prosody Lab; heavy stages off the event loop; cancellation drains workers before gate/file release. | Competing endpoint and repeated-cancel tests, retained-file checks, off-loop stage assertions. |
+| High | Reserved progress jobs, status lookup, independent subscribers, bounded replay/cursors, terminal events and expiry; recorder subscribes before upload. | HTTP reservation/submission/replay, multiple subscribers, disconnect, duplicate claim, capacity/expiry tests. |
+| High | Escaped client-derived phonemes, tooltips, error contexts and stored prosody labels; public failures omit tracebacks/internal exceptions. | Hostile HTML/attribute tests plus existing feedback/browser flows. |
+| Medium | Root-based configurable preset location, shape/finite validation, atomic replace and locked read-modify-write. | Corrupt shape/NaN recovery, interrupted writes, concurrent saves, finite-save validation. |
+| Medium | Namespaced exact-text cache keys include provider settings and model file revisions; synchronized independent snapshots avoid disk-audio memory retention. | Provider/model changes, input/response mutation, concurrent methods, disk response-byte tests. |
+| Medium | Generation checks span text changes/fetch/decode/UI commit; captured student audio feeds playback; disposal invalidates pending decodes. | Delayed/stale reference/student decode and microphone/disposal tests. |
+| Medium | Capture listeners/tracks/contexts have explicit ownership and idempotent teardown; partial initialization and late permission results release resources. | Repeated init/destroy, late permission, partial visualizer failure, no-submit-on-destroy regressions. |
+| Medium | Prosody history storage extracted into a bounded, shape-validating module. | Malformed storage, retention and role-eviction tests. |
+| Domain | Pitch labels use explicit semitone range while the legacy Hz field remains available. | Exact octave references at different base pitches and a generated sweep tracked by Praat. |
+| Maintenance | ARM setup no longer edits shell config or replaces environments; unused HTMX removed; legacy recorder tests assert real behavior instead of missing-method guards. | Shell syntax, direct PCM/timer/listener assertions and the combined quality suite. |
+
+Contracts: [progress and ownership](progress-api.md), [desktop/offline/acoustic
+release requirements](release-contracts.md). Browser checks also caught and fixed
+DOM named-property startup (`window.recorder` initially resolves the element);
+teardown now checks method presence. Browser server startup no longer uses the
+source reloader, and readiness waits for application APIs instead of network idle.
 
 ## Prioritized remaining work
 
 | Priority | Finding | Next change and acceptance evidence |
 | --- | --- | --- |
-| High | Blocking model/Praat/TTS work inside async routes; concurrency gate covers only primary analysis. | Introduce one inference orchestration service with explicit cancellation/file ownership; test simultaneous analysis/reference calls and canceled requests. |
-| High | SSE has no complete job discovery/subscription lifecycle. | Define job creation, IDs, subscriptions, terminal events and expiry together; test reconnect and multiple subscribers. |
-| High | User-derived strings can reach HTML sinks; error responses expose diagnostic tracebacks. | Define plain-text versus trusted-markup contracts; escape or render text nodes; test hostile inputs and public error payloads. |
-| Medium | Preset path depends on cwd; writes are non-atomic and shapes unchecked. | Define persistent storage root and migration, validate shape, atomically replace, coordinate concurrent saves; test interrupted writes and recovery. |
-| Medium | Cache keys omit provider/model identity; mutable entries and memory retention weaken ownership. | Version keys with generation inputs, define immutable responses and shared-worker synchronization; test provider changes and concurrent eviction. |
-| Medium | Comparison UI request generation can become stale across fetch/decode. | Carry one generation token through request, decode and UI commit; test text changes during delayed decode. |
-| Medium | Recorder initialization retains streams/listeners; large controllers mix capture/storage/rendering. | Introduce explicit initialize/destroy ownership, then extract history and plotting modules; test rapid clicks, repeated initialization and tab transitions. |
-| Medium | Student comparison animation has no audio; Tauri release lacks packaged Python backend. | Define audio response and desktop runtime contracts before declaring either workflow complete. |
-| Domain validation | Pitch-range label units disagree with caller; voice-quality metrics include heuristics. | Establish reference audio/Praat expectations before changing coaching thresholds or acoustic math. |
-| Maintenance | Legacy setup script mutates shell/environment; UI depends on CDN scripts; existing unit tests contain guarded assertions. | Replace legacy setup with documented commands, define offline asset strategy, strengthen behavior assertions incrementally. |
+| Medium / release | Standalone Tauri release still lacks a packaged backend. | Implement the documented native sidecar/port/readiness/asset/storage contract and validate on a clean machine. Student comparison audio is implemented. |
+| Maintenance / release | Tailwind browser compilation and Plotly still load from CDNs. | Build static CSS and vendor licensed/pinned plot assets; run with external network blocked. Unused HTMX is removed. |
+| Domain validation | Voice-quality CPPS/spectral tilt remain heuristics; coaching thresholds need recorded-speech validation. | Follow the versioned Praat/reference-corpus plan in release contracts. Pitch units/basic tracking are now covered. |
+| Maintenance | Template/controllers still contain mixed rendering logic beyond extracted history/capture helpers. | Continue decomposition around covered pure-data boundaries; avoid cosmetic file moves. |
+| Operational limit | Jobs/gates/presets locks/caches are process-local, and history is bounded. | Run one backend worker; multi-process/multi-user support needs separate shared-state/authentication design. |
 
-These items are not marked complete by this cleanup. Large module decomposition
+These release and domain items remain open. Large module decomposition
 should follow explicit lifecycle/data contracts and regression coverage, avoiding
 file moves that merely relocate coupled state.
 
-## Validation
+## Initial-pass validation
 
 Integration results are recorded below after the final quality run. Unit checks
 exercise deterministic resource and waveform behavior; they do not establish
@@ -69,3 +89,14 @@ warnings do not fail Vitest and are not evidence of browser canvas validation.
   Chromium and correcting the existing range-input test helper. Initial attempts
   were blocked by sandbox server permissions and missing browser binaries.
 - Real-model end-to-end runs and physical microphone/Tauri validation were not run.
+
+## Follow-up validation
+
+- `npm run check`: passed. Ruff lint/format, ESLint, and mypy (63 files) clean.
+- Pytest: **185 passed, 3 skipped**. Vitest: **121 passed, 1 skipped**.
+- Mocked Playwright suite: **16 passed** after explicit app-readiness checks and
+  fixing recorder startup. An earlier run exposed those issues and was corrected.
+- Shell syntax, documentation link resolution, and `git diff --check`: passed.
+- Unit tests retain jsdom canvas warnings. Physical microphone/speaker behavior,
+  packaged Tauri, network-blocked release assets, and recorded-corpus acoustic
+  calibration remain release/domain validation work described above.

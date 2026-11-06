@@ -1,5 +1,6 @@
 """Error selection endpoint for articulatory feedback."""
 
+from html import escape
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -76,8 +77,13 @@ async def select_error(request: SelectErrorRequest):
     )
 
     # Get descriptions (using HTML instead of markdown)
-    incorrect_desc = f"<strong>What you're doing:</strong> Saying /{predicted_phoneme}/ instead of /{target_phoneme}/"
-    correct_desc = f"<strong>What you should do:</strong> Position tongue for /{target_phoneme}/"
+    # Descriptions intentionally contain formatting markup; phonemes remain plain text.
+    safe_target = escape(str(target_phoneme))
+    safe_predicted = escape(str(predicted_phoneme))
+    incorrect_desc = (
+        f"<strong>What you're doing:</strong> Saying /{safe_predicted}/ instead of /{safe_target}/"
+    )
+    correct_desc = f"<strong>What you should do:</strong> Position tongue for /{safe_target}/"
 
     # Get animation parameters for both phonemes
     try:

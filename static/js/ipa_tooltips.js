@@ -99,12 +99,19 @@ const IPATooltips = {
     'ʊə': { word: 'cure', highlight: 'u' },
 };
 
+function escapeHtml(value) {
+    return String(value).replace(/[&<>"']/g, (character) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', '\'': '&#39;',
+    })[character]);
+}
+
 function wrapIPATooltip(phoneme) {
     const data = IPATooltips[phoneme];
+    const safePhoneme = escapeHtml(phoneme);
   
     // Always return with tooltip wrapper, even if no example word exists
     if (!data) {
-        return `<span class="ipa-phoneme" data-phoneme="${phoneme}" data-tooltip="/${phoneme}/">/${phoneme}/</span>`;
+        return `<span class="ipa-phoneme" data-phoneme="${safePhoneme}" data-tooltip="/${safePhoneme}/">/${safePhoneme}/</span>`;
     }
 
     const word = data.word;
@@ -123,7 +130,7 @@ function wrapIPATooltip(phoneme) {
         tooltipText = `/${phoneme}/ as in ${word}${lang}`;
     }
 
-    return `<span class="ipa-phoneme" data-phoneme="${phoneme}" data-tooltip="${tooltipText}">/${phoneme}/</span>`;
+    return `<span class="ipa-phoneme" data-phoneme="${safePhoneme}" data-tooltip="${escapeHtml(tooltipText)}">/${safePhoneme}/</span>`;
 }
 
 // ES Module exports
@@ -152,8 +159,19 @@ if (typeof document !== 'undefined' && document.addEventListener) {
                 phonemeEl.appendChild(tooltip);
             }
 
-            const htmlContent = tooltipText.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-            tooltip.innerHTML = htmlContent;
+            const fragment = document.createDocumentFragment();
+            const marker = /\*\*(.+?)\*\*/g;
+            let cursor = 0;
+            let match;
+            while ((match = marker.exec(tooltipText)) !== null) {
+                fragment.appendChild(document.createTextNode(tooltipText.slice(cursor, match.index)));
+                const strong = document.createElement('strong');
+                strong.textContent = match[1];
+                fragment.appendChild(strong);
+                cursor = marker.lastIndex;
+            }
+            fragment.appendChild(document.createTextNode(tooltipText.slice(cursor)));
+            tooltip.replaceChildren(fragment);
             tooltip.classList.add('visible');
         }
     });

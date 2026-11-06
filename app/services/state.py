@@ -1,12 +1,25 @@
 """State persistence for presets and other saved data."""
 
 import json
+import logging
+import math
+import os
+import tempfile
 from pathlib import Path
+from threading import RLock
 from typing import Any, Dict
 
 from src.models.articulatory import normalize_svg_state
 
-PRESETS_FILE = Path("presets.json")
+LOGGER = logging.getLogger(__name__)
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PRESETS_FILE = Path(
+    os.environ.get("SPEECH_GUIDER_PRESETS_FILE", PROJECT_ROOT / "presets.json")
+).expanduser()
+if not PRESETS_FILE.is_absolute():
+    PRESETS_FILE = PROJECT_ROOT / PRESETS_FILE
+PRESETS_FILE = PRESETS_FILE.resolve()
+_PRESETS_LOCK = RLock()
 
 
 def load_presets() -> Dict[str, Dict[str, Any]]:
@@ -16,20 +29,35 @@ def load_presets() -> Dict[str, Dict[str, Any]]:
     Returns:
         Dictionary of phoneme presets
     """
-    if not PRESETS_FILE.exists():
-        return normalize_presets(get_default_presets())
+    with _PRESETS_LOCK:
+        try:
+            with PRESETS_FILE.open("r", encoding="utf-8") as preset_file:
+                data = json.load(preset_file)
+        except FileNotFoundError:
+            return normalize_presets(get_default_presets())
+        except (json.JSONDecodeError, OSError) as exc:
+            LOGGER.warning("Could not read presets from %s: %s", PRESETS_FILE, exc)
+            return normalize_presets(get_default_presets())
 
-    try:
-        with open(PRESETS_FILE, "r") as f:
-            data = json.load(f)
-            # Ensure all required fields exist
-            defaults = get_default_presets()
-            for key, value in defaults.items():
-                if key not in data:
-                    data[key] = value
-            return normalize_presets(data)
-    except (json.JSONDecodeError, IOError):
-        return normalize_presets(get_default_presets())
+        if not isinstance(data, dict):
+            LOGGER.warning("Ignoring malformed presets in %s: expected object", PRESETS_FILE)
+            return normalize_presets(get_default_presets())
+
+        defaults = get_default_presets()
+        valid: dict[str, dict[str, Any]] = {}
+        for phoneme, entry in data.items():
+            if not isinstance(phoneme, str) or not isinstance(entry, dict):
+                LOGGER.warning("Ignoring malformed preset entry in %s", PRESETS_FILE)
+                continue
+            if not isinstance(entry.get("name", "custom"), str):
+                LOGGER.warning("Ignoring malformed name for preset %r", phoneme)
+                continue
+            params = entry.get("params", {})
+            if not isinstance(params, dict) or not _has_finite_numeric_params(params):
+                LOGGER.warning("Ignoring malformed parameters for preset %r", phoneme)
+                continue
+            valid[phoneme] = normalize_preset_entry(entry)
+        return {**normalize_presets(defaults), **valid}
 
 
 def save_presets(presets: Dict[str, Dict[str, Any]]) -> None:
@@ -39,8 +67,37 @@ def save_presets(presets: Dict[str, Dict[str, Any]]) -> None:
     Args:
         presets: Dictionary of phoneme presets
     """
-    with open(PRESETS_FILE, "w") as f:
-        json.dump(presets, f, indent=2)
+    with _PRESETS_LOCK:
+        temp_path: Path | None = None
+        try:
+            for phoneme, entry in presets.items():
+                params = entry.get("params", {})
+                if not isinstance(params, dict) or not _has_finite_numeric_params(params):
+                    raise ValueError(f"Preset {phoneme!r} has invalid numeric parameters")
+            normalized = normalize_presets(presets)
+            PRESETS_FILE.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=PRESETS_FILE.parent,
+                prefix=f".{PRESETS_FILE.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as temp_file:
+                temp_path = Path(temp_file.name)
+                json.dump(normalized, temp_file, indent=2, allow_nan=False)
+                temp_file.flush()
+                os.fsync(temp_file.fileno())
+            os.replace(temp_path, PRESETS_FILE)
+        except (OSError, TypeError, ValueError):
+            LOGGER.exception("Could not save presets to %s", PRESETS_FILE)
+            raise
+        finally:
+            if temp_path is not None:
+                try:
+                    temp_path.unlink(missing_ok=True)
+                except OSError:
+                    LOGGER.warning("Could not remove temporary preset file %s", temp_path)
 
 
 def save_preset(phoneme: str, preset: Dict[str, Any]) -> None:
@@ -51,9 +108,22 @@ def save_preset(phoneme: str, preset: Dict[str, Any]) -> None:
         phoneme: Phoneme symbol (e.g., 'i', 'u')
         preset: Preset data with 'name' and 'params' keys
     """
-    presets = load_presets()
-    presets[phoneme] = normalize_preset_entry(preset)
-    save_presets(presets)
+    with _PRESETS_LOCK:
+        params = preset.get("params", {})
+        if not isinstance(params, dict) or not _has_finite_numeric_params(params):
+            raise ValueError("Preset parameters must be finite numbers")
+        presets = load_presets()
+        presets[phoneme] = normalize_preset_entry(preset)
+        save_presets(presets)
+
+
+def _has_finite_numeric_params(params: dict[str, Any]) -> bool:
+    """Reject persisted nonnumeric values before the schema normalizer sees them."""
+
+    return all(
+        isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+        for value in params.values()
+    )
 
 
 def normalize_preset_entry(preset: Dict[str, Any]) -> Dict[str, Any]:

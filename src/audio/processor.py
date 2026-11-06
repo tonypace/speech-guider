@@ -4,6 +4,7 @@ Implements rhythm (nPVI), stress patterns, pitch extraction,
 and voice quality metrics (jitter, shimmer, CPPS, spectral tilt).
 """
 
+import math
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, cast
@@ -21,6 +22,12 @@ class PitchContour:
     f0_range: float
     mean_f0: float
     std_f0: float
+
+    @property
+    def range_semitones(self) -> float:
+        """Pitch movement is a frequency ratio; unvoiced frames carry no pitch."""
+        voiced = [value for value in self.f0_values if math.isfinite(value) and value > 0]
+        return 12.0 * math.log2(max(voiced) / min(voiced)) if voiced else 0.0
 
 
 @dataclass

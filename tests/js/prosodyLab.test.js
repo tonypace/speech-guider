@@ -1,7 +1,12 @@
-import { describe, it, expect } from 'vitest';
-import { midiToNoteName, trimProsodyHistory, buildMusicalScoreChart } from '../../static/js/prosody_lab.js';
+import { describe, it, expect, beforeEach } from 'vitest';
+import { ProsodyLabRecorder, midiToNoteName, trimProsodyHistory, buildMusicalScoreChart } from '../../static/js/prosody_lab.js';
 
 describe('Prosody Lab helpers', () => {
+    beforeEach(() => {
+        document.body.innerHTML = '';
+        localStorage.clear();
+    });
+
     it('trims recording history to the latest three entries', () => {
         const history = [
             { recording_id: '1' },
@@ -35,5 +40,38 @@ describe('Prosody Lab helpers', () => {
 
         expect(result.traces.length).toBeGreaterThan(0);
         expect(result.layout.title.text).toBe('Musical Score');
+    });
+
+    it('renders persisted history labels and metrics as text', () => {
+        const historyEl = document.createElement('div');
+        const recorder = Object.create(ProsodyLabRecorder.prototype);
+        recorder.historyEl = historyEl;
+        recorder.getTeacherId = () => '';
+        recorder.getStudentId = () => '';
+        recorder.setRole = () => {};
+        const hostile = '<img src=x onerror=alert(1)>';
+
+        recorder.renderHistory([{
+            recording_id: hostile,
+            created_at: 'invalid date',
+            summary: { syllable_count: hostile, pause_count: 1, rhythm_balance: hostile },
+        }]);
+
+        expect(historyEl.querySelector('img')).toBeNull();
+        expect(historyEl.textContent).toContain(hostile.slice(0, 6));
+        expect(historyEl.textContent).toContain(hostile);
+        expect(historyEl.querySelector('button').getAttribute('data-recording-id')).toBe(hostile);
+    });
+
+    it('renders feedback summary values as text', () => {
+        const feedbackEl = document.createElement('div');
+        const recorder = Object.create(ProsodyLabRecorder.prototype);
+        recorder.feedbackEl = feedbackEl;
+        const hostile = '<svg onload=alert(1)>';
+
+        recorder.renderFeedback({ summary: { mean_note: hostile, syllable_count: 2 } });
+
+        expect(feedbackEl.querySelector('svg')).toBeNull();
+        expect(feedbackEl.textContent).toContain(hostile);
     });
 });

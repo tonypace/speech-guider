@@ -103,6 +103,8 @@ def test_student_and_reference_use_identical_r4_frames(
     monkeypatch.setattr(comparison, "_prepare_reference_audio_tensor", lambda audio: waveform)
     audio = Mock(audio_bytes=b"audio", sample_rate=8000, duration_seconds=1.0, format="ogg")
     provider = Mock()
+    provider.cache_identity.return_value = {"implementation": "test-provider"}
+    monkeypatch.setattr(comparison, "get_ssl_cache_identity", lambda: {"model": "test-r4"})
     provider.synthesize.return_value = audio
     monkeypatch.setattr(comparison.TTSProviderFactory, "create", lambda name: provider)
     _, student_frames, metadata = analyze.try_primary_ssl_analysis(waveform, 16000, True)

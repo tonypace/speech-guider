@@ -1,48 +1,65 @@
-"""Concurrency control for limiting concurrent ML operations."""
+"""Process-local inference ownership, including cancellation-safe worker draining."""
 
 import asyncio
-from typing import Any, Coroutine
+from collections.abc import Callable, Coroutine
+from threading import Lock
+from typing import Any, TypeVar
 
 from fastapi import HTTPException
 
-# Only 1 analysis at a time to prevent OOM
-currently_processing = False
-_analysis_lock = asyncio.Lock()
-
-# Warning message for busy server
+T = TypeVar("T")
+_inference_lock = Lock()
 BUSY_MESSAGE = "Server is currently processing another request. Please try again in a moment."
 
 
-async def run_with_semaphore(coro: Coroutine[Any, Any, Any]) -> Any:
+async def await_owned(task: asyncio.Task[T], discard: Callable[[T], None] | None = None) -> T:
+    """Keep resources alive until work ends; Python cannot stop a running thread.
+
+    Cancellation is propagated only after the task has drained. Repeated cancels
+    must not release an inference slot or remove files beneath a running worker.
     """
-    Run a coroutine with concurrency protection.
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        while not task.done():
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError:
+                continue
+            except Exception:
+                break
+        if not task.cancelled():
+            error = task.exception()  # Retrieve errors even when caller abandoned work.
+            if error is None and discard is not None:
+                discard(task.result())
+        raise
 
-    Only allows one analysis at a time. Returns 503 if busy.
 
-    Args:
-        coro: The coroutine to execute
+async def run_blocking(operation: Callable[..., T], *args: Any, **kwargs: Any) -> T:
+    """Offload a blocking stage without abandoning its resource lifetime."""
+    return await await_owned(asyncio.create_task(asyncio.to_thread(operation, *args, **kwargs)))
 
-    Returns:
-        Result of the coroutine
 
-    Raises:
-        HTTPException: 503 if server is busy with another request
+async def run_with_semaphore(coro: Coroutine[Any, Any, T]) -> T:
+    """Admit one complete workflow, rejecting competing requests with HTTP 503.
+
+    A threading lock also protects separate event loops in local TestClient uses.
+    The gate is per process; production must use one inference worker process.
     """
-    global currently_processing
-
-    if currently_processing:
-        # Caller already created this coroutine; rejection must release its frame.
+    if not _inference_lock.acquire(blocking=False):
         coro.close()
         raise HTTPException(status_code=503, detail=BUSY_MESSAGE)
+    try:
+        return await await_owned(asyncio.create_task(coro))
+    finally:
+        _inference_lock.release()
 
-    async with _analysis_lock:
-        currently_processing = True
-        try:
-            return await coro
-        finally:
-            currently_processing = False
+
+async def run_inference(operation: Callable[..., T], *args: Any, **kwargs: Any) -> T:
+    """Run a synchronous workflow through the same gate as primary analysis."""
+    return await run_with_semaphore(run_blocking(operation, *args, **kwargs))
 
 
 def is_server_busy() -> bool:
-    """Check if server is currently processing a request."""
-    return currently_processing
+    """Return whether a workflow still owns inference resources."""
+    return _inference_lock.locked()

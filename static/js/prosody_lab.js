@@ -1,9 +1,6 @@
+import { trimProsodyHistory, loadHistory, storeRecord, getRoleId, setRoleId } from './prosody_history.js';
+import { listen, releaseCapture } from './capture_resources.js';
 import { convertAudioToWav } from './audio_conversion.js';
-
-const PROSODY_HISTORY_KEY = 'prosodyLabHistory';
-const PROSODY_TEACHER_KEY = 'prosodyLabTeacherId';
-const PROSODY_STUDENT_KEY = 'prosodyLabStudentId';
-const MAX_HISTORY_ITEMS = 3;
 
 function clamp(value, min, max) {
     return Math.max(min, Math.min(max, value));
@@ -21,19 +18,6 @@ function midiToNoteName(midi) {
     return `${note}${octave}`;
 }
 
-function trimProsodyHistory(history, maxItems = MAX_HISTORY_ITEMS) {
-    return history.slice(0, maxItems);
-}
-
-function safeParseJson(rawValue, fallback) {
-    try {
-        const parsed = JSON.parse(rawValue);
-        return parsed ?? fallback;
-    } catch {
-        return fallback;
-    }
-}
-
 function formatMetricValue(value, suffix = '') {
     if (value === null || value === undefined || Number.isNaN(value)) {
         return '—';
@@ -42,6 +26,12 @@ function formatMetricValue(value, suffix = '') {
         return `${value.toFixed(value >= 100 ? 0 : 2)}${suffix}`;
     }
     return `${value}${suffix}`;
+}
+
+function escapeHtml(value) {
+    return String(value).replace(/[&<>"']/g, (character) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', '\'': '&#39;',
+    })[character]);
 }
 
 const BAR_DURATION_SECONDS = 2.0;
@@ -277,6 +267,15 @@ class ProsodyLabRecorder {
         this.locked = false;
         this.beatsPerBar = 4;
         this.zoomLevel = 1.0;
+        this.stream = null;
+        this.visualizerSource = null;
+        this.eventListeners = [];
+        this.eventsBound = false;
+        this.destroyed = false;
+        this.initPromise = null;
+        this.permissionRequestId = 0;
+        this.isStartingRecording = false;
+        this.cancelOnStop = false;
 
         this.initElements();
         this.bindEvents();
@@ -304,9 +303,13 @@ class ProsodyLabRecorder {
     }
 
     bindEvents() {
-    // F5 key listener (disabled in Tauri mode - Tauri uses Tab instead)
+        if (this.eventsBound || this.destroyed) return;
+        this.eventsBound = true;
+        listen(this, window, 'beforeunload', () => this.destroy());
+
+        // F5 key listener (disabled in Tauri mode - Tauri uses Tab instead)
         if (!window.__TAURI__) {
-            document.addEventListener('keydown', (event) => {
+            listen(this, document, 'keydown', (event) => {
                 if (event.key === 'F5' && window.currentTab === 'prosody') {
                     event.preventDefault();
                     if (!this.isRecording) {
@@ -315,7 +318,7 @@ class ProsodyLabRecorder {
                 }
             });
 
-            document.addEventListener('keyup', (event) => {
+            listen(this, document, 'keyup', (event) => {
                 if (event.key === 'F5' && window.currentTab === 'prosody' && this.isRecording) {
                     event.preventDefault();
                     this.stopRecording();
@@ -324,16 +327,16 @@ class ProsodyLabRecorder {
         }
 
         if (this.recordBtn) {
-            this.recordBtn.addEventListener('mousedown', () => this.startRecording());
-            this.recordBtn.addEventListener('mouseup', () => this.stopRecording());
-            this.recordBtn.addEventListener('mouseleave', () => {
+            listen(this, this.recordBtn, 'mousedown', () => this.startRecording());
+            listen(this, this.recordBtn, 'mouseup', () => this.stopRecording());
+            listen(this, this.recordBtn, 'mouseleave', () => {
                 if (this.isRecording) this.stopRecording();
             });
-            this.recordBtn.addEventListener('touchstart', (event) => {
+            listen(this, this.recordBtn, 'touchstart', (event) => {
                 event.preventDefault();
                 this.startRecording();
             });
-            this.recordBtn.addEventListener('touchend', (event) => {
+            listen(this, this.recordBtn, 'touchend', (event) => {
                 event.preventDefault();
                 this.stopRecording();
             });
@@ -341,35 +344,81 @@ class ProsodyLabRecorder {
     }
 
     async init() {
+        if (this.destroyed) return;
+        if (this.stream && this.mediaRecorder) return;
+        if (this.initPromise) return this.initPromise;
+        this.initPromise = this._initialize();
+        return this.initPromise;
+    }
+
+    async _initialize() {
         if (!navigator.mediaDevices?.getUserMedia) {
             this.setStatus('Microphone recording is not supported in this browser.', true);
+            this.initPromise = null;
             return;
         }
 
+        const requestId = ++this.permissionRequestId;
+        this.isStartingRecording = true;
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            this.isStartingRecording = false;
+            if (this.destroyed || requestId !== this.permissionRequestId) {
+                stream.getTracks().forEach((track) => track.stop());
+                return;
+            }
             this.setupRecorder(stream);
             this.setupVisualizer(stream);
             this.setStatus('Ready to record a short sample.');
             this.renderFromStorage();
         } catch (error) {
+            this.isStartingRecording = false;
+            if (this.destroyed || requestId !== this.permissionRequestId) return;
+            releaseCapture(this);
+            this.mediaRecorder = null;
             this.setStatus(`Microphone access failed: ${error.message}`, true);
+        } finally {
+            if (!this.destroyed) this.initPromise = null;
         }
     }
 
+    destroy() {
+        if (this.destroyed) return;
+        this.destroyed = true;
+        this.permissionRequestId += 1;
+        this.isStartingRecording = false;
+        this.cancelOnStop = true;
+        this.isRecording = false;
+        clearInterval(this.timerInterval);
+        clearTimeout(this.recordingTimeout);
+        if (this.animationId) cancelAnimationFrame(this.animationId);
+        this.animationId = null;
+        if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') this.mediaRecorder.stop();
+        this.eventListeners.forEach(([target, type, handler, options]) => target.removeEventListener(type, handler, options));
+        this.eventListeners = [];
+        releaseCapture(this);
+        this.mediaRecorder = null;
+        this.audioChunks = [];
+        this.recordBtn?.classList.remove('recording');
+    }
+
     setupRecorder(stream) {
+        this.stream = stream;
         this.mediaRecorder = new MediaRecorder(stream);
         this.mediaRecorder.ondataavailable = (event) => {
             if (event.data.size > 0) {
                 this.audioChunks.push(event.data);
             }
         };
-        this.mediaRecorder.onstop = () => this.sendForAnalysis();
+        this.mediaRecorder.onstop = () => {
+            if (!this.cancelOnStop && !this.destroyed) this.sendForAnalysis();
+        };
     }
 
     setupVisualizer(stream) {
         this.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 44100 });
         const source = this.audioContext.createMediaStreamSource(stream);
+        this.visualizerSource = source;
         this.analyser = this.audioContext.createAnalyser();
         this.analyser.fftSize = 256;
         source.connect(this.analyser);
@@ -383,7 +432,7 @@ class ProsodyLabRecorder {
     }
 
     startRecording() {
-        if (this.isRecording || !this.mediaRecorder || window.currentTab !== 'prosody') return;
+        if (this.destroyed || this.isStartingRecording || this.isRecording || !this.mediaRecorder || window.currentTab !== 'prosody') return;
 
         this.isRecording = true;
         this.audioChunks = [];
@@ -411,6 +460,7 @@ class ProsodyLabRecorder {
     }
 
     stopRecording() {
+        if (this.destroyed) return;
         if (!this.isRecording) return;
 
         this.isRecording = false;
@@ -464,6 +514,7 @@ class ProsodyLabRecorder {
 
         try {
             const wavBlob = await this.convertToWav(new Blob(this.audioChunks, { type: 'audio/webm' }));
+            if (this.destroyed) return;
             const formData = new FormData();
             formData.append('audio', wavBlob, 'prosody-recording.wav');
 
@@ -473,6 +524,7 @@ class ProsodyLabRecorder {
             }
 
             const result = await response.json();
+            if (this.destroyed) return;
             this.storeRecord(result);
             this.renderFromStorage(result.recording_id);
             this.setStatus('Analysis complete.');
@@ -541,48 +593,23 @@ class ProsodyLabRecorder {
     }
 
     storeRecord(record) {
-        const storedRecord = {
-            ...record,
-            created_at: new Date().toISOString(),
-        };
-        const history = this.loadHistory();
-        const nextHistory = trimProsodyHistory([
-            storedRecord,
-            ...history.filter((item) => item.recording_id !== storedRecord.recording_id),
-        ]);
-        localStorage.setItem(PROSODY_HISTORY_KEY, JSON.stringify(nextHistory));
-
-        const teacherId = localStorage.getItem(PROSODY_TEACHER_KEY);
-        const studentId = localStorage.getItem(PROSODY_STUDENT_KEY);
-        const hasTeacher = nextHistory.some((item) => item.recording_id === teacherId);
-        const hasStudent = nextHistory.some((item) => item.recording_id === studentId);
-
-        if (!hasTeacher && nextHistory[1]) {
-            localStorage.setItem(PROSODY_TEACHER_KEY, nextHistory[1].recording_id);
-        }
-        if (!hasStudent && nextHistory[0]) {
-            localStorage.setItem(PROSODY_STUDENT_KEY, nextHistory[0].recording_id);
-        }
+        storeRecord(record);
     }
 
     loadHistory() {
-        return safeParseJson(localStorage.getItem(PROSODY_HISTORY_KEY) || '[]', []);
+        return loadHistory();
     }
 
     getTeacherId() {
-        return localStorage.getItem(PROSODY_TEACHER_KEY) || '';
+        return getRoleId('teacher');
     }
 
     getStudentId() {
-        return localStorage.getItem(PROSODY_STUDENT_KEY) || '';
+        return getRoleId('student');
     }
 
     setRole(role, recordingId) {
-        if (role === 'teacher') {
-            localStorage.setItem(PROSODY_TEACHER_KEY, recordingId);
-        } else if (role === 'student') {
-            localStorage.setItem(PROSODY_STUDENT_KEY, recordingId);
-        }
+        setRoleId(role, recordingId);
         this.renderFromStorage();
     }
 
@@ -613,8 +640,8 @@ class ProsodyLabRecorder {
             ]
                 .map(([label, value]) => `
           <div class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
-            <div class="text-xs uppercase tracking-wide text-gray-500">${label}</div>
-            <div class="text-sm font-semibold text-gray-800">${value === undefined || value === null ? '—' : value}</div>
+            <div class="text-xs uppercase tracking-wide text-gray-500">${escapeHtml(label)}</div>
+            <div class="text-sm font-semibold text-gray-800">${escapeHtml(value === undefined || value === null ? '—' : value)}</div>
           </div>`)
                 .join('');
         }
@@ -628,10 +655,10 @@ class ProsodyLabRecorder {
 
         const summary = record.summary || {};
         this.feedbackEl.innerHTML = `
-      <p><strong>Syllables:</strong> ${summary.syllable_count ?? '—'} estimated nuclei</p>
-      <p><strong>Pauses:</strong> ${summary.pause_count ?? '—'} detected spans</p>
-      <p><strong>Rhythm balance:</strong> ${formatMetricValue(summary.rhythm_balance)}</p>
-      <p><strong>Mean speaking note:</strong> ${summary.mean_note ?? '—'} (${formatMetricValue(summary.mean_f0_hz, ' Hz')})</p>
+      <p><strong>Syllables:</strong> ${escapeHtml(summary.syllable_count ?? '—')} estimated nuclei</p>
+      <p><strong>Pauses:</strong> ${escapeHtml(summary.pause_count ?? '—')} detected spans</p>
+      <p><strong>Rhythm balance:</strong> ${escapeHtml(formatMetricValue(summary.rhythm_balance))}</p>
+      <p><strong>Mean speaking note:</strong> ${escapeHtml(summary.mean_note ?? '—')} (${escapeHtml(formatMetricValue(summary.mean_f0_hz, ' Hz'))})</p>
     `;
     }
 
@@ -651,23 +678,24 @@ class ProsodyLabRecorder {
                 const isTeacher = record.recording_id === teacherId;
                 const isStudent = record.recording_id === studentId;
                 const createdAt = record.created_at ? new Date(record.created_at).toLocaleTimeString() : 'Just now';
+                const recordingId = escapeHtml(record.recording_id || '');
                 return `
           <div class="rounded-lg border border-gray-200 bg-white p-3 shadow-sm">
             <div class="flex items-start justify-between gap-3">
               <div>
-                <div class="font-medium text-gray-800">Recording ${record.recording_id.slice(0, 6)}</div>
-                <div class="text-xs text-gray-500">${createdAt}</div>
+                <div class="font-medium text-gray-800">Recording ${escapeHtml(String(record.recording_id || '').slice(0, 6))}</div>
+                <div class="text-xs text-gray-500">${escapeHtml(createdAt)}</div>
                 <div class="mt-2 text-sm text-gray-700">
-                  <span class="mr-3">Syllables: ${record.summary?.syllable_count ?? '—'}</span>
-                  <span class="mr-3">Pauses: ${record.summary?.pause_count ?? '—'}</span>
-                  <span>Balance: ${formatMetricValue(record.summary?.rhythm_balance)}</span>
+                  <span class="mr-3">Syllables: ${escapeHtml(record.summary?.syllable_count ?? '—')}</span>
+                  <span class="mr-3">Pauses: ${escapeHtml(record.summary?.pause_count ?? '—')}</span>
+                  <span>Balance: ${escapeHtml(formatMetricValue(record.summary?.rhythm_balance))}</span>
                 </div>
               </div>
               <div class="flex flex-col gap-2 text-xs">
-                <button type="button" class="rounded bg-blue-600 px-3 py-1 font-medium text-white hover:bg-blue-700" data-role="teacher" data-recording-id="${record.recording_id}">
+                <button type="button" class="rounded bg-blue-600 px-3 py-1 font-medium text-white hover:bg-blue-700" data-role="teacher" data-recording-id="${recordingId}">
                   ${isTeacher ? 'Teacher sample' : 'Set as teacher'}
                 </button>
-                <button type="button" class="rounded bg-emerald-600 px-3 py-1 font-medium text-white hover:bg-emerald-700" data-role="student" data-recording-id="${record.recording_id}">
+                <button type="button" class="rounded bg-emerald-600 px-3 py-1 font-medium text-white hover:bg-emerald-700" data-role="student" data-recording-id="${recordingId}">
                   ${isStudent ? 'Student sample' : 'Set as student'}
                 </button>
               </div>
@@ -729,7 +757,9 @@ function initializeProsodyLab() {
     const recorderContainer = document.getElementById('prosody-recorder');
     if (!recordBtn || !recorderContainer) return;
 
+    window.prosodyLabRecorder?.destroy?.();
     window.prosodyLabRecorder = new ProsodyLabRecorder();
+    const recorder = window.prosodyLabRecorder;
     window.prosodyLabRecorder.init().catch((error) => {
         console.error('Failed to initialize Prosody Lab:', error);
     });
@@ -740,7 +770,7 @@ function initializeProsodyLab() {
     const zoomLabel = document.getElementById('prosody-zoom-label');
 
     if (lockBtn) {
-        lockBtn.addEventListener('click', () => {
+        listen(recorder, lockBtn, 'click', () => {
             if (!window.prosodyLabRecorder) return;
             window.prosodyLabRecorder.locked = !window.prosodyLabRecorder.locked;
             lockBtn.classList.toggle('bg-blue-600', window.prosodyLabRecorder.locked);
@@ -751,7 +781,7 @@ function initializeProsodyLab() {
     }
 
     if (beatsSelect) {
-        beatsSelect.addEventListener('change', () => {
+        listen(recorder, beatsSelect, 'change', () => {
             if (!window.prosodyLabRecorder) return;
             const val = beatsSelect.value;
             if (val !== 'auto') {
@@ -762,7 +792,7 @@ function initializeProsodyLab() {
     }
 
     if (zoomSlider && zoomLabel) {
-        zoomSlider.addEventListener('input', () => {
+        listen(recorder, zoomSlider, 'input', () => {
             if (!window.prosodyLabRecorder) return;
             window.prosodyLabRecorder.zoomLevel = parseFloat(zoomSlider.value);
             zoomLabel.textContent = `${window.prosodyLabRecorder.zoomLevel.toFixed(2)}x`;

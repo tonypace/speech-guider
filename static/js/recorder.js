@@ -1,3 +1,5 @@
+import { listen, releaseCapture } from './capture_resources.js';
+import { openAnalysisProgress } from './analysis_progress.js';
 import { convertAudioToWav } from './audio_conversion.js';
 
 /**
@@ -21,6 +23,15 @@ class IntercomRecorder {
         this.maxDuration = 60; // 60 seconds max
         this.animationId = null;
         this.location = options.location || window.location;
+        this.stream = null;
+        this.visualizerSource = null;
+        this.eventListeners = [];
+        this.eventsBound = false;
+        this.destroyed = false;
+        this.initPromise = null;
+        this.permissionRequestId = 0;
+        this.isStartingRecording = false;
+        this.cancelOnStop = false;
         
         this.initElements();
         this.bindEvents();
@@ -41,9 +52,13 @@ class IntercomRecorder {
     }
 
     bindEvents() {
+        if (this.eventsBound || this.destroyed) return;
+        this.eventsBound = true;
+        listen(this, window, 'beforeunload', () => this.destroy());
+
         // F5 key listener (disabled in Tauri mode - Tauri uses Tab instead)
         if (!window.__TAURI__) {
-            document.addEventListener('keydown', (e) => {
+            listen(this, document, 'keydown', (e) => {
                 if (e.key === 'F5' && window.currentTab === 'analysis') {
                     e.preventDefault();
                     if (!this.isRecording) {
@@ -52,7 +67,7 @@ class IntercomRecorder {
                 }
             });
 
-            document.addEventListener('keyup', (e) => {
+            listen(this, document, 'keyup', (e) => {
                 if (e.key === 'F5' && window.currentTab === 'analysis' && this.isRecording) {
                     e.preventDefault();
                     this.stopRecording();
@@ -62,18 +77,18 @@ class IntercomRecorder {
 
         // Mouse/Touch events
         if (this.recordBtn) {
-            this.recordBtn.addEventListener('mousedown', () => this.startRecording());
-            this.recordBtn.addEventListener('mouseup', () => this.stopRecording());
-            this.recordBtn.addEventListener('mouseleave', () => {
+            listen(this, this.recordBtn, 'mousedown', () => this.startRecording());
+            listen(this, this.recordBtn, 'mouseup', () => this.stopRecording());
+            listen(this, this.recordBtn, 'mouseleave', () => {
                 if (this.isRecording) this.stopRecording();
             });
 
             // Touch events
-            this.recordBtn.addEventListener('touchstart', (e) => {
+            listen(this, this.recordBtn, 'touchstart', (e) => {
                 e.preventDefault();
                 this.startRecording();
             });
-            this.recordBtn.addEventListener('touchend', (e) => {
+            listen(this, this.recordBtn, 'touchend', (e) => {
                 e.preventDefault();
                 this.stopRecording();
             });
@@ -81,7 +96,7 @@ class IntercomRecorder {
 
         // File upload input
         if (this.audioInput) {
-            this.audioInput.addEventListener('change', (e) => {
+            listen(this, this.audioInput, 'change', (e) => {
                 const file = e.target.files && e.target.files[0];
                 if (file) {
                     this.handleFileUpload(file);
@@ -91,6 +106,14 @@ class IntercomRecorder {
     }
 
     async init() {
+        if (this.destroyed) return;
+        if (this.stream && this.mediaRecorder) return;
+        if (this.initPromise) return this.initPromise;
+        this.initPromise = this._initialize();
+        return this.initPromise;
+    }
+
+    async _initialize() {
         console.log('Initializing recorder...');
         console.log('Protocol:', this.location.protocol);
         console.log('Hostname:', this.location.hostname);
@@ -117,8 +140,15 @@ class IntercomRecorder {
             return;
         }
 
+        const requestId = ++this.permissionRequestId;
+        this.isStartingRecording = true;
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            this.isStartingRecording = false;
+            if (this.destroyed || requestId !== this.permissionRequestId) {
+                stream.getTracks().forEach((track) => track.stop());
+                return;
+            }
             this.setupRecorder(stream);
             this.setupVisualizer(stream);
             
@@ -130,9 +160,35 @@ class IntercomRecorder {
                 this.fileUploadSection.style.display = 'none';
             }
         } catch (err) {
+            this.isStartingRecording = false;
+            if (this.destroyed || requestId !== this.permissionRequestId) return;
+            releaseCapture(this);
+            this.mediaRecorder = null;
             console.error('Microphone access denied:', err);
             this.showPermissionPrompt();
+        } finally {
+            if (!this.destroyed) this.initPromise = null;
         }
+    }
+
+    destroy() {
+        if (this.destroyed) return;
+        this.destroyed = true;
+        this.permissionRequestId += 1;
+        this.isStartingRecording = false;
+        this.cancelOnStop = true;
+        this.isRecording = false;
+        clearInterval(this.timerInterval);
+        clearTimeout(this.recordingTimeout);
+        if (this.animationId) cancelAnimationFrame(this.animationId);
+        this.animationId = null;
+        if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') this.mediaRecorder.stop();
+        this.eventListeners.forEach(([target, type, handler, options]) => target.removeEventListener(type, handler, options));
+        this.eventListeners = [];
+        releaseCapture(this);
+        this.mediaRecorder = null;
+        this.audioChunks = [];
+        this.recordBtn?.classList.remove('recording');
     }
 
     showPermissionPrompt() {
@@ -197,6 +253,7 @@ class IntercomRecorder {
     }
 
     setupRecorder(stream) {
+        this.stream = stream;
         this.mediaRecorder = new MediaRecorder(stream);
         
         this.mediaRecorder.ondataavailable = (e) => {
@@ -206,6 +263,7 @@ class IntercomRecorder {
         };
 
         this.mediaRecorder.onstop = () => {
+            if (this.cancelOnStop || this.destroyed) return;
             this.sendForAnalysis();
         };
     }
@@ -213,6 +271,7 @@ class IntercomRecorder {
     setupVisualizer(stream) {
         this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
         const source = this.audioContext.createMediaStreamSource(stream);
+        this.visualizerSource = source;
         this.analyser = this.audioContext.createAnalyser();
         this.analyser.fftSize = 256;
         source.connect(this.analyser);
@@ -222,7 +281,7 @@ class IntercomRecorder {
     }
 
     startRecording() {
-        if (this.isRecording || !this.mediaRecorder) return;
+        if (this.destroyed || this.isStartingRecording || this.isRecording || !this.mediaRecorder) return;
 
         this.isRecording = true;
         this.audioChunks = [];
@@ -262,6 +321,7 @@ class IntercomRecorder {
     }
 
     stopRecording() {
+        if (this.destroyed) return;
         if (!this.isRecording) return;
 
         this.isRecording = false;
@@ -326,7 +386,7 @@ class IntercomRecorder {
     }
 
     async sendForAnalysis() {
-        if (this.audioChunks.length === 0) {
+        if (this.destroyed || this.audioChunks.length === 0) {
             console.error('No audio recorded');
             return;
         }
@@ -335,7 +395,7 @@ class IntercomRecorder {
 
         try {
             const wavBlob = await this.convertToWav(audioBlob);
-            await this.submitAudioBlob(wavBlob, 'recording.wav');
+            if (!this.destroyed) await this.submitAudioBlob(wavBlob, 'recording.wav');
         } finally {
             if (this.recTimer) {
                 this.recTimer.textContent = '00:00';
@@ -359,6 +419,13 @@ class IntercomRecorder {
         const progressContainer = document.getElementById('progress-container');
         if (progressContainer) progressContainer.classList.remove('hidden');
 
+        const progress = await openAnalysisProgress((update) => {
+            const bar = document.getElementById('progress-bar');
+            const text = document.getElementById('progress-text');
+            if (bar) bar.style.width = `${Math.max(0, Math.min(1, update.progress)) * 100}%`;
+            if (text) text.textContent = update.message;
+        });
+        if (progress) formData.append('job_id', progress.jobId);
         try {
             const response = await fetch('/api/analyze', {
                 method: 'POST',
@@ -370,10 +437,13 @@ class IntercomRecorder {
             }
 
             const result = await response.json();
-            this.displayResults(result);
+            if (!this.destroyed) this.displayResults(result);
         } catch (error) {
             console.error('Analysis failed:', error);
             alert('Analysis failed: ' + error.message);
+        } finally {
+            if (progress) progress.close();
+            if (progressContainer) progressContainer.classList.add('hidden');
         }
     }
 
@@ -487,11 +557,13 @@ class IntercomRecorder {
                 `;
                 console.log('[displayResults] Feedback HTML inserted');
             } else {
-                feedbackContainer.innerHTML = `
-                    <div class="bg-red-50 border border-red-200 rounded-lg p-6">
-                        <p class="text-red-700">${result.error || 'Analysis failed'}</p>
-                    </div>
-                `;
+                const errorCard = document.createElement('div');
+                errorCard.className = 'bg-red-50 border border-red-200 rounded-lg p-6';
+                const errorText = document.createElement('p');
+                errorText.className = 'text-red-700';
+                errorText.textContent = result.error || 'Analysis failed';
+                errorCard.appendChild(errorText);
+                feedbackContainer.replaceChildren(errorCard);
             }
         }
 
@@ -526,11 +598,12 @@ class IntercomRecorder {
             btn.className = 'w-full text-left px-4 py-3 border border-gray-200 rounded hover:bg-gray-50 transition mb-2';
             btn.innerHTML = `
                 <span class="font-medium">${index + 1}.</span>
-                <span class="text-gray-700">'${error.word_context}':</span>
+                <span class="text-gray-700" data-word-context></span>
                 <span class="text-red-600">${window.wrapIPATooltip(error.target_phoneme)}</span>
                 <span class="text-gray-400">→</span>
                 <span class="text-blue-600">${window.wrapIPATooltip(error.predicted_phoneme)}</span>
             `;
+            btn.querySelector('[data-word-context]').textContent = `'${error.word_context}':`;
             btn.onclick = () => window.selectError(index);
             errorList.appendChild(btn);
             console.log(`[populateErrors] Created button ${index} for error:`, error);
@@ -558,6 +631,7 @@ if (typeof document !== 'undefined' && document.addEventListener) {
         }
         
         console.log('Found recorder elements, creating instance...');
+        window.recorder?.destroy?.();
         window.recorder = new IntercomRecorder();
         
         // Always show the recorder UI first

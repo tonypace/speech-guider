@@ -1,5 +1,10 @@
 # Backend review
 
+This is the initial review inventory. Several findings below were resolved in the
+[prioritized follow-up](review-refactor.md#follow-up-implementation); consult that
+report and the architecture guide for current status.
+
+
 Reviewed every Python source module under `app/`: `main`, API routers (`analyze`,
 `comparison`, `errors`, `presets`, `prosody_lab`, `sse`), request/response schemas,
 state/concurrency services, audio utilities, and package initializers. Existing

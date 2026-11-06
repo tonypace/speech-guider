@@ -6,6 +6,7 @@ redundant model loading across analysis and comparison endpoints.
 
 import logging
 import os
+from pathlib import Path
 from threading import Lock
 
 from src.models.ssl_aai_predictor import SSLAAIPredictor
@@ -29,3 +30,36 @@ def get_ssl_predictor() -> SSLAAIPredictor:
             _cached_ssl_predictor = predictor
             logger.info("[model_cache] R4 predictor initialized and cached.")
     return _cached_ssl_predictor
+
+
+def get_ssl_cache_identity() -> dict[str, object]:
+    """Identify actual loaded assets, or configured assets before lazy loading."""
+    from src.audio.reference_tts import file_identity
+    from src.models.ssl_aai_predictor import DEFAULT_R4_BUNDLE
+
+    with _model_lock:
+        predictor = _cached_ssl_predictor
+        bundle = (
+            (
+                predictor.bundle_path
+                if predictor
+                else Path(os.getenv("SSL_AAI_BUNDLE_PATH", str(DEFAULT_R4_BUNDLE)))
+            )
+            .expanduser()
+            .resolve()
+        )
+        checkpoint = (
+            predictor.checkpoint_path
+            if predictor
+            else Path(os.getenv("SSL_AAI_CHECKPOINT_PATH", str(bundle / "weights" / "r4.pt")))
+        )
+        return {
+            "pipeline": "contentvec-l7-r4-canonical-v1",
+            "decoder": file_identity(checkpoint),
+            "encoder": file_identity(bundle / "weights" / "contentvec" / "model.safetensors"),
+            "contract": file_identity(bundle / "configs" / "nine_channel_v12_100ms.yaml"),
+            "encoder_config": file_identity(bundle / "weights" / "contentvec" / "config.json"),
+            "feature_config": file_identity(
+                bundle / "weights" / "contentvec" / "preprocessor_config.json"
+            ),
+        }

@@ -1,5 +1,10 @@
 # Frontend review and refactor
 
+This is the initial review inventory. Several findings below were resolved in the
+[prioritized follow-up](review-refactor.md#follow-up-implementation); consult that
+report and the architecture guide for current status.
+
+
 Reviewed module boundaries, template loading, renderer lifecycle, recording, comparison request handling, storage, and tooltip rendering against the existing dirty worktree. Existing frontend changes were almost entirely formatting (`git diff -w`); preserved those changes.
 
 ## Implemented

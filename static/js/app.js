@@ -38,6 +38,16 @@ window.svgRightRenderer = null;
 const SvgPhonemePresets = window.__PHONEME_PRESETS__ || {};
 window.SvgPhonemePresets = SvgPhonemePresets;
 
+function loadCustomPhonemePresets() {
+    try {
+        const parsed = JSON.parse(localStorage.getItem('customPhonemePresets') || '{}');
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch (error) {
+        console.warn('[phoneme presets] Ignoring malformed saved presets:', error);
+        return {};
+    }
+}
+
 function normalizeTongueDegree(value, legacyRestDistance) {
     const numericValue = Number(value);
     void legacyRestDistance;
@@ -265,7 +275,7 @@ window.selectPhoneme = function selectPhoneme(phoneme) {
         params: DEFAULT_SVG_STATE,
     };
 
-    const customPresets = JSON.parse(localStorage.getItem('customPhonemePresets') || '{}');
+    const customPresets = loadCustomPhonemePresets();
     const presetSource = customPresets[phoneme] || preset;
     const presetParams = normalizeSvgState(
         presetSource.params !== undefined ? presetSource.params : (presetSource.state || DEFAULT_SVG_STATE),
@@ -295,7 +305,7 @@ window.selectPhoneme = function selectPhoneme(phoneme) {
 window.savePhonemePosition = function savePhonemePosition() {
     if (!window.selectedPhoneme) return;
     const params = getSvgControlState();
-    const customPresets = JSON.parse(localStorage.getItem('customPhonemePresets') || '{}');
+    const customPresets = loadCustomPhonemePresets();
     customPresets[window.selectedPhoneme] = {
         name: SvgPhonemePresets[window.selectedPhoneme]?.name || window.selectedPhoneme,
         params: normalizeSvgState(params),
