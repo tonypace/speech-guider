@@ -122,3 +122,42 @@ describe('comparison disposal', () => {
         expect(close).toHaveBeenCalledOnce();
     });
 });
+
+describe('desktop-compatible comparison upload', () => {
+    afterEach(() => vi.unstubAllGlobals());
+
+    it('uses the same mono 16 kHz WAV for the analysis upload and playback', async () => {
+        const lab = new ComparisonLab();
+        lab.currentTargetText = 'Practice sentence';
+        lab.recordedChunks = [new Blob(['encoded audio'], { type: 'audio/mp4' })];
+        const close = vi.fn().mockResolvedValue();
+        vi.stubGlobal('AudioContext', vi.fn(function() {
+            this.close = close;
+            this.decodeAudioData = async () => ({
+                length: 2, numberOfChannels: 2, sampleRate: 16000,
+                getChannelData: (channel) => channel ? [1, -1] : [0, 0],
+            });
+        }));
+        const frames = [{ jaw: 0.5 }];
+        lab.controller = { loadStudent: vi.fn().mockResolvedValue(true) };
+        const post = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ssl_trajectory: { frames } })));
+        vi.stubGlobal('fetch', post);
+        await lab.processRecording();
+
+        const [, request] = post.mock.calls[0];
+        const uploaded = request.body.get('audio');
+        const [, playback] = lab.controller.loadStudent.mock.calls[0];
+        expect(uploaded.name).toBe('recording.wav');
+        expect(uploaded.type).toBe('audio/wav');
+        expect(request.body.get('target_text')).toBe('Practice sentence');
+        const bytes = await uploaded.arrayBuffer();
+        expect(bytes).toEqual(await playback.arrayBuffer());
+        const wav = new DataView(bytes);
+        expect(wav.getUint16(22, true)).toBe(1);
+        expect(wav.getUint32(24, true)).toBe(16000);
+        expect(wav.getInt16(44, true)).toBe(16383);
+        expect(wav.getInt16(46, true)).toBe(-16384);
+        expect(close).toHaveBeenCalledOnce();
+        expect(lab.studentLoaded).toBe(true);
+    });
+});

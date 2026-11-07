@@ -27,7 +27,7 @@ class TauriController {
    */
     detectTauri() {
         return typeof window !== 'undefined' &&
-           window.__TAURI__ !== undefined;
+           (window.__SPEECH_GUIDER_TAURI__ === true || window.__TAURI__ !== undefined);
     }
 
     /**

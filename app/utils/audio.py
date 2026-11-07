@@ -14,6 +14,7 @@ import torch
 from fastapi import UploadFile
 
 from app.services.concurrency import await_owned
+from src.services.desktop_assets import asset_override
 
 
 class AudioConversionError(Exception):
@@ -75,6 +76,13 @@ def _save_contents_to_temp(contents: bytes, original_filename: str) -> str:
     return tmp_path
 
 
+def _ffmpeg_command() -> str:
+    configured = asset_override("SPEECH_GUIDER_FFMPEG_PATH", "bin/ffmpeg")
+    if configured and (os.getenv("SPEECH_GUIDER_FFMPEG_PATH") or Path(configured).is_file()):
+        return configured
+    return "ffmpeg"
+
+
 def _convert_to_wav(input_path: str) -> str:
     """Convert audio file to WAV using ffmpeg.
 
@@ -93,7 +101,7 @@ def _convert_to_wav(input_path: str) -> str:
     try:
         result = subprocess.run(
             [
-                "ffmpeg",
+                _ffmpeg_command(),
                 "-y",
                 "-i",
                 input_path,

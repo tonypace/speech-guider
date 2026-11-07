@@ -6,7 +6,7 @@
     <title>Pronunciation & Prosody Evaluator</title>
     
     <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/static/css/tailwind.min.css">
     
     <!-- Custom CSS -->
     <link rel="stylesheet" href="/static/css/vocal_tract.css">
@@ -21,6 +21,17 @@
             <h1 class="text-4xl font-bold text-gray-900 mb-2">Pronunciation & Prosody Evaluator</h1>
             <p class="text-gray-600">Record yourself reading the target sentence and receive instant feedback on pronunciation and intonation.</p>
         </header>
+
+        {% if desktop_assets_missing %}
+        <aside id="desktop-asset-setup" class="mb-6 rounded-lg bg-amber-50 p-4 text-sm text-amber-900" aria-label="Local model setup">
+            <p class="font-semibold">Set up local models for articulatory analysis and reference speech</p>
+            <p>Install files in <code class="break-all">{{ desktop_asset_dir }}</code>, then restart Speech Guider.</p>
+            <ul class="list-disc pl-5">
+                {% for requirement in desktop_assets_missing %}<li>{{ requirement }}</li>{% endfor %}
+            </ul>
+            <p>Prosody Lab and Animation Lab are ready to use.</p>
+        </aside>
+        {% endif %}
 
         <!-- Tab Navigation -->
         <div class="flex border-b border-gray-200 mb-6">
@@ -594,9 +605,11 @@
 
     <script>
         window.__FEATURE_FLAGS__ = {{ feature_flags | tojson }};
+        window.__SPEECH_GUIDER_DESKTOP__ = {{ is_desktop | tojson }};
+        window.__DESKTOP_HISTORY__ = {{ desktop_history | tojson }};
         window.__PHONEME_PRESETS__ = {{ phoneme_presets | tojson }};
     </script>
-    <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+    <script src="/static/vendor/plotly-2.32.0/plotly.min.js"></script>
     <script type="module" src="/static/js/app.js"></script>
     <script type="module" src="/static/js/ssl_comparison_controller.js"></script>
     <script type="module" src="/static/js/comparison_lab.js"></script>

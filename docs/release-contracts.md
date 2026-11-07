@@ -2,55 +2,33 @@
 
 ## Student comparison audio
 
-Comparison Lab retains the captured WebM blob associated with a submitted student
-analysis. It decodes that same blob into its controller's student AudioBuffer;
-server animation frames remain at 50 Hz. The server continues to normalize its
-inference input to mono 16 kHz without returning a duplicate base64 student clip.
-The controller starts frame/audio clocks at zero, applies playback speed to both,
-and invalidates pending decodes on replacement/disposal. Re-recording while an
-analysis is pending uses a generation token through response, decode, and commit.
-No voiced-frame alignment or TTS time-stretch correction is implied. Audible
-synchronization across browser codecs still needs physical device validation.
+Comparison Lab converts the captured recording to mono 16 kHz PCM WAV in the
+browser. It uploads that clip and decodes the same clip for student playback.
+Server animation frames remain at 50 Hz, and the API does not return duplicate
+student audio. The controller applies playback speed to both clocks and invalidates
+pending decodes on replacement or disposal. No voiced-frame alignment or TTS
+time-stretch correction is implied. Audible sync still needs physical validation.
 
-## Desktop runtime boundary
+## Desktop runtime
 
-Development currently owns Python and Tauri together through `npm run dev`, using
-loopback port 7860 and `/health` readiness. The Tauri release configuration embeds
-Jinja templates; it does not package or start Python. This is not a standalone
-release installation, and production Python packaging was excluded from the
-original desktop-shell change.
+The [standalone macOS build](desktop-release.md) packages a native backend, rendered
+web app inputs, and local frontend assets. The shell owns the backend process group;
+the backend binds an OS-selected loopback port and writes a PID-bound readiness file.
+The shell checks health before navigation and shows local startup or crash feedback.
+Presets and prosody summaries persist in app data across port changes; model assets
+remain separately installed with their supplied terms.
 
-A standalone release must satisfy these requirements before being advertised:
+The local release target is Apple Silicon on macOS 26+. Distribution signing,
+notarization, a clean-machine install, physical microphone permissions, clicker
+hardware, and real-recording playback are separate validation steps.
 
-- Package a native, versioned backend executable plus templates/static assets;
-  never serve unrendered Jinja as the application's entrypoint.
-- Let the native host own one backend process group, readiness timeout, and exit
-  cleanup. Bind loopback only, select an available port, and pass it to the WebView.
-- Place writable presets in an application-data directory using
-  `SPEECH_GUIDER_PRESETS_FILE`; migrate a prior file only after checking both paths.
-- Treat ContentVec/R4/TTS weights as separately installed local assets with supplied
-  terms, explicit paths, readable errors, and a defined update/revision policy.
-- Validate clean-machine launch, occupied ports, backend crash, repeated launches,
-  native microphone permissions, clicker flow, and final process cleanup.
+## Offline frontend
 
-The repository has deterministic development-process lifecycle tests; these do
-not validate a packaged sidecar, code signing, entitlements, or installer behavior.
-
-## Offline frontend plan
-
-Unused HTMX has been removed. Tailwind's browser CDN compiler and Plotly 2.32.0
-remain network dependencies in the template. Before claiming offline classroom
-support, replace them through a separate asset/build change:
-
-1. Generate static Tailwind CSS from template and JS class usage, explicitly
-   safelisting dynamically constructed classes and keeping its license.
-2. Vendor the tested Plotly bundle and license under versioned `static/vendor/`
-   paths. Pin hashes and document provenance; keep runtime network fetches absent.
-3. Serve only local assets in the template; record the build command and lockfile.
-4. Test with external network requests blocked: app load, all tabs, selected/saved
-   phonemes, dynamic feedback colors, plots, and native shell rendering.
-
-This plan avoids silently claiming offline support from an online browser test.
+Tailwind 3.4.19 is compiled to static CSS; Plotly 2.32.0 ships locally. The lockfile,
+licenses and checksum manifest record provenance. Use `npm run assets:build` after
+changing UI classes and `npm run assets:check` to verify artifacts. The offline
+browser check blocks external requests and covers all tabs, saved presets, dynamic
+feedback styles and rendered plots. See [asset provenance](../static/vendor/README.md).
 
 ## Acoustic validation
 

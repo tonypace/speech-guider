@@ -1,0 +1,16 @@
+{
+  "bundle": {
+    "active": true,
+    "targets": [
+      "app"
+    ],
+    "macOS": {
+      "files": {
+        "Resources/backend": "../build/desktop-backend/speech-guider-backend"
+      },
+      "minimumSystemVersion": "26.0",
+      "signingIdentity": "-",
+      "hardenedRuntime": false
+    }
+  }
+}

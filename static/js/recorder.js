@@ -1,6 +1,6 @@
 import { listen, releaseCapture } from './capture_resources.js';
 import { openAnalysisProgress } from './analysis_progress.js';
-import { convertAudioToWav } from './audio_conversion.js';
+import { convertAudioToWav, encodePcmWav } from './audio_conversion.js';
 
 /**
  * Intercom-style audio recorder with F5 support
@@ -57,7 +57,7 @@ class IntercomRecorder {
         listen(this, window, 'beforeunload', () => this.destroy());
 
         // F5 key listener (disabled in Tauri mode - Tauri uses Tab instead)
-        if (!window.__TAURI__) {
+        if (!window.__SPEECH_GUIDER_TAURI__ && !window.__TAURI__) {
             listen(this, document, 'keydown', (e) => {
                 if (e.key === 'F5' && window.currentTab === 'analysis') {
                     e.preventDefault();
@@ -391,7 +391,7 @@ class IntercomRecorder {
             return;
         }
 
-        const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' });
+        const audioBlob = new Blob(this.audioChunks, { type: this.mediaRecorder?.mimeType || this.audioChunks[0]?.type });
 
         try {
             const wavBlob = await this.convertToWav(audioBlob);
@@ -459,7 +459,8 @@ class IntercomRecorder {
 
         try {
             const wavBlob = await this.convertToWav(file);
-            await this.submitAudioBlob(wavBlob, file.name);
+            const basename = file.name.replace(/\.[^.]+$/, '') || 'upload';
+            await this.submitAudioBlob(wavBlob, `${basename}.wav`);
         } catch (error) {
             console.error('File upload failed:', error);
             alert('Failed to process audio file: ' + error.message);
@@ -478,63 +479,8 @@ class IntercomRecorder {
         return convertAudioToWav(audioBlob, 16000, (buffer, length) => this.bufferToWave(buffer, length));
     }
 
-    bufferToWave(abuffer, len) {
-        const numOfChan = abuffer.numberOfChannels;
-        const length = len * numOfChan * 2 + 44;
-        const buffer = new ArrayBuffer(length);
-        const view = new DataView(buffer);
-        const channels = [];
-        let offset = 0;
-        let pos = 0;
-
-        // Write WAV header
-        // "RIFF" chunk descriptor
-        setUint32(0x46464952); // "RIFF"
-        setUint32(length - 8); // file length - 8
-        setUint32(0x45564157); // "WAVE"
-
-        // "fmt " sub-chunk
-        setUint32(0x20746d66); // "fmt "
-        setUint32(16); // length = 16
-        setUint16(1); // PCM (uncompressed)
-        setUint16(numOfChan);
-        setUint32(abuffer.sampleRate);
-        setUint32(abuffer.sampleRate * 2 * numOfChan); // avg. bytes/sec
-        setUint16(numOfChan * 2); // block-align
-        setUint16(16); // 16-bit (hardcoded in this example)
-
-        // "data" sub-chunk
-        setUint32(0x61746164); // "data"
-        setUint32(length - pos - 4); // chunk length
-
-        // Write interleaved data
-        for (let i = 0; i < abuffer.numberOfChannels; i++) {
-            channels.push(abuffer.getChannelData(i));
-        }
-
-        while (pos < length) {
-            for (let i = 0; i < numOfChan; i++) {
-                // Interleave channels
-                let sample = Math.max(-1, Math.min(1, channels[i][offset]));
-                // Convert to 16-bit signed integer
-                sample = (0.5 + sample < 0 ? sample * 32768 : sample * 32767) | 0;
-                view.setInt16(pos, sample, true);
-                pos += 2;
-            }
-            offset++;
-        }
-
-        return new Blob([buffer], { type: 'audio/wav' });
-
-        function setUint16(data) {
-            view.setUint16(pos, data, true);
-            pos += 2;
-        }
-
-        function setUint32(data) {
-            view.setUint32(pos, data, true);
-            pos += 4;
-        }
+    bufferToWave(buffer, length) {
+        return encodePcmWav(buffer, length);
     }
 
     displayResults(result) {

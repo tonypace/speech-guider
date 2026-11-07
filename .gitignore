@@ -91,6 +91,7 @@ coverage/
 *.webm
 *.png
 !test-results/.gitkeep
+!src-tauri/icons/icon.png
 
 # Tauri build artifacts
 src-tauri/target/

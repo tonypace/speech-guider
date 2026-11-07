@@ -72,7 +72,8 @@ mixed presentation/state logic; decomposition is prioritized in the review.
 
 Inference gates, progress history, and caches are process-local: run one backend
 worker. Presets default to project-root `presets.json`, with an explicit override,
-atomic replacement and read-modify-write locking. The desktop release bundle still
-has no Python sidecar, and Tailwind/Plotly remain CDN dependencies. See
-[release contracts](release-contracts.md) for packaging/offline acceptance and
-scientific validation work still needed.
+atomic replacement and read-modify-write locking. The [standalone macOS
+release](desktop-release.md) packages Python and local frontend assets, and owns
+the backend on a free loopback port. Presets and desktop history
+persist in app data across port changes. See [release contracts](release-contracts.md)
+for distribution and acoustic validation still needed.

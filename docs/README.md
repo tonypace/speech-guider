@@ -7,6 +7,9 @@ PROJECT.md records product goals, and AGENTS.md defines contributor rules.
 | --- | --- |
 | [Development](development.md) | Setup, commands, checks, and coding boundaries |
 | [Progress API](progress-api.md) | Reservation, events, replay, cancellation and worker ownership |
+| [Installer assets and credits](installer-assets.md) | Local installer contents and component credits |
+| [R4 dataset attribution](attribution-for-r4.md) | Dataset creators, roles, and sources for R4 and its inherited models |
+| [Standalone macOS release](desktop-release.md) | Build, run, install local assets, and verify the desktop app |
 | [Release contracts](release-contracts.md) | Student audio, desktop packaging, offline assets and acoustic validation |
 | [Architecture](architecture.md) | Runtime ownership and data flow |
 | [Review and refactor](review-refactor.md) | Changes, validation, and prioritized remaining work |

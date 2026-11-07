@@ -7,6 +7,7 @@ export default defineConfig([
     {
         ignores: [
             'archive/**',
+            'build/**',
             'node_modules/',
             'speech-guider/',
             'AAI/**',
@@ -14,6 +15,7 @@ export default defineConfig([
             'external/**',
             'omnivoice-tts/**',
             'src-tauri/target/**',
+            'static/vendor/**',
             'coverage/**',
             'playwright-report/**',
             'test-results/**'
@@ -40,7 +42,9 @@ export default defineConfig([
     {
         files: [
             'playwright.config.js',
+            'tailwind.config.cjs',
             'vitest.config.js',
+            'scripts/**/*.cjs',
             'tests/e2e/**/*.js',
             'tests/js/**/*.js'
         ],

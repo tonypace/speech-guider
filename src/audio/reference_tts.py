@@ -22,6 +22,8 @@ from typing import Any, Optional, cast
 import numpy as np
 import soundfile as sf
 
+from src.services.desktop_assets import asset_override
+
 
 @dataclass
 class ReferenceAudio:
@@ -108,17 +110,21 @@ class OmniVoiceTTSProvider(TTSProvider):
         language: Optional[str] = None,
     ) -> None:
         self.tts_path = _require_file(
-            tts_path or os.environ.get("OMNIVOICE_TTS_PATH"),
+            tts_path or asset_override("OMNIVOICE_TTS_PATH", "omnivoice/omnivoice-tts"),
             "OMNIVOICE_TTS_PATH",
             "omnivoice-tts binary",
         )
         self.model_path = _require_file(
-            model_path or os.environ.get("OMNIVOICE_MODEL_PATH"),
+            model_path
+            or asset_override("OMNIVOICE_MODEL_PATH", "omnivoice/models/omnivoice-base-Q8_0.gguf"),
             "OMNIVOICE_MODEL_PATH",
             "omnivoice model",
         )
         self.codec_path = _require_file(
-            codec_path or os.environ.get("OMNIVOICE_CODEC_PATH"),
+            codec_path
+            or asset_override(
+                "OMNIVOICE_CODEC_PATH", "omnivoice/models/omnivoice-tokenizer-F32.gguf"
+            ),
             "OMNIVOICE_CODEC_PATH",
             "omnivoice codec",
         )

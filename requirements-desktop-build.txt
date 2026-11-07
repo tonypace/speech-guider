@@ -1,0 +1,7 @@
+# Build tooling only; install alongside the runtime requirements.
+PyInstaller==6.22.3
+pyinstaller-hooks-contrib==2026.9
+altgraph==0.17.5
+macholib==1.16.4
+packaging==24.2
+setuptools==84.2.1

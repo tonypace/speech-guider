@@ -10,6 +10,7 @@ from pathlib import Path
 from threading import Lock
 
 from src.models.ssl_aai_predictor import SSLAAIPredictor
+from src.services.desktop_assets import asset_override
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ def get_ssl_predictor() -> SSLAAIPredictor:
         if _cached_ssl_predictor is None:
             predictor = SSLAAIPredictor(
                 checkpoint_path=os.getenv("SSL_AAI_CHECKPOINT_PATH"),
-                bundle_path=os.getenv("SSL_AAI_BUNDLE_PATH"),
+                bundle_path=asset_override("SSL_AAI_BUNDLE_PATH", "r4"),
             )
             predictor.load()
             _cached_ssl_predictor = predictor
@@ -43,7 +44,7 @@ def get_ssl_cache_identity() -> dict[str, object]:
             (
                 predictor.bundle_path
                 if predictor
-                else Path(os.getenv("SSL_AAI_BUNDLE_PATH", str(DEFAULT_R4_BUNDLE)))
+                else Path(asset_override("SSL_AAI_BUNDLE_PATH", "r4") or DEFAULT_R4_BUNDLE)
             )
             .expanduser()
             .resolve()

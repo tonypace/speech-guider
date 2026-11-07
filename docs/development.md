@@ -40,8 +40,8 @@ Visit http://localhost:7860. `bash scripts/start-server.sh` resolves the reposit
 and its `speech-guider` environment even when invoked from another directory.
 `npm run dev` starts and owns both the backend and Tauri development shell; it
 fails if a server already answers on port 7860. `npm run tauri dev` launches only
-the shell and requires a separately running backend. Packaged desktop operation
-is still incomplete: the current bundle does not package/start Python.
+the shell and requires a separately running backend. For the self-contained Apple Silicon build, see
+[standalone macOS release](desktop-release.md).
 
 ## Checks
 

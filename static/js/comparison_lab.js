@@ -8,6 +8,7 @@
  * - Student recording integration
  */
 
+import { convertAudioToWav, encodePcmWav } from './audio_conversion.js';
 import { listen } from './capture_resources.js';
 import { SSLComparisonController } from './ssl_comparison_controller.js';
 
@@ -575,21 +576,19 @@ class ComparisonLab {
    */
     async processRecording() {
         if (this.destroyed) return;
-        const blob = new Blob(this.recordedChunks, { type: 'audio/webm' });
+        const blob = new Blob(this.recordedChunks, { type: this.mediaRecorder?.mimeType || this.recordedChunks[0]?.type });
         const generation = ++this.studentRequestId;
-        const formData = new FormData();
-        formData.append('audio', blob, 'recording.webm');
-        formData.append('target_text', this.currentTargetText);
-
-        // Debug: log what we're sending
-        console.log('[ComparisonLab] Sending recording:', {
-            blobSize: blob.size,
-            blobType: blob.type,
-            targetText: this.currentTargetText,
-        });
+        const targetText = this.currentTargetText;
+        const isCurrent = () => !this.destroyed && generation === this.studentRequestId;
 
         try {
             this.showStudentStatus('analyzing');
+            // The packaged backend can analyze these recordings without ffmpeg.
+            const wav = await convertAudioToWav(blob, 16000, (audio, length) => encodePcmWav(audio, length, true));
+            if (!isCurrent()) return;
+            const formData = new FormData();
+            formData.append('audio', wav, 'recording.wav');
+            formData.append('target_text', targetText);
 
             const response = await fetch('/api/analyze', {
                 method: 'POST',
@@ -619,7 +618,7 @@ class ComparisonLab {
 
             // Load student trajectory if available
             if (data.ssl_trajectory && data.ssl_trajectory.frames) {
-                await this.controller.loadStudent(data.ssl_trajectory.frames, blob, () => !this.destroyed && generation === this.studentRequestId);
+                await this.controller.loadStudent(data.ssl_trajectory.frames, wav, isCurrent);
                 if (this.destroyed || generation !== this.studentRequestId) return;
                 this.studentLoaded = true;
                 this.showStudentStatus('ready');

@@ -275,7 +275,7 @@ window.selectPhoneme = function selectPhoneme(phoneme) {
         params: DEFAULT_SVG_STATE,
     };
 
-    const customPresets = loadCustomPhonemePresets();
+    const customPresets = window.__SPEECH_GUIDER_DESKTOP__ ? {} : loadCustomPhonemePresets();
     const presetSource = customPresets[phoneme] || preset;
     const presetParams = normalizeSvgState(
         presetSource.params !== undefined ? presetSource.params : (presetSource.state || DEFAULT_SVG_STATE),
@@ -302,21 +302,35 @@ window.selectPhoneme = function selectPhoneme(phoneme) {
     }
 };
 
-window.savePhonemePosition = function savePhonemePosition() {
-    if (!window.selectedPhoneme) return;
-    const params = getSvgControlState();
-    const customPresets = loadCustomPhonemePresets();
-    customPresets[window.selectedPhoneme] = {
-        name: SvgPhonemePresets[window.selectedPhoneme]?.name || window.selectedPhoneme,
-        params: normalizeSvgState(params),
+window.savePhonemePosition = async function savePhonemePosition() {
+    const phoneme = window.selectedPhoneme;
+    if (!phoneme) return;
+    const preset = {
+        name: SvgPhonemePresets[phoneme]?.name || phoneme,
+        params: normalizeSvgState(getSvgControlState()),
     };
-    localStorage.setItem('customPhonemePresets', JSON.stringify(customPresets));
     const statusEl = document.getElementById('save-status');
-    if (statusEl) {
-        statusEl.textContent = 'Saved!';
-        setTimeout(() => {
-            statusEl.textContent = '';
-        }, 2000);
+    try {
+        if (window.__SPEECH_GUIDER_DESKTOP__) {
+            const response = await fetch('/api/presets', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ phoneme, ...preset }),
+            });
+            if (!response.ok) throw new Error('Preset save failed');
+            SvgPhonemePresets[phoneme] = preset;
+        } else {
+            const customPresets = loadCustomPhonemePresets();
+            customPresets[phoneme] = preset;
+            localStorage.setItem('customPhonemePresets', JSON.stringify(customPresets));
+        }
+        if (statusEl) {
+            statusEl.textContent = 'Saved!';
+            setTimeout(() => { statusEl.textContent = ''; }, 2000);
+        }
+    } catch (error) {
+        console.error('Preset save failed', error);
+        if (statusEl) statusEl.textContent = 'Could not save preset.';
     }
 };
 

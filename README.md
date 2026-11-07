@@ -2,10 +2,13 @@
 
 Speech Guider is a local-first pronunciation and prosody coaching app for ESL practice. It records speech, analyzes pronunciation and rhythm, and shows articulatory feedback through an SVG vocal-tract renderer.
 
+For the offline, standalone Apple Silicon build, see the
+[macOS release guide](docs/desktop-release.md).
+
 ## Current Status
 
 - Implemented: ContentVec-based SSL articulatory analysis, SVG articulatory feedback, Animation Lab, Prosody Lab, student-friendly prosody summaries, and the musical-score Prosody Lab display
-- In progress: Comparison Lab playback polish and validation, plus the Tauri classroom shell workflow
+- Desktop: offline standalone Apple Silicon build; hardware validation and distribution signing remain open
 - Backlog: phoneme-level error detection (requires CTC phoneme model), voice-quality metrics, and end-user help docs
 
 ## Features
@@ -16,7 +19,7 @@ Speech Guider is a local-first pronunciation and prosody coaching app for ESL pr
 - **Prosody Lab**: record short clips, inspect rhythm and pitch, and compare recent takes
 - **Musical-score display**: view Prosody Lab pitch as note lanes with truth-mode and lock-to-beat views
 - **Comparison Lab**: generate a reference animation from text and compare it side by side with a student trajectory
-- **Classroom-ready direction**: Tauri shell and clicker controls are present in the repo but still under validation
+- **Desktop**: local Apple Silicon app with tray shortcuts and clicker controls; physical classroom validation remains open
 
 ## Tech Stack
 

@@ -44,3 +44,35 @@ export function storeRecord(record, storage = localStorage) {
         }
     }
 }
+
+/** Desktop loopback origins change on relaunch; persist summaries in app data. */
+export function createDesktopHistoryStorage(initial) {
+    const state = { recordings: [], teacher_id: '', student_id: '', ...initial };
+    const fieldForKey = {
+        [HISTORY_KEY]: 'recordings',
+        [ROLE_KEYS.teacher]: 'teacher_id',
+        [ROLE_KEYS.student]: 'student_id',
+    };
+    let pending = Promise.resolve();
+    return {
+        getItem(key) {
+            if (key === HISTORY_KEY) return JSON.stringify(state.recordings);
+            return state[fieldForKey[key]] ?? null;
+        },
+        setItem(key, value) {
+            if (key === HISTORY_KEY) state.recordings = JSON.parse(value);
+            else if (fieldForKey[key]) state[fieldForKey[key]] = value;
+        },
+        flush() {
+            // Write snapshots in submission order, even if earlier saves fail.
+            const body = JSON.stringify(state);
+            pending = pending.catch(() => {}).then(async () => {
+                const response = await fetch('/api/desktop-history', {
+                    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body,
+                });
+                if (!response.ok) throw new Error('Could not save prosody history.');
+            });
+            return pending;
+        },
+    };
+}

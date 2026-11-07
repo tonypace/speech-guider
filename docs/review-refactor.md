@@ -60,11 +60,10 @@ source reloader, and readiness waits for application APIs instead of network idl
 
 | Priority | Finding | Next change and acceptance evidence |
 | --- | --- | --- |
-| Medium / release | Standalone Tauri release still lacks a packaged backend. | Implement the documented native sidecar/port/readiness/asset/storage contract and validate on a clean machine. Student comparison audio is implemented. |
-| Maintenance / release | Tailwind browser compilation and Plotly still load from CDNs. | Build static CSS and vendor licensed/pinned plot assets; run with external network blocked. Unused HTMX is removed. |
-| Domain validation | Voice-quality CPPS/spectral tilt remain heuristics; coaching thresholds need recorded-speech validation. | Follow the versioned Praat/reference-corpus plan in release contracts. Pitch units/basic tracking are now covered. |
-| Maintenance | Template/controllers still contain mixed rendering logic beyond extracted history/capture helpers. | Continue decomposition around covered pure-data boundaries; avoid cosmetic file moves. |
-| Operational limit | Jobs/gates/presets locks/caches are process-local, and history is bounded. | Run one backend worker; multi-process/multi-user support needs separate shared-state/authentication design. |
+| Release validation | Standalone Apple Silicon app and offline frontend are implemented. | Finish distribution signing, notarization, and clean-machine/physical-device validation before public release. See [desktop release](desktop-release.md). |
+| Domain validation | Voice-quality CPPS/spectral tilt remain heuristics; coaching thresholds need recorded-speech validation. | Follow the versioned Praat/reference-corpus plan in [release contracts](release-contracts.md) after desktop delivery. |
+| Deferred product research | Forced alignment and phoneme-level error detection remain incomplete. | Defer until pronunciation and rhythm interface research informs the feature. |
+| Optional maintenance | Some UI controllers still mix rendering and interaction. | Separate code when a feature or regression warrants it. Multi-user and multi-worker support are outside the current scope. |
 
 These release and domain items remain open. Large module decomposition
 should follow explicit lifecycle/data contracts and regression coverage, avoiding

@@ -1,10 +1,6 @@
-import { trimProsodyHistory, loadHistory, storeRecord, getRoleId, setRoleId } from './prosody_history.js';
+import { trimProsodyHistory, loadHistory, storeRecord, getRoleId, setRoleId, createDesktopHistoryStorage } from './prosody_history.js';
 import { listen, releaseCapture } from './capture_resources.js';
-import { convertAudioToWav } from './audio_conversion.js';
-
-function clamp(value, min, max) {
-    return Math.max(min, Math.min(max, value));
-}
+import { convertAudioToWav, encodePcmWav } from './audio_conversion.js';
 
 function midiToNoteName(midi) {
     if (midi === null || midi === undefined || Number.isNaN(midi)) {
@@ -264,6 +260,9 @@ class ProsodyLabRecorder {
         this.dataArray = null;
         this.animationId = null;
         this.maxDuration = 30;
+        this.historyStorage = window.__SPEECH_GUIDER_DESKTOP__
+            ? createDesktopHistoryStorage(window.__DESKTOP_HISTORY__)
+            : undefined;
         this.locked = false;
         this.beatsPerBar = 4;
         this.zoomLevel = 1.0;
@@ -308,7 +307,7 @@ class ProsodyLabRecorder {
         listen(this, window, 'beforeunload', () => this.destroy());
 
         // F5 key listener (disabled in Tauri mode - Tauri uses Tab instead)
-        if (!window.__TAURI__) {
+        if (!window.__SPEECH_GUIDER_TAURI__ && !window.__TAURI__) {
             listen(this, document, 'keydown', (event) => {
                 if (event.key === 'F5' && window.currentTab === 'prosody') {
                     event.preventDefault();
@@ -513,7 +512,7 @@ class ProsodyLabRecorder {
         }
 
         try {
-            const wavBlob = await this.convertToWav(new Blob(this.audioChunks, { type: 'audio/webm' }));
+            const wavBlob = await this.convertToWav(new Blob(this.audioChunks, { type: this.mediaRecorder?.mimeType || this.audioChunks[0]?.type }));
             if (this.destroyed) return;
             const formData = new FormData();
             formData.append('audio', wavBlob, 'prosody-recording.wav');
@@ -525,7 +524,7 @@ class ProsodyLabRecorder {
 
             const result = await response.json();
             if (this.destroyed) return;
-            this.storeRecord(result);
+            await this.storeRecord(result);
             this.renderFromStorage(result.recording_id);
             this.setStatus('Analysis complete.');
         } catch (error) {
@@ -542,75 +541,35 @@ class ProsodyLabRecorder {
         return convertAudioToWav(audioBlob, 44100, (buffer, length) => this.bufferToWave(buffer, length));
     }
 
-    bufferToWave(abuffer, len) {
-        const numOfChan = abuffer.numberOfChannels;
-        const length = len * numOfChan * 2 + 44;
-        const buffer = new ArrayBuffer(length);
-        const view = new DataView(buffer);
-        const channels = [];
-        let offset = 0;
-        let pos = 0;
-
-        setUint32(0x46464952);
-        setUint32(length - 8);
-        setUint32(0x45564157);
-        setUint32(0x20746d66);
-        setUint32(16);
-        setUint16(1);
-        setUint16(numOfChan);
-        setUint32(abuffer.sampleRate);
-        setUint32(abuffer.sampleRate * 2 * numOfChan);
-        setUint16(numOfChan * 2);
-        setUint16(16);
-        setUint32(0x61746164);
-        setUint32(length - pos - 4);
-
-        for (let channelIndex = 0; channelIndex < abuffer.numberOfChannels; channelIndex += 1) {
-            channels.push(abuffer.getChannelData(channelIndex));
-        }
-
-        while (pos < length) {
-            for (let channelIndex = 0; channelIndex < numOfChan; channelIndex += 1) {
-                let sample = clamp(channels[channelIndex][offset] || 0, -1, 1);
-                sample = (0.5 + sample < 0 ? sample * 32768 : sample * 32767) | 0;
-                view.setInt16(pos, sample, true);
-                pos += 2;
-            }
-            offset += 1;
-        }
-
-        return new Blob([buffer], { type: 'audio/wav' });
-
-        function setUint16(data) {
-            view.setUint16(pos, data, true);
-            pos += 2;
-        }
-
-        function setUint32(data) {
-            view.setUint32(pos, data, true);
-            pos += 4;
-        }
+    bufferToWave(buffer, length) {
+        return encodePcmWav(buffer, length);
     }
 
-    storeRecord(record) {
-        storeRecord(record);
+    async storeRecord(record) {
+        storeRecord(record, this.historyStorage);
+        await this.historyStorage?.flush();
     }
 
     loadHistory() {
-        return loadHistory();
+        return loadHistory(this.historyStorage);
     }
 
     getTeacherId() {
-        return getRoleId('teacher');
+        return getRoleId('teacher', this.historyStorage);
     }
 
     getStudentId() {
-        return getRoleId('student');
+        return getRoleId('student', this.historyStorage);
     }
 
-    setRole(role, recordingId) {
-        setRoleId(role, recordingId);
-        this.renderFromStorage();
+    async setRole(role, recordingId) {
+        try {
+            setRoleId(role, recordingId, this.historyStorage);
+            this.renderFromStorage();
+            await this.historyStorage?.flush();
+        } catch (error) {
+            this.setStatus(error.message, true);
+        }
     }
 
     renderFromStorage(currentId = '') {
@@ -747,7 +706,7 @@ class ProsodyLabRecorder {
             targetElement.innerHTML = '<div class="text-sm text-gray-500">No pitch data available.</div>';
             return;
         }
-        const config = { responsive: true, displayModeBar: true, scrollZoom: true };
+        const config = { responsive: true, displayModeBar: true, displaylogo: false, scrollZoom: true };
         window.Plotly.newPlot(targetElement, chartData.traces, chartData.layout, config);
     }
 }
