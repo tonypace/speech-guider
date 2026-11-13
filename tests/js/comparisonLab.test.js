@@ -58,12 +58,13 @@ describe('comparison request lifecycle', () => {
         expect(lab.referenceLoaded).toBe(true);
     });
 
-    it('decodes captured student blob into audio buffer', async () => {
+    it('decodes the captured student blob for playback', async () => {
         const controller = new SSLComparisonController();
-        controller.audioContext = { decodeAudioData: vi.fn().mockResolvedValue({ duration: 2 }) };
+        const decode = vi.fn().mockResolvedValue(null);
+        controller.audioContext = { decodeAudioData: decode };
         const blob = new Blob(['audio'], { type: 'audio/webm' });
         await controller.loadStudent([{ jaw: 0.5 }], blob);
-        expect(controller.audioBuffers.student.duration).toBe(2);
+        expect(new TextDecoder().decode(decode.mock.calls[0][0])).toBe('audio');
     });
 
     it('requests microphone only once while permission is pending', async () => {
@@ -106,7 +107,7 @@ describe('comparison disposal', () => {
         decoding.resolve({ duration: 1 });
         expect(await load).toBe(false);
         expect(controller.studentFrames).toEqual([]);
-        expect(controller.audioBuffers.student).toBeNull();
+        expect(controller.tracks.student).toBeNull();
     });
 
     it('closes playback context and invalidates pending decode on disposal', async () => {

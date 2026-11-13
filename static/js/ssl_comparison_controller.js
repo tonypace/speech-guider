@@ -6,14 +6,14 @@
  * Feeds frames to existing SVG renderer without modifying renderer geometry.
  */
 
+import { encodePcmWav } from './audio_conversion.js';
+import { getDurationMatch, measureSpeech } from './comparison_timing.js';
+
 class SSLComparisonController {
     constructor(options = {}) {
         this.destroyed = false;
         this.referenceFrames = options.referenceFrames || [];
         this.studentFrames = options.studentFrames || [];
-        this.referenceAudio = options.referenceAudio || null;
-        this.studentAudio = options.studentAudio || null;
-        this.audioSampleRate = options.audioSampleRate || 8000;
         this.frameRate = options.frameRate || 50;
 
         // Timeline state
@@ -27,18 +27,17 @@ class SSLComparisonController {
         // Loop region
         this.loopRegion = { enabled: false, start: 0, end: 0 };
 
-        // Audio contexts
         this.audioContext = null;
-        this.audioBuffers = { reference: null, student: null };
-        this.audioSources = { reference: null, student: null };
-        this.startTimes = { reference: 0, student: 0 };
-        this.pauseOffsets = { reference: 0, student: 0 };
+        this.tracks = { reference: null, student: null };
+        this.studentRate = 1;
+        this.durationMatching = false;
 
         // Frame callbacks
         this.onReferenceFrame = options.onReferenceFrame || (() => {});
         this.onStudentFrame = options.onStudentFrame || (() => {});
         this.onTimeUpdate = options.onTimeUpdate || (() => {});
         this.onPlayStateChange = options.onPlayStateChange || (() => {});
+        this.onPlaybackError = options.onPlaybackError || (() => {});
 
         // Animation frame ID for playback loop
         this.animationFrameId = null;
@@ -46,47 +45,45 @@ class SSLComparisonController {
     }
 
     /**
-   * Initialize or resume AudioContext
+   * Decode reference and student audio at the analysis sample rate.
    */
     initAudioContext() {
         if (this.destroyed) throw new Error('Playback controller disposed');
         if (!this.audioContext) {
-            this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        }
-        if (this.audioContext.state === 'suspended') {
-            this.audioContext.resume();
+            this.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
         }
         return this.audioContext;
     }
 
-    /**
-   * Load base64 audio data and decode to AudioBuffer
-   */
-    async loadAudio(base64Audio, type, isCurrent = () => true) {
-        const version = ++this.audioLoadVersions[type];
-        const binaryString = atob(base64Audio);
-        const bytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-            bytes[i] = binaryString.charCodeAt(i);
-        }
-
-        const ctx = this.initAudioContext();
-        const buffer = await ctx.decodeAudioData(bytes.buffer);
-        if (version === this.audioLoadVersions[type] && isCurrent()) {
-            this.audioBuffers[type] = buffer;
-            return buffer;
-        }
-        return null;
+    getTimingRate(type) {
+        return type === 'student' ? this.studentRate : 1;
     }
 
     /**
    * Get current duration for a track
    */
     getDuration(type) {
-        if (type === 'reference') {
-            return this.referenceFrames.length / this.frameRate;
-        } else {
-            return this.studentFrames.length / this.frameRate;
+        const track = this.tracks[type];
+        const frames = type === 'reference' ? this.referenceFrames : this.studentFrames;
+        return track ? track.duration / this.getTimingRate(type) : frames.length / this.frameRate;
+    }
+
+    getMatchRate() {
+        const { reference, student } = this.tracks;
+        if (!reference || !student || !student.audio.preservesPitch) return null;
+        return getDurationMatch(reference.speech, student.speech, reference.duration, student.duration);
+    }
+
+    setDurationMatching(enabled) {
+        const rate = enabled ? this.getMatchRate() : null;
+        const nextRate = rate ?? 1;
+        this.durationMatching = rate !== null;
+        if (nextRate !== this.studentRate) {
+            this.pause('reference');
+            this.pause('student');
+            const time = this.studentTime * this.studentRate;
+            this.studentRate = nextRate;
+            this.setTime('student', time / nextRate);
         }
     }
 
@@ -94,7 +91,8 @@ class SSLComparisonController {
    * Get current frame index for a track at given time
    */
     getFrameIndex(type, time) {
-        const frameIdx = Math.floor(time * this.frameRate);
+        const sourceTime = (this.tracks[type]?.start ?? 0) + time * this.getTimingRate(type);
+        const frameIdx = Math.floor((sourceTime + 1e-9) * this.frameRate);
         const frames = type === 'reference' ? this.referenceFrames : this.studentFrames;
         return Math.max(0, Math.min(frameIdx, frames.length - 1));
     }
@@ -131,7 +129,8 @@ class SSLComparisonController {
             this.setTime(otherType, otherTime, false);
         }
 
-        if (this.isPlaying[type]) this.startAudioSource(type);
+        const audio = this.tracks[type]?.audio;
+        if (audio) audio.currentTime = clampedTime * this.getTimingRate(type);
 
         // Emit frame update
         this.emitFrameUpdate(type);
@@ -157,18 +156,19 @@ class SSLComparisonController {
    */
     play(type) {
         if (this.isPlaying[type]) return;
-
-        const buffer = this.audioBuffers[type];
-        if (!buffer) {
-            console.warn(`[SSLComparisonController] No audio buffer for ${type}`);
-            // Still allow frame-only playback without audio
-        }
+        const duration = this.getDuration(type);
+        if (!duration) return;
+        const time = type === 'reference' ? this.referenceTime : this.studentTime;
+        if (time >= duration) this.setTime(type, 0);
 
         this.isPlaying[type] = true;
-        this.startTimes[type] = this.audioContext ? this.audioContext.currentTime : 0;
-
-        this.initAudioContext();
-        this.startAudioSource(type);
+        const track = this.tracks[type];
+        if (track) {
+            const { audio } = track;
+            audio.playbackRate = this.playbackSpeed * this.getTimingRate(type);
+            audio.currentTime = (type === 'reference' ? this.referenceTime : this.studentTime) * this.getTimingRate(type);
+            void this.playAudio(type, track);
+        }
 
         // Start animation loop if not already running
         if (!this.animationFrameId) {
@@ -186,11 +186,13 @@ class SSLComparisonController {
 
         this.isPlaying[type] = false;
 
-        this.stopAudioSource(type);
-
-        // Store pause offset
-        const currentTime = type === 'reference' ? this.referenceTime : this.studentTime;
-        this.pauseOffsets[type] = currentTime;
+        const audio = this.tracks[type]?.audio;
+        if (audio) {
+            audio.pause();
+            const time = Math.min(audio.currentTime / this.getTimingRate(type), this.getDuration(type));
+            if (type === 'reference') this.referenceTime = time;
+            else this.studentTime = time;
+        }
 
         // Check if both paused
         if (!this.isPlaying.reference && !this.isPlaying.student) {
@@ -200,30 +202,14 @@ class SSLComparisonController {
         this.onPlayStateChange(this.isPlaying.reference, this.isPlaying.student);
     }
 
-    stopAudioSource(type) {
-        const source = this.audioSources[type];
-        if (!source) return;
+    async playAudio(type, track) {
         try {
-            source.stop();
+            await track.audio.play();
         } catch (error) {
-            // A naturally completed source may already be stopped.
-            if (error.name !== 'InvalidStateError') throw error;
+            if (error.name === 'AbortError' || this.tracks[type] !== track || !this.isPlaying[type]) return;
+            this.pause(type);
+            this.onPlaybackError(type);
         }
-        source.disconnect();
-        this.audioSources[type] = null;
-    }
-
-    startAudioSource(type) {
-        this.stopAudioSource(type);
-        const buffer = this.audioBuffers[type];
-        const offset = type === 'reference' ? this.referenceTime : this.studentTime;
-        if (!buffer || offset >= buffer.duration) return;
-        const source = this.audioContext.createBufferSource();
-        source.buffer = buffer;
-        source.playbackRate.value = this.playbackSpeed;
-        source.connect(this.audioContext.destination);
-        source.start(0, offset);
-        this.audioSources[type] = source;
     }
 
     /**
@@ -256,22 +242,23 @@ class SSLComparisonController {
             return;
         }
 
-        const now = this.audioContext ? this.audioContext.currentTime : performance.now() / 1000;
+        const now = performance.now() / 1000;
         const deltaTime = (now - (this.lastFrameTime ?? now)) * this.playbackSpeed;
         this.lastFrameTime = now;
 
+        const { reference: playingReference, student: playingStudent } = this.isPlaying;
         for (const type of ['reference', 'student']) {
             this.advanceTrack(type, deltaTime);
         }
 
         // Sync linked playheads
         if (this.linkedPlayheads) {
-            if (this.isPlaying.reference && !this.isPlaying.student) {
+            if (playingReference && !playingStudent) {
                 const refDuration = this.getDuration('reference');
                 const studentDuration = this.getDuration('student');
                 const relativePos = refDuration > 0 ? this.referenceTime / refDuration : 0;
                 this.studentTime = relativePos * studentDuration;
-            } else if (this.isPlaying.student && !this.isPlaying.reference) {
+            } else if (playingStudent && !playingReference) {
                 const studentDuration = this.getDuration('student');
                 const refDuration = this.getDuration('reference');
                 const relativePos = studentDuration > 0 ? this.studentTime / studentDuration : 0;
@@ -284,23 +271,35 @@ class SSLComparisonController {
         this.emitFrameUpdate('student');
         this.onTimeUpdate(this.referenceTime, this.studentTime);
 
-        this.animationFrameId = requestAnimationFrame(() => this.animationLoop());
+        if (this.isPlaying.reference || this.isPlaying.student) {
+            this.animationFrameId = requestAnimationFrame(() => this.animationLoop());
+        }
     }
 
     advanceTrack(type, deltaTime) {
         if (!this.isPlaying[type]) return;
         const duration = this.getDuration(type);
         const timeKey = type === 'reference' ? 'referenceTime' : 'studentTime';
-        let time = this[timeKey] + deltaTime;
+        const track = this.tracks[type];
+        const audio = track?.audio;
+        const rate = this.getTimingRate(type);
+        let time = audio ? audio.currentTime / rate : this[timeKey] + deltaTime;
+        if (audio?.ended) time = duration;
         const { enabled, start, end } = this.loopRegion;
         const loopEnd = Math.min(end, duration);
         if (enabled && loopEnd > start && time >= loopEnd) {
             time = start + ((time - start) % (loopEnd - start));
-            this[timeKey] = time;
-            this.startAudioSource(type);
+            if (audio) {
+                const ended = audio.ended;
+                audio.currentTime = time * rate;
+                if (ended) void this.playAudio(type, track);
+            }
         }
         this[timeKey] = Math.min(time, duration);
-        if (time >= duration) this.pause(type);
+        if (time >= duration) {
+            this.pause(type);
+            this[timeKey] = duration;
+        }
     }
 
     /**
@@ -315,13 +314,13 @@ class SSLComparisonController {
     }
 
     /**
-   * Set playback speed (0.25x - 1.25x)
+   * Set a supported playback speed.
    */
     setSpeed(speed) {
-        const validSpeeds = [0.25, 0.5, 0.75, 1, 1.25];
+        const validSpeeds = [0.25, 0.3, 0.5, 0.75, 1, 1.25];
         this.playbackSpeed = validSpeeds.includes(speed) ? speed : 1.0;
-        for (const source of Object.values(this.audioSources)) {
-            if (source) source.playbackRate.value = this.playbackSpeed;
+        for (const [type, track] of Object.entries(this.tracks)) {
+            if (track) track.audio.playbackRate = this.playbackSpeed * this.getTimingRate(type);
         }
     }
 
@@ -391,34 +390,54 @@ class SSLComparisonController {
         const version = ++this.audioLoadVersions[type];
         let buffer = null;
         if (audio) {
-            if (typeof audio === 'string') {
-                const bytes = Uint8Array.from(atob(audio), char => char.charCodeAt(0));
-                buffer = await this.initAudioContext().decodeAudioData(bytes.buffer);
-            } else {
-                const bytes = await audio.arrayBuffer();
-                if (this.destroyed || !isCurrent()) return false;
-                buffer = await this.initAudioContext().decodeAudioData(bytes);
-            }
+            const bytes = typeof audio === 'string'
+                ? Uint8Array.from(atob(audio), char => char.charCodeAt(0)).buffer
+                : await audio.arrayBuffer();
+            if (this.destroyed || version !== this.audioLoadVersions[type] || !isCurrent()) return false;
+            buffer = await this.initAudioContext().decodeAudioData(bytes);
         }
         if (this.destroyed || version !== this.audioLoadVersions[type] || !isCurrent()) return false;
-        this.pause(type);
+        const track = buffer ? this.createTrack(buffer) : null;
+        this.resetTrack(type);
         if (type === 'reference') {
             this.referenceFrames = frames || [];
-            this.referenceTime = 0;
         } else {
             this.studentFrames = frames || [];
-            this.studentTime = 0;
         }
-        this.audioBuffers[type] = buffer;
-        this.pauseOffsets[type] = 0;
+        this.tracks[type] = track;
+        this.emitFrameUpdate(type);
         return true;
     }
 
+    createTrack(buffer) {
+        const speech = measureSpeech(buffer);
+        const start = Math.floor((speech?.start ?? 0) * buffer.sampleRate);
+        const end = Math.min(buffer.length, Math.ceil((speech?.end ?? buffer.duration) * buffer.sampleRate));
+        // PCM WAV gives both browser engines the same sample bounds and a seekable media clock.
+        const url = URL.createObjectURL(encodePcmWav(buffer, end - start, false, start));
+        const audio = new Audio();
+        if ('preservesPitch' in audio) audio.preservesPitch = true;
+        audio.src = url;
+        return {
+            audio,
+            url,
+            speech,
+            start: start / buffer.sampleRate,
+            duration: (end - start) / buffer.sampleRate,
+        };
+    }
+
     resetTrack(type) {
+        this.setDurationMatching(false);
         this.pause(type);
         this.audioLoadVersions[type]++;
-        this.audioBuffers[type] = null;
-        this.pauseOffsets[type] = 0;
+        const track = this.tracks[type];
+        if (track) {
+            track.audio.removeAttribute('src');
+            track.audio.load();
+            URL.revokeObjectURL(track.url);
+            this.tracks[type] = null;
+        }
         if (type === 'reference') this.referenceTime = 0;
         else this.studentTime = 0;
     }
@@ -438,10 +457,6 @@ class SSLComparisonController {
         this.resetTrack('student');
         this.referenceFrames = [];
         this.studentFrames = [];
-        this.referenceAudio = null;
-        this.studentAudio = null;
-        this.audioBuffers = { reference: null, student: null };
-        this.pauseOffsets = { reference: 0, student: 0 };
         this.zoomWindow = { start: 0, end: 1 };
         this.loopRegion = { enabled: false, start: 0, end: 0 };
     }

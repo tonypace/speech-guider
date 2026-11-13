@@ -3,11 +3,16 @@
 ## Student comparison audio
 
 Comparison Lab converts the captured recording to mono 16 kHz PCM WAV in the
-browser. It uploads that clip and decodes the same clip for student playback.
-Server animation frames remain at 50 Hz, and the API does not return duplicate
-student audio. The controller applies playback speed to both clocks and invalidates
-pending decodes on replacement or disposal. No voiced-frame alignment or TTS
-time-stretch correction is implied. Audible sync still needs physical validation.
+browser. It uploads that clip for analysis and uses it to prepare student
+playback. Comparison playback trims quiet edges on both tracks and keeps up to
+100 ms of padding at each detected edge. It maps the playback position back to
+the original 50 Hz animation frames.
+
+**Match duration** is opt-in for each take. It uses pitch-preserving media
+playback to match the trimmed reference duration when the required rate is
+within 15% of the original and the recording passes minimum activity checks.
+Duration and activity are heuristics. The learner confirms that the recording
+contains all the target words.
 
 ## Desktop runtime
 

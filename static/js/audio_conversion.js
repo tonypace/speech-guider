@@ -11,7 +11,7 @@ export async function convertAudioToWav(audioBlob, sampleRate, encode) {
 }
 
 /** Encode a decoded buffer as PCM WAV, optionally averaging channels for inference. */
-export function encodePcmWav(audio, length = audio.length, mono = false) {
+export function encodePcmWav(audio, length = audio.length, mono = false, start = 0) {
     const channels = Array.from({ length: audio.numberOfChannels }, (_, index) => audio.getChannelData(index));
     const outputChannels = mono ? 1 : channels.length;
     const bytes = new ArrayBuffer(44 + length * outputChannels * 2);
@@ -29,7 +29,7 @@ export function encodePcmWav(audio, length = audio.length, mono = false) {
     wav.setUint16(34, 16, true);
     wav.setUint32(36, 0x61746164, true); // data
     wav.setUint32(40, bytes.byteLength - 44, true);
-    for (let frame = 0, offset = 44; frame < length; frame++) {
+    for (let frame = start, offset = 44; frame < start + length; frame++) {
         for (let channel = 0; channel < outputChannels; channel++, offset += 2) {
             const sample = mono
                 ? channels.reduce((sum, data) => sum + data[frame], 0) / channels.length

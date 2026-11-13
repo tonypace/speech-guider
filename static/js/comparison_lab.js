@@ -163,6 +163,10 @@ class ComparisonLab {
             onStudentFrame: this.onStudentFrame,
             onTimeUpdate: this.onTimeUpdate,
             onPlayStateChange: this.onPlayStateChange,
+            onPlaybackError: (type) => {
+                if (type === 'reference') this.showReferenceStatus('error', 'Reference audio could not play.');
+                else this.showStudentStatus('error', 'Recording audio could not play.');
+            },
             defaultSpeed: 1.0,
             linkedPlayheads: false,
         });
@@ -223,6 +227,14 @@ class ComparisonLab {
             listen(this, linkToggle, 'change', this.handleLinkToggle);
         }
 
+        const matchToggle = document.getElementById('comparison-match-duration');
+        if (matchToggle) {
+            listen(this, matchToggle, 'change', () => {
+                this.controller.setDurationMatching(matchToggle.checked);
+                this.updateDurationMatching();
+            });
+        }
+
         // Record button
         const recordBtn = document.getElementById('comparison-record-btn');
         if (recordBtn) {
@@ -251,6 +263,12 @@ class ComparisonLab {
    */
     handleTextInput(event) {
         const text = event.target.value.trim();
+        if (text !== this.currentTargetText) {
+            this.studentRequestId++;
+            this.studentLoaded = false;
+            this.controller?.clearTrack('student');
+            this.showStudentStatus('idle');
+        }
         const generation = ++this.currentRequestId;
         if (this.pendingRequestController) this.pendingRequestController.abort();
         this.pendingRequestController = null;
@@ -327,8 +345,8 @@ class ComparisonLab {
             }
 
             // Load into controller
-            await this.controller.loadReference(data.frames, data.audio_base64, () => requestId === this.currentRequestId);
-            if (requestId !== this.currentRequestId) return;
+            const loaded = await this.controller.loadReference(data.frames, data.audio_base64, () => requestId === this.currentRequestId);
+            if (loaded === false || requestId !== this.currentRequestId) return;
 
             this.referenceLoaded = true;
             this.showReferenceStatus(data.cached ? 'cached' : 'ready');
@@ -692,6 +710,7 @@ class ComparisonLab {
     updateUIState() {
         const hasRef = this.referenceLoaded;
         const hasStudent = this.studentLoaded;
+        this.updateDurationMatching(this.isRecording || this.isStartingRecording);
 
         // Enable/disable controls
         const controls = [
@@ -719,6 +738,23 @@ class ComparisonLab {
         const recordBtn = document.getElementById('comparison-record-btn');
         if (recordBtn) {
             recordBtn.disabled = !hasRef;
+        }
+    }
+
+    updateDurationMatching(busy = false) {
+        const toggle = document.getElementById('comparison-match-duration');
+        if (!toggle) return;
+        const status = document.getElementById('comparison-match-status');
+        const hasBoth = this.referenceLoaded && this.studentLoaded;
+        const rate = hasBoth ? this.controller.getMatchRate() : null;
+        toggle.disabled = busy || rate === null;
+        toggle.checked = this.controller.durationMatching;
+        if (!hasBoth) status.textContent = 'Record the full target text to match durations.';
+        else if (rate === null) status.textContent = 'Timing match unavailable. Check that the whole sentence was recorded at a similar pace.';
+        else if (toggle.checked) {
+            status.textContent = `Recording plays at ${Math.round(rate * 100)}% of its original pace before the Speed setting.`;
+        } else {
+            status.textContent = 'Turn on after confirming you recorded all the words.';
         }
     }
 
