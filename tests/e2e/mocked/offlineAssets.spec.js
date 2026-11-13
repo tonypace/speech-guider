@@ -1,5 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const { openHome, setRangeValue } = require('../helpers/app');
+const { openHome, setRangeValue, switchToTab } = require('../helpers/app');
 
 test('all tabs, preset styling and real plots work without external requests', async ({ page, context, baseURL }) => {
     const appOrigin = new URL(baseURL).origin;
@@ -35,7 +35,7 @@ test('all tabs, preset styling and real plots work without external requests', a
     });
     await expect(page.getByText('Try another recording.')).toHaveCSS('color', 'rgb(185, 28, 28)');
 
-    await page.locator('#tab-btn-animation').click();
+    await switchToTab(page, 'animation');
     await expect(page.locator('#tab-panel-animation')).toBeVisible();
     await expect(page.locator('#tab-panel-analysis')).toBeHidden();
     await expect(page.locator('#svg-articulatory-animation svg')).toBeAttached();
@@ -47,16 +47,17 @@ test('all tabs, preset styling and real plots work without external requests', a
     await page.locator('#save-position-btn').click();
     await expect(page.locator('#save-status')).toHaveText('Saved!');
     await openHome(page);
-    await page.locator('#tab-btn-animation').click();
+    await switchToTab(page, 'animation');
     await phoneme.click();
     await expect(page.locator('#tbcd-val')).toHaveText('0.42');
 
-    await page.locator('#tab-btn-prosody').click();
+    await expect(page.locator('#tab-btn-prosody')).toBeHidden();
+    await switchToTab(page, 'prosody');
     await expect(page.locator('#tab-panel-prosody')).toBeVisible();
     await expect(page.locator('#prosody-current-plot .main-svg').first()).toBeVisible();
     expect(await page.evaluate(() => window.Plotly.version)).toBe('2.32.0');
 
-    await page.locator('#tab-btn-comparison').click();
+    await switchToTab(page, 'comparison');
     await expect(page.locator('#tab-panel-comparison')).toBeVisible();
     await expect(page.locator('#tab-panel-prosody')).toBeHidden();
     expect(externalRequests).toEqual([]);

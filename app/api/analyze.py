@@ -7,6 +7,7 @@ import torch
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 
+from app.api.settings import load_settings
 from app.api.sse import create_job_id, send_progress_update
 from app.services.concurrency import run_blocking, run_with_semaphore
 from app.services.jobs import claim_job, finish_job
@@ -34,6 +35,7 @@ def _ssl_aai_to_animation_state(
     audio_tensor: torch.Tensor,
     sample_rate: int,
     return_trajectory: bool = False,
+    contact_enabled: bool = False,
 ) -> dict | tuple[dict, list[dict] | None, dict] | None:
     """Convert audio to animation state via SSL AAI predictor.
 
@@ -60,12 +62,14 @@ def _ssl_aai_to_animation_state(
     try:
         predictor = get_ssl_predictor()
     except (FileNotFoundError, RuntimeError) as e:
-        logger.debug(f"[_ssl_aai_to_animation_state] SSL predictor unavailable: {e}")
-        return None
+        logger.exception("SSL predictor could not be loaded")
+        raise SSLAnalysisError(f"SSL predictor could not be loaded: {e}") from e
 
     metadata = AAIConversionMetadata(normalization="speaker_z_normalized")
     try:
-        prediction = predictor.predict_with_metadata(audio_tensor, sample_rate)
+        prediction = predictor.predict_with_metadata(
+            audio_tensor, sample_rate, contact_enabled=contact_enabled
+        )
         tvs_array = prediction["tvs"].numpy()
         ssl_meta = prediction["metadata"]
 
@@ -96,7 +100,10 @@ def _ssl_aai_to_animation_state(
 
 
 def try_primary_ssl_analysis(
-    audio_tensor: torch.Tensor, sample_rate: int, return_trajectory: bool = False
+    audio_tensor: torch.Tensor,
+    sample_rate: int,
+    return_trajectory: bool = False,
+    contact_enabled: bool = False,
 ) -> tuple[dict | None, list[dict] | None, dict]:
     """Run the SSL AAI analysis path.
 
@@ -111,11 +118,14 @@ def try_primary_ssl_analysis(
 
     try:
         result = _ssl_aai_to_animation_state(
-            audio_tensor, sample_rate, return_trajectory=return_trajectory
+            audio_tensor,
+            sample_rate,
+            return_trajectory=return_trajectory,
+            contact_enabled=contact_enabled,
         )
     except SSLAnalysisError as e:
         logger.warning(f"[try_primary_ssl_analysis] SSL AAI path failed: {e}")
-        return None, None, {}
+        raise
 
     if result is not None:
         logger.debug("[try_primary_ssl_analysis] SSL AAI path succeeded")
@@ -145,7 +155,9 @@ def _load_and_preprocess_audio(audio_path: str) -> tuple[torch.Tensor, int]:
     return load_audio_tensor(audio_path, DEFAULT_SSL_FEATURE_CONFIG.sample_rate)
 
 
-async def _run_analysis_pipeline(audio_path: str, target_text: str, job_id: str) -> dict:
+async def _run_analysis_pipeline(
+    audio_path: str, target_text: str, job_id: str, contact_enabled: bool = False
+) -> dict:
     """Run the full analysis pipeline.
 
     Args:
@@ -181,7 +193,7 @@ async def _run_analysis_pipeline(audio_path: str, target_text: str, job_id: str)
     # Run SSL AAI analysis in thread to avoid blocking
     try:
         ssl_animation_state, ssl_trajectory, ssl_meta = await run_blocking(
-            try_primary_ssl_analysis, audio_tensor, sample_rate, True
+            try_primary_ssl_analysis, audio_tensor, sample_rate, True, contact_enabled
         )
         if ssl_animation_state is not None:
             global _ssl_device
@@ -197,7 +209,7 @@ async def _run_analysis_pipeline(audio_path: str, target_text: str, job_id: str)
         logger.warning(f"[analyze] SSL AAI analysis failed: {e}")
     except Exception as e:
         ssl_error = f"Unexpected SSL analysis error: {e}"
-        logger.error(f"[analyze] Unexpected SSL analysis error: {e}")
+        logger.exception("Unexpected SSL analysis error for job %s", job_id)
 
     # Clear device cache after SSL inference to free VRAM
     if _ssl_device:
@@ -230,6 +242,13 @@ async def _run_analysis_pipeline(audio_path: str, target_text: str, job_id: str)
             "Articulatory analysis via ContentVec-L7 + R4",
             "Articulatory analysis unavailable; prosody feedback only",
         )
+    elif ssl_meta.get("contact_augmentation") == "enabled":
+        feedback = feedback.replace(
+            "Articulatory analysis via ContentVec-L7 + R4",
+            "Articulatory analysis via ContentVec-L7 + R4 with tongue contact enhancement",
+        )
+    elif ssl_meta.get("contact_augmentation") == "unavailable":
+        feedback += "<br>Contact enhancement unavailable. Using baseline R4."
 
     # Serialize trajectory if available
     serialized_trajectory = None
@@ -246,13 +265,17 @@ async def _run_analysis_pipeline(audio_path: str, target_text: str, job_id: str)
         "ssl_animation_state": ssl_animation_state,
         "ssl_trajectory": serialized_trajectory,
         "integration_meta": ssl_meta,
-        "success": True,
-        "message": "Analysis complete",
+        "success": ssl_animation_state is not None,
+        "status": "complete" if ssl_animation_state is not None else "partial",
+        "message": "Analysis complete"
+        if ssl_animation_state is not None
+        else "Partial analysis: articulatory inference failed",
     }
 
     if ssl_error:
         result["ssl_warning"] = (
-            "Articulatory analysis unavailable; prosody feedback is still available."
+            f"Articulatory analysis unavailable: {ssl_error}. Prosody feedback only. "
+            f"Diagnostic job: {job_id}"
         )
 
     return result
@@ -260,22 +283,12 @@ async def _run_analysis_pipeline(audio_path: str, target_text: str, job_id: str)
 
 def _get_pitch_range_label(range_semitones: float) -> str:
     """Return a student-friendly pitch range label."""
-    if range_semitones < 6:
-        return "a little flat"
-    elif range_semitones <= 12:
-        return "nice variety"
-    else:
-        return "very expressive"
+    return "measured pitch range"
 
 
 def _get_pitch_range_coaching(range_semitones: float) -> str:
-    """Return coaching text for pitch range."""
-    if range_semitones < 6:
-        return "try adding more movement"
-    elif range_semitones <= 12:
-        return "good contrast"
-    else:
-        return "strong range"
+    """Avoid quality judgments without a speaker or task reference."""
+    return "Observed F0 spread; no target reference available"
 
 
 def _get_mean_pitch_label(mean_f0_hz: float) -> str:
@@ -290,35 +303,24 @@ def _get_mean_pitch_label(mean_f0_hz: float) -> str:
 
 def _get_mean_pitch_coaching(mean_f0_hz: float) -> str:
     """Return coaching text for mean pitch."""
-    if mean_f0_hz < 150:
-        return "calm and grounded"
-    elif mean_f0_hz <= 220:
-        return "balanced"
-    else:
-        return "bright and energetic"
+    return "Mean voiced F0; does not establish mood or speaking quality"
 
 
-def _get_npvi_label(npvi: float) -> tuple[str, str]:
+def _get_npvi_label(npvi: float | None) -> tuple[str, str]:
     """Return (label, color) for nPVI. Color is 'red', 'amber', or 'green'."""
-    if npvi <= 25:
-        return "more flat", "red"
-    elif npvi <= 45:
-        return "mixed rhythm", "amber"
-    else:
-        return "strong rhythm", "green"
+    if npvi is None:
+        return "unavailable", "gray"
+    return "duration variability", "gray"
 
 
-def _get_npvi_coaching(npvi: float) -> str:
+def _get_npvi_coaching(npvi: float | None) -> str:
     """Return coaching text for nPVI."""
-    if npvi <= 25:
-        return "rhythm is still very even"
-    elif npvi <= 45:
-        return "getting closer to natural stress timing"
-    else:
-        return "nice stress contrast"
+    if npvi is None:
+        return "Requires at least two valid vowel intervals; vowel alignment is unavailable."
+    return "Duration variability; not a speaking-quality score."
 
 
-def _build_npvi_bar_html(npvi: float) -> str:
+def _build_npvi_bar_html(npvi: float | None) -> str:
     """Build an inline colored nPVI bar HTML."""
     label, color = _get_npvi_label(npvi)
     coaching = _get_npvi_coaching(npvi)
@@ -362,13 +364,15 @@ def serialize_prosody(prosody):
     pitch_mean = pitch.mean_f0 if pitch else 0
     pitch_range = pitch.f0_range if pitch else 0
     pitch_var = pitch.std_f0 if pitch else 0
-    npvi = rhythm.npvi if rhythm else 0
+    npvi = rhythm.npvi if rhythm else None
 
     return {
         "pitch_mean": pitch_mean,
         "pitch_range": pitch_range,
         "pitch_variability": pitch_var,
         "npvi": npvi,
+        "rhythm_status": rhythm.classification if rhythm else "insufficient_data",
+        "rhythm_interval_type": "vowel_duration",
         "stress_pattern": stress.primary_stress_word if stress else None,
         "pitch_range_semitones": pitch.range_semitones if pitch else 0.0,
         "pitch_range_label": _get_pitch_range_label(pitch.range_semitones if pitch else 0.0),
@@ -410,10 +414,12 @@ def _generate_comprehensive_feedback(prosody_metrics):
             npvi = prosody_metrics.rhythm.npvi
             npvi_label, npvi_color = _get_npvi_label(npvi)
             npvi_coaching = _get_npvi_coaching(npvi)
-            sections.append(f"- Rhythm (nPVI {npvi:.2f})")
+            sections.append(
+                "- Rhythm: nPVI unavailable" if npvi is None else f"- Rhythm (nPVI {npvi:.2f})"
+            )
             sections.append(f"  {npvi_label} — {npvi_coaching}")
             sections.append(_build_npvi_bar_html(npvi))
-            logger.debug(f"[feedback] nPVI value being used: {npvi:.2f}")
+            logger.debug("[feedback] nPVI value: %s", npvi)
 
     result = "<br>".join(sections)
     logger.debug(f"[feedback] Final feedback string: {result}")
@@ -448,11 +454,17 @@ async def analyze_audio(
     try:
         temp_path = await save_upload_to_temp(audio)
         result = await run_with_semaphore(
-            _run_analysis_pipeline(temp_path, target_text, job.job_id)
+            _run_analysis_pipeline(
+                temp_path, target_text, job.job_id, load_settings().contact_enabled
+            )
         )
         result["job_id"] = job.job_id
         response = JSONResponse(content=result)
-        finish_job(job, "complete", "Analysis complete!")
+        finish_job(
+            job,
+            "complete" if result["success"] else "failed",
+            result.get("message", "Analysis complete"),
+        )
         return response
     except asyncio.CancelledError:
         finish_job(job, "cancelled", "Analysis request cancelled")

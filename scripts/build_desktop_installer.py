@@ -19,6 +19,7 @@ OUTPUT = ROOT / "build/installer/Speech Guider - Local Noncommercial.pkg"
 R4_FILES = (
     "configs/nine_channel_v12_100ms.yaml",
     "weights/r4.pt",
+    "weights/contact.pt",
     "weights/contentvec/config.json",
     "weights/contentvec/preprocessor_config.json",
     "weights/contentvec/model.safetensors",
@@ -45,11 +46,15 @@ def _sha256(path: Path) -> str:
         return hashlib.file_digest(file, "sha256").hexdigest()
 
 
-def _copy(source: Path, target: Path, digest: str | None = None) -> None:
+def _copy(
+    source: Path, target: Path, digest: str | None = None, *, executable: bool = False
+) -> None:
     if digest and _sha256(source) != digest:
         raise ValueError(f"Asset checksum mismatch: {source}")
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source, target)
+    # Installer ownership becomes root; source archives may carry owner-only modes.
+    target.chmod(0o755 if executable else 0o644)
 
 
 def _stage_r4(source: Path, target: Path) -> None:
@@ -92,7 +97,7 @@ def _stage_omnivoice(source: Path, target: Path) -> None:
         binary = (source / "build" / name).resolve(strict=True)
         if not binary.is_relative_to((source / "build").resolve()):
             raise ValueError(f"OmniVoice build file points outside its build directory: {binary}")
-        _copy(binary, target / name)
+        _copy(binary, target / name, executable=True)
         _relocate_binary(target / name, GGML_LIBRARIES)
     for name, digest in OMNIVOICE_HASHES.items():
         _copy(source / "models" / name, target / "models" / name, digest)

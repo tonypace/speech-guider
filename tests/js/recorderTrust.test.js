@@ -15,3 +15,13 @@ describe('analysis text rendering', () => {
         recorder.destroy();
     });
 });
+
+it('keeps partial feedback and escapes model failure diagnostics', () => {
+    document.body.innerHTML = '<div id="feedback-container"></div>';
+    const recorder = new IntercomRecorder();
+    recorder.displayResults({ success: false, status: 'partial', feedback: 'Prosody retained', ssl_warning: '<img src=x> missing weights' });
+    expect(document.querySelector('[role="alert"]').textContent).toContain('<img src=x>');
+    expect(document.querySelector('#feedback-container img')).toBeNull();
+    expect(document.querySelector('#feedback-container').textContent).toContain('Prosody retained');
+    recorder.destroy();
+});

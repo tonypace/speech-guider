@@ -1,6 +1,8 @@
+import { showAnalysisTrajectory } from './analysis_trajectory.js';
 import { listen, releaseCapture } from './capture_resources.js';
 import { openAnalysisProgress } from './analysis_progress.js';
 import { convertAudioToWav, encodePcmWav } from './audio_conversion.js';
+import { getSettings, microphoneError, openMicrophone } from './microphone.js';
 
 /**
  * Intercom-style audio recorder with F5 support
@@ -114,6 +116,12 @@ class IntercomRecorder {
     }
 
     async _initialize() {
+        if (this.recordBtn) this.recordBtn.disabled = getSettings().microphone_enabled === false;
+        if (getSettings().microphone_enabled === false) {
+            this.showPermissionPrompt('Microphone is off in Settings.', false);
+            return;
+        }
+        document.getElementById('mic-permission-msg')?.remove();
         console.log('Initializing recorder...');
         console.log('Protocol:', this.location.protocol);
         console.log('Hostname:', this.location.hostname);
@@ -143,7 +151,7 @@ class IntercomRecorder {
         const requestId = ++this.permissionRequestId;
         this.isStartingRecording = true;
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const stream = await openMicrophone();
             this.isStartingRecording = false;
             if (this.destroyed || requestId !== this.permissionRequestId) {
                 stream.getTracks().forEach((track) => track.stop());
@@ -165,13 +173,15 @@ class IntercomRecorder {
             releaseCapture(this);
             this.mediaRecorder = null;
             console.error('Microphone access denied:', err);
-            this.showPermissionPrompt();
+            this.showPermissionPrompt(microphoneError(err));
         } finally {
             if (!this.destroyed) this.initPromise = null;
         }
     }
 
     destroy() {
+        this.disposeTrajectory?.();
+        this.disposeTrajectory = null;
         if (this.destroyed) return;
         this.destroyed = true;
         this.permissionRequestId += 1;
@@ -191,18 +201,23 @@ class IntercomRecorder {
         this.recordBtn?.classList.remove('recording');
     }
 
-    showPermissionPrompt() {
+    showPermissionPrompt(message = 'Microphone access needed for recording', allowRetry = true) {
         // Don't replace the entire container - just show a message above it
         const msgDiv = document.createElement('div');
         msgDiv.id = 'mic-permission-msg';
         msgDiv.className = 'text-center p-4 bg-yellow-50 border border-yellow-200 rounded mb-4';
-        msgDiv.innerHTML = `
-            <p class="text-yellow-800 mb-3">Microphone access needed for recording</p>
-            <button onclick="recorder.init(); document.getElementById('mic-permission-msg').remove();" 
-                    class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition">
-                Allow Microphone
-            </button>
-        `;
+        const detail = document.createElement('p');
+        detail.className = 'text-yellow-800';
+        detail.textContent = message;
+        msgDiv.append(detail);
+        if (allowRetry) {
+            const retry = document.createElement('button');
+            retry.type = 'button';
+            retry.className = 'mt-3 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700';
+            retry.textContent = 'Retry microphone';
+            retry.onclick = () => this.init();
+            msgDiv.append(retry);
+        }
         
         if (this.recorderContainer && !document.getElementById('mic-permission-msg')) {
             this.recorderContainer.parentNode.insertBefore(msgDiv, this.recorderContainer);
@@ -437,7 +452,7 @@ class IntercomRecorder {
             }
 
             const result = await response.json();
-            if (!this.destroyed) this.displayResults(result);
+            if (!this.destroyed) this.displayResults(result, wavBlob);
         } catch (error) {
             console.error('Analysis failed:', error);
             alert('Analysis failed: ' + error.message);
@@ -483,7 +498,9 @@ class IntercomRecorder {
         return encodePcmWav(buffer, length);
     }
 
-    displayResults(result) {
+    displayResults(result, blob = null) {
+        this.disposeTrajectory?.();
+        this.disposeTrajectory = null;
         console.log('[displayResults] Called');
         console.log('[displayResults] result.success:', result.success);
         console.log('[displayResults] result.feedback:', result.feedback);
@@ -492,7 +509,7 @@ class IntercomRecorder {
         // Update feedback container - server now sends HTML directly
         const feedbackContainer = document.getElementById('feedback-container');
         if (feedbackContainer) {
-            if (result.success) {
+            if (result.success || result.status === 'partial') {
                 console.log('[displayResults] Inserting feedback HTML...');
                 feedbackContainer.innerHTML = `
                     <div class="bg-white rounded-lg shadow-md p-6">
@@ -501,6 +518,13 @@ class IntercomRecorder {
                         </div>
                     </div>
                 `;
+                if (result.status === 'partial') {
+                    const warning = document.createElement('p');
+                    warning.className = 'bg-red-50 text-red-700 p-4';
+                    warning.setAttribute('role', 'alert');
+                    warning.textContent = result.ssl_warning || result.message;
+                    feedbackContainer.prepend(warning);
+                }
                 console.log('[displayResults] Feedback HTML inserted');
             } else {
                 const errorCard = document.createElement('div');
@@ -512,6 +536,8 @@ class IntercomRecorder {
                 feedbackContainer.replaceChildren(errorCard);
             }
         }
+
+        this.disposeTrajectory = showAnalysisTrajectory(feedbackContainer, result.ssl_trajectory, blob);
 
         // Show articulatory section if there are errors
         if (result.errors && result.errors.length > 0) {

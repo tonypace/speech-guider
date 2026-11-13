@@ -58,7 +58,7 @@ waits for its readiness file and health endpoint, then opens the rendered app.
 Quit Speech Guider to stop its backend and any audio subprocesses. If startup fails
 or the backend exits unexpectedly, the app shows a failure screen with the log path.
 
-Presets and recent Prosody Lab summaries live in
+Presets, Settings preferences, and recent Prosody Lab summaries live in
 `~/Library/Application Support/com.speechguider.app/`, independent of the assigned
 port. Logs are in `~/Library/Logs/com.speechguider.app/backend.log`. For isolated
 launches from a shell, set `SPEECH_GUIDER_DESKTOP_STATE_DIR` to an absolute directory;
@@ -75,6 +75,7 @@ assets/
   r4/                              # Entire supplied bundle; retain its terms
     configs/nine_channel_v12_100ms.yaml
     weights/r4.pt
+    weights/contact.pt             # Enabled by default when present
     weights/contentvec/            # Local encoder and processor files
   omnivoice/
     omnivoice-tts                   # Executable arm64 build, with its needed libraries

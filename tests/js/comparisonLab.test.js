@@ -15,10 +15,9 @@ describe('comparison request lifecycle', () => {
     it('ignores reference decode completion after text changes', async () => {
         document.body.innerHTML = '<input id="comparison-target-text"><div id="comparison-ref-status"></div>';
         const lab = new ComparisonLab();
-        lab.debounceDelay = 1;
         const decoding = deferred();
         lab.controller = {
-            referenceFrames: [], clearTrack: vi.fn(),
+            referenceFrames: [], clear: vi.fn(),
             loadReference: vi.fn(async (frames, _audio, isCurrent) => {
                 await decoding.promise;
                 if (isCurrent()) lab.controller.referenceFrames = frames;
@@ -29,12 +28,34 @@ describe('comparison request lifecycle', () => {
         });
         lab.currentTargetText = 'old';
         const loading = lab.generateReference('old');
-        await Promise.resolve();
+        await vi.waitFor(() => expect(lab.controller.loadReference).toHaveBeenCalledOnce());
         lab.handleTextInput({ target: { value: 'new' } });
         decoding.resolve();
         await loading;
         expect(lab.referenceLoaded).toBe(false);
         expect(lab.controller.referenceFrames).toEqual([]);
+    });
+
+    it('sends the complete sentence on submit and blocks duplicate submissions', async () => {
+        document.body.innerHTML = `<form id="comparison-reference-form">
+            <input id="comparison-target-text"><button id="comparison-generate">Generate reference</button>
+        </form>`;
+        const request = deferred();
+        vi.stubGlobal('fetch', vi.fn(() => request.promise));
+        const lab = new ComparisonLab();
+        lab.init();
+        const text = document.getElementById('comparison-target-text');
+        text.value = 'A complete sentence.';
+        text.dispatchEvent(new Event('input'));
+        expect(fetch).not.toHaveBeenCalled();
+        const form = document.getElementById('comparison-reference-form');
+        form.requestSubmit();
+        form.requestSubmit();
+        expect(fetch).toHaveBeenCalledOnce();
+        expect(JSON.parse(fetch.mock.calls[0][1].body).target_text).toBe(text.value);
+        request.resolve({ ok: true, json: async () => ({ frames: [{}] }) });
+        await vi.waitFor(() => expect(lab.referenceLoaded).toBe(true));
+        lab.destroy();
     });
 
     it('aborts old fetch and keeps newer response as the committed reference', async () => {
@@ -160,5 +181,60 @@ describe('desktop-compatible comparison upload', () => {
         expect(wav.getInt16(46, true)).toBe(-16384);
         expect(close).toHaveBeenCalledOnce();
         expect(lab.studentLoaded).toBe(true);
+    });
+});
+
+describe('reference failure explanation', () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    it('blocks oversized passages and allows them after shortening', () => {
+        document.body.innerHTML = `<form id="comparison-reference-form">
+            <input id="comparison-target-text" data-text-limit="1000">
+            <button id="comparison-generate">Generate reference</button>
+            <div id="comparison-ref-status"></div>
+        </form>`;
+        const request = vi.spyOn(globalThis, 'fetch');
+        const lab = new ComparisonLab();
+        lab.init();
+        const input = document.getElementById('comparison-target-text');
+        const generate = document.getElementById('comparison-generate');
+        input.value = `"${'a'.repeat(998)}😀"`;
+        input.dispatchEvent(new Event('input'));
+        expect(generate.disabled).toBe(true);
+        expect(document.getElementById('comparison-ref-status').textContent).toContain('1000 characters');
+        document.getElementById('comparison-reference-form').requestSubmit();
+        expect(request).not.toHaveBeenCalled();
+
+        input.value = `"${'a'.repeat(997)}😀"`;
+        input.dispatchEvent(new Event('input'));
+        expect(generate.disabled).toBe(false);
+        expect(input.getAttribute('aria-invalid')).toBe('false');
+        lab.destroy();
+    });
+
+    it('shows a structured validation error instead of a bare 422', async () => {
+        document.body.innerHTML = '<div id="comparison-ref-status"></div>';
+        const lab = new ComparisonLab();
+        vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+            detail: [{ loc: ['body', 'target_text'], msg: 'String should have at most 1000 characters' }],
+        }), { status: 422 }));
+        await lab.generateReference('a'.repeat(1001));
+        expect(document.getElementById('comparison-ref-status').textContent)
+            .toContain('String should have at most 1000 characters');
+        lab.destroy();
+    });
+
+    it('shows server busy detail instead of a bare HTTP status', async () => {
+        document.body.innerHTML = '<div id="comparison-ref-status"></div>';
+        const lab = new ComparisonLab();
+        const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+            ok: false, status: 503,
+            json: async () => ({ detail: 'Server is currently processing another request.' }),
+        });
+        await lab.generateReference('hello');
+        expect(document.querySelector('#comparison-ref-status').textContent)
+            .toContain('Server is currently processing another request.');
+        fetchMock.mockRestore();
+        lab.destroy();
     });
 });

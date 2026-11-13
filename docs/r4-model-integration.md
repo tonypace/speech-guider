@@ -11,6 +11,7 @@ Keep the evaluation bundle at `external/R4 26-11-06/`, containing:
 ```text
 configs/nine_channel_v12_100ms.yaml
 weights/r4.pt
+weights/contact.pt
 weights/contentvec/config.json
 weights/contentvec/preprocessor_config.json
 weights/contentvec/model.safetensors
@@ -50,11 +51,14 @@ It never inverts speaker-specific training statistics. `clip_fraction` reports
 values changed at this display boundary; old BiGRU confidence thresholds are
 not used to claim R4 confidence.
 
-The baseline bundle policy remains active: **contact augmentation disabled**.
-The optional `contact.pt` decoder, review renderer contact exaggeration, tongue
-location compression, and deferred silence stabilization are not applied. They
-change model/display behavior and require separate qualification. R4 animation
-remains an audio-based estimate, not a measured contact trace.
+Speech Guider enables the bundled `contact.pt` decoder for Analysis and
+Comparison Lab by default. Turn off **Enhance tongue contact** in Settings to
+use baseline R4. Missing contact weights also select baseline R4. The head uses
+one additional frame of right context on top of the frozen oral states, within
+the existing lookahead. Its per-clip tracker advances only on committed frames.
+It adjusts four tongue channels before display normalization. The review
+renderer's contact exaggeration is separate. The animation estimates contact
+from audio.
 
 The application still analyzes uploaded recordings; using the bounded model
 does not add live microphone streaming or Core ML deployment.

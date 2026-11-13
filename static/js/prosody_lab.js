@@ -1,5 +1,6 @@
 import { trimProsodyHistory, loadHistory, storeRecord, getRoleId, setRoleId, createDesktopHistoryStorage } from './prosody_history.js';
 import { listen, releaseCapture } from './capture_resources.js';
+import { microphoneError, openMicrophone } from './microphone.js';
 import { convertAudioToWav, encodePcmWav } from './audio_conversion.js';
 
 function midiToNoteName(midi) {
@@ -360,7 +361,7 @@ class ProsodyLabRecorder {
         const requestId = ++this.permissionRequestId;
         this.isStartingRecording = true;
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const stream = await openMicrophone();
             this.isStartingRecording = false;
             if (this.destroyed || requestId !== this.permissionRequestId) {
                 stream.getTracks().forEach((track) => track.stop());
@@ -375,7 +376,7 @@ class ProsodyLabRecorder {
             if (this.destroyed || requestId !== this.permissionRequestId) return;
             releaseCapture(this);
             this.mediaRecorder = null;
-            this.setStatus(`Microphone access failed: ${error.message}`, true);
+            this.setStatus(microphoneError(error), true);
         } finally {
             if (!this.destroyed) this.initPromise = null;
         }
@@ -719,9 +720,6 @@ function initializeProsodyLab() {
     window.prosodyLabRecorder?.destroy?.();
     window.prosodyLabRecorder = new ProsodyLabRecorder();
     const recorder = window.prosodyLabRecorder;
-    window.prosodyLabRecorder.init().catch((error) => {
-        console.error('Failed to initialize Prosody Lab:', error);
-    });
 
     const lockBtn = document.getElementById('prosody-lock-btn');
     const beatsSelect = document.getElementById('prosody-beats-select');

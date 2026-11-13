@@ -67,6 +67,10 @@ class TauriController {
             case 'pronunciation':
                 this.launchPronunciation();
                 break;
+            case 'comparison':
+                this.currentMode = null;
+                window.switchTab?.('comparison');
+                break;
             case 'prosody':
                 this.launchProsody();
                 break;
@@ -136,7 +140,7 @@ class TauriController {
         const TAB_HOLD_THRESHOLD = 200; // ms
 
         document.addEventListener('keydown', (event) => {
-            if (!this.currentMode) return;
+            if (!this.currentMode || window.currentTab === 'comparison') return;
 
             switch (event.key) {
                 case 'ArrowLeft':
@@ -160,7 +164,7 @@ class TauriController {
         });
 
         document.addEventListener('keyup', (event) => {
-            if (!this.currentMode) return;
+            if (!this.currentMode || window.currentTab === 'comparison') return;
 
             if (event.key === 'Tab' && this.isRecording) {
                 const holdDuration = Date.now() - tabDownTime;

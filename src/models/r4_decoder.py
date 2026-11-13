@@ -170,6 +170,13 @@ class R4Decoder(nn.Module):
         )
 
     def forward(self, features: torch.Tensor) -> torch.Tensor:
+        trajectory, _, _ = self.predict_with_states(features)
+        return trajectory
+
+    def predict_with_states(
+        self, features: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Expose the frozen predictor states and scaled encoder features to the contact head."""
         scaled = self.scale_factor * features
         states = scaled
         for conv, norm in zip(self.predictor_layers, self.lns):
@@ -179,7 +186,7 @@ class R4Decoder(nn.Module):
                 states = states + residual
         oral = self.final_proj(states).clamp(-0.1, 1.1)[..., :6]
         extension = torch.sigmoid(self.extension_head(states, scaled))
-        return torch.cat((oral, extension), dim=-1)
+        return torch.cat((oral, extension), dim=-1), states, scaled
 
 
 def load_r4_decoder(path: Path, device: str) -> tuple[R4Decoder, dict[str, Any]]:

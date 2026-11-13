@@ -51,6 +51,13 @@ def test_reference_cache_partitions_provider_and_model_revisions() -> None:
             assert not _generate_reference_asset("Hello!", cache=cache)[1]
             model.return_value = {"model": "r4-v2"}
             assert not _generate_reference_asset("Hello!", cache=cache)[1]
-            assert provider.synthesize.call_count == 3
+            model.side_effect = lambda contact_enabled: {
+                "model": "r4-v2",
+                "contact": contact_enabled,
+            }
+            assert not _generate_reference_asset("Hello!", cache=cache, contact_enabled=True)[1]
+            assert not _generate_reference_asset("Hello!", cache=cache, contact_enabled=False)[1]
+            assert _generate_reference_asset("Hello!", cache=cache, contact_enabled=True)[1]
+            assert provider.synthesize.call_count == 5
     finally:
         cache.clear()

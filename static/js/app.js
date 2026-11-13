@@ -1,6 +1,7 @@
 import { SvgArticulatoryRenderer } from './svg_articulatory_renderer.js';
 import { IPATooltips } from './ipa_tooltips.js';
 import { IntercomRecorder } from './recorder.js';
+import { releaseCapture } from './capture_resources.js';
 const USE_SVG_RENDERER = true;
 
 function debounce(fn, delay) {
@@ -217,6 +218,10 @@ function setAnimationState(state) {
 }
 
 window.switchTab = function switchTab(tabName) {
+    const previousTab = window.currentTab;
+    if (previousTab === 'comparison' && tabName !== 'comparison') {
+        window.comparisonLab?.leave();
+    }
     window.currentTab = tabName;
 
     document.querySelectorAll('.tab-btn').forEach((btn) => {
@@ -243,15 +248,42 @@ window.switchTab = function switchTab(tabName) {
 
     if (tabName === 'prosody' && window.prosodyLabRecorder) {
         window.prosodyLabRecorder.renderFromStorage();
+        void window.prosodyLabRecorder.init();
+    }
+    if (tabName === 'analysis') {
+        void window.recorder?.init();
     }
 
-    if (tabName !== 'analysis' && window.recorder?.isRecording) {
-        window.recorder.stopRecording();
+    if (previousTab === 'analysis' && tabName !== 'analysis') {
+        void resetRecorderInput(window.recorder, 'analysis');
     }
-    if (tabName !== 'prosody' && window.prosodyLabRecorder?.isRecording) {
-        window.prosodyLabRecorder.stopRecording();
+    if (previousTab === 'prosody' && tabName !== 'prosody') {
+        void resetRecorderInput(window.prosodyLabRecorder, 'prosody');
     }
+    window.dispatchEvent(new CustomEvent('speechguider:tabchange', { detail: tabName }));
 };
+
+async function resetRecorderInput(recorder, tab) {
+    if (!recorder || recorder.destroyed) return;
+    recorder.stopRecording();
+    const pending = recorder.initPromise;
+    recorder.permissionRequestId++;
+    releaseCapture(recorder);
+    recorder.mediaRecorder = null;
+    await pending;
+    if (recorder.initPromise === pending) recorder.initPromise = null;
+    if (window.currentTab === tab) await recorder.init();
+}
+
+window.addEventListener('speechguider:settingschange', ({ detail: { previous, next } }) => {
+    if (previous.microphone_enabled !== next.microphone_enabled ||
+        previous.microphone_device_id !== next.microphone_device_id ||
+        previous.microphone_label !== next.microphone_label) {
+        void resetRecorderInput(window.recorder, 'analysis');
+        void resetRecorderInput(window.prosodyLabRecorder, 'prosody');
+        if (next.microphone_enabled === false) window.comparisonLab?.stopRecording();
+    }
+});
 
 window.initAnimationLab = function initAnimationLab() {
     mountSvgRenderers();

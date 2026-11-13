@@ -115,6 +115,33 @@ def smoke(executable: Path, r4_bundle: Path | None = None) -> None:
                 trajectory = analysis.get("ssl_trajectory") or {}
                 if not trajectory.get("frames"):
                     raise RuntimeError("Frozen R4 inference did not produce animation frames")
+                if (r4_bundle / "weights" / "contact.pt").is_file():
+                    if (
+                        analysis.get("integration_meta", {}).get("contact_augmentation")
+                        != "enabled"
+                    ):
+                        raise RuntimeError(
+                            "Frozen Analysis did not enable the bundled contact decoder"
+                        )
+                    request = Request(
+                        f"{base}/api/settings",
+                        data=b'{"contact_enabled":false}',
+                        headers={"Content-Type": "application/json"},
+                        method="PUT",
+                    )
+                    with build_opener(ProxyHandler({})).open(request, timeout=20) as response:
+                        if json.load(response).get("contact_enabled") is not False:
+                            raise RuntimeError(
+                                "Frozen settings could not disable the contact decoder"
+                            )
+                    baseline = json.loads(
+                        _request(base, "/api/analyze", _wav_upload("Synthetic tone"))
+                    )
+                    if (
+                        baseline.get("integration_meta", {}).get("contact_augmentation")
+                        != "disabled"
+                    ):
+                        raise RuntimeError("Frozen Analysis did not return to baseline R4")
         except (OSError, RuntimeError, ValueError):
             print(log.read_text(encoding="utf-8", errors="replace"))
             raise

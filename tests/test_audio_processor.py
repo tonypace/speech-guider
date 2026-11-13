@@ -96,6 +96,7 @@ def test_rhythm_analysis():
         rhythm = analyzer.analyze_rhythm(vowel_timestamps)
 
         assert rhythm is not None
+        assert rhythm.npvi is not None
         assert rhythm.npvi >= 0.0
         assert rhythm.classification in [
             "stress-timed",

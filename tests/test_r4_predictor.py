@@ -104,7 +104,9 @@ def test_student_and_reference_use_identical_r4_frames(
     audio = Mock(audio_bytes=b"audio", sample_rate=8000, duration_seconds=1.0, format="ogg")
     provider = Mock()
     provider.cache_identity.return_value = {"implementation": "test-provider"}
-    monkeypatch.setattr(comparison, "get_ssl_cache_identity", lambda: {"model": "test-r4"})
+    monkeypatch.setattr(
+        comparison, "get_ssl_cache_identity", lambda contact_enabled: {"model": "test-r4"}
+    )
     provider.synthesize.return_value = audio
     monkeypatch.setattr(comparison.TTSProviderFactory, "create", lambda name: provider)
     _, student_frames, metadata = analyze.try_primary_ssl_analysis(waveform, 16000, True)
@@ -127,7 +129,8 @@ def test_prediction_failure_does_not_fall_back_to_legacy(
     monkeypatch.setattr(
         replay_predictor, "_predict_window", Mock(side_effect=RuntimeError("bad R4"))
     )
-    assert analyze.try_primary_ssl_analysis(torch.ones(1600), 16000, True) == (None, None, {})
+    with pytest.raises(analyze.SSLAnalysisError, match="bad R4"):
+        analyze.try_primary_ssl_analysis(torch.ones(1600), 16000, True)
 
 
 @pytest.fixture(scope="module")
@@ -138,6 +141,25 @@ def real_predictor() -> Any:
     predictor.load()
     yield predictor
     predictor.cleanup()
+
+
+@pytest.mark.integration
+def test_contact_keeps_timing_and_other_channels(
+    real_predictor: SSLAAIPredictor, waveform: torch.Tensor
+) -> None:
+    if not (DEFAULT_R4_BUNDLE / "weights/contact.pt").is_file():
+        pytest.skip("Local R4 contact checkpoint unavailable")
+    enhanced = real_predictor.predict_with_metadata(waveform, contact_enabled=True)
+    baseline = real_predictor.predict_with_metadata(waveform)
+    repeated = real_predictor.predict_with_metadata(waveform, contact_enabled=True)
+    assert enhanced["metadata"]["contact_augmentation"] == "enabled"
+    assert baseline["metadata"]["contact_augmentation"] == "disabled"
+    torch.testing.assert_close(enhanced["center_samples"], baseline["center_samples"])
+    other_channels = [0, 1, 6, 7, 8]
+    torch.testing.assert_close(
+        enhanced["tvs_raw"][:, other_channels], baseline["tvs_raw"][:, other_channels]
+    )
+    torch.testing.assert_close(enhanced["tvs_raw"], repeated["tvs_raw"])
 
 
 @pytest.mark.integration

@@ -131,7 +131,7 @@ fn install_tray(app: &App, port: Arc<AtomicU16>) -> tauri::Result<()> {
         true,
         None::<&str>,
     )?;
-    let prosody = MenuItem::with_id(app, "prosody", "Practice Prosody", true, None::<&str>)?;
+    let comparison = MenuItem::with_id(app, "comparison", "Comparison Lab", true, None::<&str>)?;
     let animation =
         MenuItem::with_id(app, "animation", "Explore Mouth Shapes", true, None::<&str>)?;
     let first_separator = PredefinedMenuItem::separator(app)?;
@@ -143,7 +143,7 @@ fn install_tray(app: &App, port: Arc<AtomicU16>) -> tauri::Result<()> {
             &open,
             &first_separator,
             &pronunciation,
-            &prosody,
+            &comparison,
             &animation,
             &second_separator,
             &quit,
@@ -161,7 +161,7 @@ fn install_tray(app: &App, port: Arc<AtomicU16>) -> tauri::Result<()> {
                 }
                 "open" => None,
                 "pronunciation" => Some("pronunciation"),
-                "prosody" => Some("prosody"),
+                "comparison" => Some("comparison"),
                 "animation" => Some("animation"),
                 _ => return,
             };

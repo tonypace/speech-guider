@@ -73,14 +73,10 @@ class TestAnalyzeEndpointFailureModes:
         from app.api.analyze import try_primary_ssl_analysis
 
         audio_tensor = torch.zeros(16000)  # 1 second of silence
-        animation_state, trajectory, ssl_meta = try_primary_ssl_analysis(
-            audio_tensor, 16000, return_trajectory=True
-        )
+        from app.api.analyze import SSLAnalysisError
 
-        # Should return None for both when predictor unavailable
-        assert animation_state is None
-        assert trajectory is None
-        assert ssl_meta == {}
+        with pytest.raises(SSLAnalysisError, match="SSL checkpoint not found"):
+            try_primary_ssl_analysis(audio_tensor, 16000, return_trajectory=True)
 
 
 class TestSSLAAIToAnimationState:
@@ -94,9 +90,10 @@ class TestSSLAAIToAnimationState:
         mock_get_predictor.side_effect = FileNotFoundError("Checkpoint not found")
 
         audio_tensor = torch.zeros(16000)
-        result = _ssl_aai_to_animation_state(audio_tensor, 16000)
+        from app.api.analyze import SSLAnalysisError
 
-        assert result is None
+        with pytest.raises(SSLAnalysisError):
+            _ssl_aai_to_animation_state(audio_tensor, 16000)
 
     @patch("app.api.analyze.get_ssl_predictor")
     def test_predictor_runtime_error_returns_none(self, mock_get_predictor):
@@ -106,9 +103,10 @@ class TestSSLAAIToAnimationState:
         mock_get_predictor.side_effect = RuntimeError("Failed to load model")
 
         audio_tensor = torch.zeros(16000)
-        result = _ssl_aai_to_animation_state(audio_tensor, 16000)
+        from app.api.analyze import SSLAnalysisError
 
-        assert result is None
+        with pytest.raises(SSLAnalysisError):
+            _ssl_aai_to_animation_state(audio_tensor, 16000)
 
 
 class TestAnalysisPipelineExceptions:

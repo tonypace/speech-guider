@@ -12,6 +12,7 @@ from transformers import AutoFeatureExtractor, AutoModel  # type: ignore[import-
 
 from src.models.aai_adapter import AAI_TV_ORDER as AAI_TV_ORDER
 from src.models.legacy_aai_predictor import AAIHead, DANNPredictorHead  # noqa: F401
+from src.models.r4_contact import ContactTracker, R4ContactHead, load_contact_head
 from src.models.r4_decoder import R4Decoder, load_r4_decoder
 from src.models.ssl_common import (
     DEFAULT_SSL_FEATURE_CONFIG,
@@ -72,6 +73,7 @@ class SSLAAIPredictor:
         self._ssl_model: Any = None
         self._feature_extractor: Any = None
         self._predictor_head: R4Decoder | None = None
+        self._contact_head: R4ContactHead | None = None
         self._metadata: dict[str, Any] = {}
         self._loaded = False
         self._warmed_up = False
@@ -99,6 +101,7 @@ class SSLAAIPredictor:
             self._ssl_model = encoder.to(self.device).eval()
             self._feature_extractor = processor
             self._predictor_head = decoder
+            self._contact_head = None
             self._metadata = metadata
             self.checkpoint_path = path
             self._loaded = True
@@ -143,23 +146,31 @@ class SSLAAIPredictor:
         if not torch.isfinite(output).all():
             raise ValueError("Predictor output contains NaN or Inf values")
 
-    def _predict_window(self, samples: np.ndarray) -> torch.Tensor:
+    def _predict_window(
+        self, samples: np.ndarray, tracker: ContactTracker | None = None
+    ) -> torch.Tensor:
         processed = self._feature_extractor(samples, sampling_rate=16000, return_tensors="pt")
         inputs = {key: value.to(self.device) for key, value in processed.items()}
         features = self._ssl_model(**inputs).last_hidden_state
         if features.shape != (1, self.FEATURE_FRAMES, 768):
             raise ValueError(f"Unexpected R4 encoder feature shape: {tuple(features.shape)}")
         assert self._predictor_head is not None
-        prediction = self._predictor_head(features)[0]
-        if prediction.shape != (self.FEATURE_FRAMES, 9):
-            raise ValueError(f"Unexpected R4 trajectory shape: {tuple(prediction.shape)}")
+        if tracker is None:
+            trajectory = self._predictor_head(features)
+            prediction = trajectory[0, self.COMMITTED_SLICE]
+        else:
+            assert self._contact_head is not None
+            trajectory, states, scaled = self._predictor_head.predict_with_states(features)
+            prediction = self._contact_head(
+                trajectory, states, scaled, self.COMMITTED_SLICE, tracker
+            )
+        if trajectory.shape != (1, self.FEATURE_FRAMES, 9):
+            raise ValueError(f"Unexpected R4 trajectory shape: {tuple(trajectory.shape)}")
         self._validate_output(prediction)
-        return cast(
-            torch.Tensor, prediction[self.COMMITTED_SLICE].detach().to("cpu", dtype=torch.float32)
-        )
+        return cast(torch.Tensor, prediction.detach().to("cpu", dtype=torch.float32))
 
     def predict_with_metadata(
-        self, audio_tensor: torch.Tensor, sample_rate: int = 16000
+        self, audio_tensor: torch.Tensor, sample_rate: int = 16000, *, contact_enabled: bool = False
     ) -> dict[str, Any]:
         """Return raw/display trajectories and sample-clock centers for one clip."""
         with self._lock, torch.inference_mode():
@@ -174,6 +185,19 @@ class SSLAAIPredictor:
                 raise ValueError("Audio must be one nonempty mono waveform")
             if not torch.isfinite(audio).all():
                 raise ValueError("Audio contains NaN or Inf values")
+            tracker = None
+            contact_mode = "disabled"
+            if contact_enabled:
+                contact_path = self.bundle_path / "weights" / "contact.pt"
+                if self._contact_head is None and contact_path.is_file():
+                    self._contact_head = load_contact_head(
+                        contact_path, self.checkpoint_path, self.device
+                    )
+                if self._contact_head is not None:
+                    tracker = ContactTracker()
+                    contact_mode = "enabled"
+                else:
+                    contact_mode = "unavailable"
             samples = audio.numpy()
             frame_count = (len(samples) + self.STRIDE_SAMPLES - 1) // self.STRIDE_SAMPLES
             hops = (len(samples) + self.HOP_SAMPLES - 1) // self.HOP_SAMPLES
@@ -186,7 +210,12 @@ class SSLAAIPredictor:
                 window[: -self.HOP_SAMPLES] = window[self.HOP_SAMPLES :]
                 window[-self.HOP_SAMPLES :] = padded[offset : offset + self.HOP_SAMPLES]
                 if hop_index >= 1:
-                    packets.append(self._predict_window(window))
+                    packet = (
+                        self._predict_window(window)
+                        if tracker is None
+                        else self._predict_window(window, tracker)
+                    )
+                    packets.append(packet)
             raw = torch.cat(packets, dim=0)[:frame_count]
             self._validate_output(raw)
             outside = (raw < 0.0) | (raw > 1.0)
@@ -202,15 +231,22 @@ class SSLAAIPredictor:
                     "normalization": "speaker_z_normalized",
                     "frame_rate": 50,
                     "lookahead_ms": 100,
-                    "contact_augmentation": "disabled",
+                    "contact_augmentation": contact_mode,
                     "clip_fraction": float(outside.float().mean().item()),
                     "source_commit": self._metadata.get("git_commit"),
                 },
             }
 
-    def predict(self, audio_tensor: torch.Tensor, sample_rate: int = 16000) -> torch.Tensor:
+    def predict(
+        self, audio_tensor: torch.Tensor, sample_rate: int = 16000, *, contact_enabled: bool = False
+    ) -> torch.Tensor:
         """Return display-safe (T, 9) output shared by both application paths."""
-        return cast(torch.Tensor, self.predict_with_metadata(audio_tensor, sample_rate)["tvs"])
+        return cast(
+            torch.Tensor,
+            self.predict_with_metadata(audio_tensor, sample_rate, contact_enabled=contact_enabled)[
+                "tvs"
+            ],
+        )
 
     def predict_combined(
         self, audio_tensor: torch.Tensor, sample_rate: int = 16000
@@ -237,6 +273,7 @@ class SSLAAIPredictor:
         with self._lock:
             self._ssl_model = None
             self._predictor_head = None
+            self._contact_head = None
             self._feature_extractor = None
             self._metadata = {}
             self._loaded = False

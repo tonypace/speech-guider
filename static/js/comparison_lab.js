@@ -2,7 +2,7 @@
  * Comparison Lab - UI module for side-by-side articulatory comparison
  *
  * Manages:
- * - Target text input with debounced reference generation
+ * - Explicit reference generation for the target sentence
  * - Side-by-side animation containers
  * - Timeline controls: play/pause, scrub, speed, zoom, loop
  * - Student recording integration
@@ -10,18 +10,21 @@
 
 import { convertAudioToWav, encodePcmWav } from './audio_conversion.js';
 import { listen } from './capture_resources.js';
+import { getSettings, microphoneError, openMicrophone } from './microphone.js';
 import { SSLComparisonController } from './ssl_comparison_controller.js';
+import { SvgArticulatoryRenderer } from './svg_articulatory_renderer.js';
 
 class ComparisonLab {
     constructor() {
         this.controller = null;
-        this.leftRenderer = null;
-        this.rightRenderer = null;
+        this.refRenderer = null;
+        this.studentRenderer = null;
         this.currentTargetText = '';
         this.referenceLoaded = false;
         this.studentLoaded = false;
         this.isRecording = false;
         this.isStartingRecording = false;
+        this.isAnalyzingRecording = false;
         this.mediaRecorder = null;
         this.recordedChunks = [];
         this.destroyed = false;
@@ -29,13 +32,8 @@ class ComparisonLab {
         this.stream = null;
         this.initialized = false;
 
-        // Debounce timer
-        this.debounceTimer = null;
-        this.debounceDelay = 1500; // ms - wait 1.5 seconds after typing stops
-
         // Pending request tracking
         this.pendingRequestController = null;
-        this.pendingRequestText = null; // What text we're generating for
         this.currentRequestId = 0; // Incremental ID to detect stale requests
         this.studentRequestId = 0;
         this.permissionRequestId = 0;
@@ -73,53 +71,10 @@ class ComparisonLab {
    * Initialize SVG articulatory renderers for comparison lab
    */
     initRenderers() {
-    // Wait for SVGArticulatoryRenderer to be available
-        const checkAndInit = () => {
-            if (typeof SvgArticulatoryRenderer === 'undefined') {
-                setTimeout(checkAndInit, 100);
-                return;
-            }
-
-            // Initialize reference (left) renderer
-            const refContainer = document.getElementById('comparison-ref-animation');
-            if (refContainer && !this.refRenderer) {
-                this.refRenderer = new SvgArticulatoryRenderer(refContainer, {
-                    width: refContainer.clientWidth,
-                    height: 256,
-                    showLabels: true,
-                });
-                this.refRenderer.mount();
-
-                // Override the callback to use this renderer
-                this.controller.onReferenceFrame = (frame, time) => {
-                    if (this.refRenderer && frame) {
-                        this.refRenderer.setState(frame);
-                    }
-                    this.updateReferenceScrub(time);
-                };
-            }
-
-            // Initialize student (right) renderer
-            const studentContainer = document.getElementById('comparison-student-animation');
-            if (studentContainer && !this.studentRenderer) {
-                this.studentRenderer = new SvgArticulatoryRenderer(studentContainer, {
-                    width: studentContainer.clientWidth,
-                    height: 256,
-                    showLabels: true,
-                });
-                this.studentRenderer.mount();
-
-                // Override the callback to use this renderer
-                this.controller.onStudentFrame = (frame, time) => {
-                    if (this.studentRenderer && frame) {
-                        this.studentRenderer.setState(frame);
-                    }
-                    this.updateStudentScrub(time);
-                };
-            }
-        };
-
-        checkAndInit();
+        const reference = document.getElementById('comparison-ref-animation');
+        const student = document.getElementById('comparison-student-animation');
+        if (reference) this.refRenderer = new SvgArticulatoryRenderer(reference, { prefix: 'comparison-reference' });
+        if (student) this.studentRenderer = new SvgArticulatoryRenderer(student, { prefix: 'comparison-student' });
     }
 
     /**
@@ -167,8 +122,8 @@ class ComparisonLab {
                 if (type === 'reference') this.showReferenceStatus('error', 'Reference audio could not play.');
                 else this.showStudentStatus('error', 'Recording audio could not play.');
             },
-            defaultSpeed: 1.0,
-            linkedPlayheads: false,
+            defaultSpeed: 0.3,
+            linkedPlayheads: true,
         });
     }
 
@@ -177,10 +132,41 @@ class ComparisonLab {
    */
     setupEventListeners() {
         listen(this, window, 'beforeunload', () => this.destroy());
-        // Text input debounce
+        listen(this, window, 'speechguider:settingschange', ({ detail: { previous, next } }) => {
+            if (previous.contact_enabled !== next.contact_enabled) {
+                const text = this.currentTargetText;
+                this.clear();
+                this.currentTargetText = text;
+                this.showReferenceStatus(text ? 'idle' : 'empty');
+                this.showStudentStatus('idle');
+            }
+            this.updateUIState();
+        });
         const textInput = document.getElementById('comparison-target-text');
         if (textInput) {
             listen(this, textInput, 'input', this.handleTextInput);
+        }
+        const form = document.getElementById('comparison-reference-form');
+        if (form) {
+            listen(this, form, 'submit', (event) => {
+                event.preventDefault();
+                const generate = document.getElementById('comparison-generate');
+                if (generate && !generate.disabled && this.currentTargetText) {
+                    void this.generateReference(this.currentTargetText);
+                }
+            });
+        }
+        const fullscreen = document.getElementById('comparison-fullscreen');
+        if (fullscreen) {
+            listen(this, fullscreen, 'click', () => this.toggleFullscreen());
+            listen(this, document, 'fullscreenchange', () => {
+                if (!document.fullscreenElement) this.setExpanded(false);
+            });
+            listen(this, document, 'keydown', (event) => {
+                if (event.key === 'Escape' && fullscreen.getAttribute('aria-pressed') === 'true') {
+                    this.exitFullscreen();
+                }
+            });
         }
 
         // Scrub bars
@@ -258,51 +244,52 @@ class ComparisonLab {
         }
     }
 
-    /**
-   * Handle text input with debounce
-   */
     handleTextInput(event) {
         const text = event.target.value.trim();
-        if (text !== this.currentTargetText) {
-            this.studentRequestId++;
-            this.studentLoaded = false;
-            this.controller?.clearTrack('student');
-            this.showStudentStatus('idle');
-        }
-        const generation = ++this.currentRequestId;
-        if (this.pendingRequestController) this.pendingRequestController.abort();
-        this.pendingRequestController = null;
-        this.pendingRequestText = null;
+        if (text === this.currentTargetText) return;
+        this.clear();
+        this.currentTargetText = text;
+        this.showReferenceStatus(text ? 'idle' : 'empty');
+        this.showStudentStatus('idle');
+        this.updateUIState();
+    }
 
-        // Cancel pending timer
-        if (this.debounceTimer) {
-            clearTimeout(this.debounceTimer);
-            this.debounceTimer = null;
+    setExpanded(expanded) {
+        document.getElementById('tab-panel-comparison')?.classList.toggle('comparison-expanded', expanded);
+        const button = document.getElementById('comparison-fullscreen');
+        if (button) {
+            button.textContent = expanded ? 'Exit full screen' : 'Full screen';
+            button.setAttribute('aria-pressed', String(expanded));
         }
+    }
 
-        if (!text) {
-            this.currentTargetText = '';
-            this.referenceLoaded = false;
-            if (this.controller) this.controller.clearTrack('reference');
-            this.updateUIState();
+    async toggleFullscreen() {
+        const panel = document.getElementById('tab-panel-comparison');
+        if (!panel) return;
+        if (panel.classList.contains('comparison-expanded')) {
+            this.exitFullscreen();
             return;
         }
+        this.setExpanded(true);
+        try {
+            if (document.fullscreenEnabled) await panel.requestFullscreen();
+        } catch {
+            // The expanded view also works in webviews without native fullscreen.
+        }
+    }
 
-        this.referenceLoaded = false;
-        this.updateUIState();
+    exitFullscreen() {
+        this.setExpanded(false);
+        if (document.fullscreenElement?.id === 'tab-panel-comparison') {
+            void document.exitFullscreen().catch(() => {});
+        }
+    }
 
-        // Show preparing indicator immediately
-        this.showReferenceStatus('preparing');
-
-        // If we already have a pending request for DIFFERENT text, cancel it
-        // and start new generation immediately
-        // Debounce generation - wait for user to stop typing
-        this.debounceTimer = setTimeout(() => {
-            this.debounceTimer = null;
-            if (generation !== this.currentRequestId) return;
-            this.currentTargetText = text;
-            this.generateReference(text, generation);
-        }, this.debounceDelay);
+    leave() {
+        this.exitFullscreen();
+        this.controller?.pause('reference');
+        this.controller?.pause('student');
+        this.stopRecording();
     }
 
     /**
@@ -312,10 +299,10 @@ class ComparisonLab {
     // Increment request ID to track staleness
         const requestId = generation;
 
-        // Track what we're generating
-        this.pendingRequestText = text;
         const requestController = new AbortController();
         this.pendingRequestController = requestController;
+        this.showReferenceStatus('preparing');
+        this.updateUIState();
 
         try {
             const response = await fetch('/api/reference-animation', {
@@ -326,7 +313,16 @@ class ComparisonLab {
             });
 
             if (!response.ok) {
-                throw new Error(`Reference generation failed: ${response.status}`);
+                const { detail } = await response.json().catch(() => null) || {};
+                if (Array.isArray(detail)) {
+                    const messages = detail.map(issue => issue?.msg).filter(message => typeof message === 'string');
+                    if (messages.length) throw new Error(messages.join(' '));
+                }
+                throw new Error(typeof detail === 'string' ? detail : (
+                    response.status === 503
+                        ? 'Analysis worker is busy. Wait for the current request to finish, then retry.'
+                        : `Reference generation failed: ${response.status}`
+                ));
             }
 
             const data = await response.json();
@@ -377,7 +373,7 @@ class ComparisonLab {
             // Only clear if this is our request
             if (requestId === this.currentRequestId) {
                 this.pendingRequestController = null;
-                this.pendingRequestText = null;
+                this.updateUIState();
             }
         }
     }
@@ -390,6 +386,8 @@ class ComparisonLab {
         if (!statusEl) return;
 
         const statusMap = {
+            empty: { text: 'Enter text to generate a reference.', class: 'text-gray-500' },
+            idle: { text: 'Ready to generate a reference.', class: 'text-gray-500' },
             preparing: { text: 'Preparing reference...', class: 'text-amber-600' },
             ready: { text: 'Reference ready', class: 'text-green-600' },
             cached: { text: 'Reference ready (cached)', class: 'text-green-600' },
@@ -417,6 +415,9 @@ class ComparisonLab {
    */
     handlePlayPause(type) {
         if (!this.controller) return;
+        if (this.controller.linkedPlayheads) {
+            this.controller.pause(type === 'reference' ? 'student' : 'reference');
+        }
         this.controller.togglePlay(type);
     }
 
@@ -493,15 +494,17 @@ class ComparisonLab {
     /**
    * Callback when reference frame updates
    */
-    onReferenceFrame() {
-    // Handled by initRenderers override
+    onReferenceFrame(frame, time) {
+        this.refRenderer?.setState(frame);
+        this.updateReferenceScrub(time);
     }
 
     /**
    * Callback when student frame updates
    */
-    onStudentFrame() {
-    // Handled by initRenderers override
+    onStudentFrame(frame, time) {
+        this.studentRenderer?.setState(frame);
+        this.updateStudentScrub(time);
     }
 
     /**
@@ -520,12 +523,14 @@ class ComparisonLab {
 
         if (refBtn) {
             refBtn.textContent = refPlaying ? '⏸' : '▶';
+            refBtn.setAttribute('aria-label', refPlaying ? 'Pause reference' : 'Play reference');
             refBtn.classList.toggle('bg-amber-500', refPlaying);
             refBtn.classList.toggle('bg-blue-500', !refPlaying);
         }
 
         if (studentBtn) {
             studentBtn.textContent = studentPlaying ? '⏸' : '▶';
+            studentBtn.setAttribute('aria-label', studentPlaying ? 'Pause your recording' : 'Play your recording');
             studentBtn.classList.toggle('bg-amber-500', studentPlaying);
             studentBtn.classList.toggle('bg-blue-500', !studentPlaying);
         }
@@ -535,16 +540,19 @@ class ComparisonLab {
    * Start recording student audio
    */
     async startRecording() {
-        if (this.destroyed || this.isRecording || this.isStartingRecording) return;
+        if (this.destroyed || this.isRecording || this.isStartingRecording || this.isAnalyzingRecording) return;
         this.isStartingRecording = true;
+        this.updateUIState();
         const permission = ++this.permissionRequestId;
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const stream = await openMicrophone();
             if (this.destroyed || permission !== this.permissionRequestId || !this.isStartingRecording || this.isRecording) {
                 stream.getTracks().forEach((track) => track.stop());
                 return;
             }
             this.isStartingRecording = false;
+            this.controller?.pause('reference');
+            this.controller?.pause('student');
             this.stream = stream;
             this.mediaRecorder = new MediaRecorder(stream);
             this.recordedChunks = [];
@@ -565,6 +573,8 @@ class ComparisonLab {
             this.mediaRecorder.start();
             this.isRecording = true;
             this.updateRecordButton();
+            this.updateUIState();
+            this.showStudentStatus('recording');
         } catch (error) {
             if (permission !== this.permissionRequestId) return;
             this.isStartingRecording = false;
@@ -572,7 +582,8 @@ class ComparisonLab {
             this.stream = null;
             if (this.destroyed) return;
             console.error('[ComparisonLab] Recording error:', error);
-            alert('Could not access microphone. Please check permissions.');
+            this.showStudentStatus('error', microphoneError(error));
+            this.updateUIState();
         }
     }
 
@@ -583,10 +594,12 @@ class ComparisonLab {
         this.permissionRequestId++;
         this.isStartingRecording = false;
         if (this.mediaRecorder && this.isRecording) {
-            this.mediaRecorder.stop();
             this.isRecording = false;
+            this.isAnalyzingRecording = true;
+            this.mediaRecorder.stop();
             this.updateRecordButton();
         }
+        this.updateUIState();
     }
 
     /**
@@ -598,6 +611,8 @@ class ComparisonLab {
         const generation = ++this.studentRequestId;
         const targetText = this.currentTargetText;
         const isCurrent = () => !this.destroyed && generation === this.studentRequestId;
+        this.isAnalyzingRecording = true;
+        this.updateUIState();
 
         try {
             this.showStudentStatus('analyzing');
@@ -613,58 +628,43 @@ class ComparisonLab {
                 body: formData,
             });
 
-            console.log('[ComparisonLab] Response status:', response.status);
-            console.log('[ComparisonLab] Response headers:', Object.fromEntries(response.headers.entries()));
-
-            // Try to parse response regardless of status
-            const responseText = await response.text();
-            console.log('[ComparisonLab] Response body:', responseText);
-
+            const data = await response.json().catch(() => null);
             if (!response.ok) {
-                let errorBody;
-                try {
-                    errorBody = JSON.parse(responseText);
-                } catch {
-                    errorBody = { error: responseText };
-                }
-                const detail = errorBody?.error || errorBody?.detail || `HTTP ${response.status}`;
+                const detail = data?.error || data?.detail || `HTTP ${response.status}`;
                 throw new Error(`Analysis failed: ${detail}`);
             }
-
-            const data = JSON.parse(responseText);
-            if (this.destroyed || generation !== this.studentRequestId) return;
-
-            // Load student trajectory if available
-            if (data.ssl_trajectory && data.ssl_trajectory.frames) {
-                await this.controller.loadStudent(data.ssl_trajectory.frames, wav, isCurrent);
-                if (this.destroyed || generation !== this.studentRequestId) return;
-                this.studentLoaded = true;
-                this.showStudentStatus('ready');
-                this.updateUIState();
-            } else if (data.success) {
-                // Analysis succeeded but no trajectory (fallback path)
-                console.log('[ComparisonLab] Analysis succeeded but no SSL trajectory available');
-                this.showStudentStatus('error', 'Analysis complete but SSL trajectory not available');
-            } else {
-                this.showStudentStatus('error', data.error || 'Analysis failed');
+            if (!isCurrent()) return;
+            if (!data?.ssl_trajectory?.frames?.length) {
+                throw new Error(data?.ssl_warning || data?.error || 'No mouth movement was returned. Try recording again.');
             }
+            const loaded = await this.controller.loadStudent(data.ssl_trajectory.frames, wav, isCurrent);
+            if (!loaded || !isCurrent()) return;
+            this.studentLoaded = true;
+            this.showStudentStatus('ready');
         } catch (error) {
             console.error('[ComparisonLab] Analysis error:', error);
-            if (generation === this.studentRequestId) this.showStudentStatus('error');
+            if (isCurrent()) this.showStudentStatus('error', error.message);
+        } finally {
+            if (isCurrent()) {
+                this.isAnalyzingRecording = false;
+                this.updateUIState();
+            }
         }
     }
 
     /**
    * Show student analysis status
    */
-    showStudentStatus(status) {
+    showStudentStatus(status, errorMessage = '') {
         const statusEl = document.getElementById('comparison-student-status');
         if (!statusEl) return;
 
         const statusMap = {
+            idle: { text: '', class: 'text-gray-500' },
+            recording: { text: 'Recording. Click Stop when finished.', class: 'text-amber-600' },
             analyzing: { text: 'Analyzing pronunciation...', class: 'text-amber-600' },
             ready: { text: 'Student recording ready', class: 'text-green-600' },
-            error: { text: 'Analysis failed', class: 'text-red-600' },
+            error: { text: errorMessage || 'Analysis failed', class: 'text-red-600' },
         };
 
         const info = statusMap[status] || statusMap.error;
@@ -710,7 +710,20 @@ class ComparisonLab {
     updateUIState() {
         const hasRef = this.referenceLoaded;
         const hasStudent = this.studentLoaded;
-        this.updateDurationMatching(this.isRecording || this.isStartingRecording);
+        const busy = Boolean(this.pendingRequestController || this.isStartingRecording || this.isAnalyzingRecording);
+        const lockInput = busy || this.isRecording;
+        const target = document.getElementById('comparison-target-text');
+        const textLimit = Number(target?.dataset.textLimit);
+        // Python counts Unicode code points, while JavaScript string length counts UTF-16 units.
+        const textTooLong = Array.from(this.currentTargetText).length > textLimit;
+        const generate = document.getElementById('comparison-generate');
+        if (target) {
+            target.disabled = lockInput;
+            target.setAttribute('aria-invalid', String(textTooLong));
+        }
+        if (generate) generate.disabled = lockInput || !this.currentTargetText || textTooLong;
+        if (textTooLong) this.showReferenceStatus('error', `Shorten the target text to ${textLimit} characters or fewer.`);
+        this.updateDurationMatching(lockInput);
 
         // Enable/disable controls
         const controls = [
@@ -730,14 +743,16 @@ class ComparisonLab {
                 const canUse = (id.includes('ref') && hasRef) ||
                        (id.includes('student') && hasStudent) ||
                        (!id.includes('ref') && !id.includes('student') && (hasRef || hasStudent));
-                el.disabled = !canUse;
+                el.disabled = !canUse || this.isRecording || this.isStartingRecording;
             }
         });
 
         // Record button needs reference
         const recordBtn = document.getElementById('comparison-record-btn');
         if (recordBtn) {
-            recordBtn.disabled = !hasRef;
+            const microphoneDisabled = getSettings().microphone_enabled === false;
+            recordBtn.disabled = busy || !hasRef || microphoneDisabled;
+            recordBtn.title = microphoneDisabled ? 'Microphone is off in Settings' : '';
         }
     }
 
@@ -784,20 +799,26 @@ class ComparisonLab {
         this.stream = null;
         this.isRecording = false;
         this.controller?.destroy();
-        this.leftRenderer?.destroy?.();
-        this.rightRenderer?.destroy?.();
+        this.exitFullscreen();
     }
 
     clear() {
         this.currentRequestId++;
         this.studentRequestId++;
-        clearTimeout(this.debounceTimer);
         this.pendingRequestController?.abort();
-        if (this.controller) {
-            this.controller.clear();
+        this.pendingRequestController = null;
+        this.controller?.clear();
+        for (const [renderer, text] of [[this.refRenderer, 'No reference loaded'], [this.studentRenderer, 'Record to compare']]) {
+            if (renderer) {
+                renderer.destroy();
+                renderer.container.textContent = text;
+            }
         }
+        this.updateReferenceScrub(0);
+        this.updateStudentScrub(0);
         this.referenceLoaded = false;
         this.studentLoaded = false;
+        this.isAnalyzingRecording = false;
         this.currentTargetText = '';
         this.updateUIState();
     }

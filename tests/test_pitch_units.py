@@ -18,7 +18,7 @@ def test_coaching_uses_frequency_ratio_and_keeps_hz_payload(base: float) -> None
     payload = serialize_prosody(ProsodyMetrics(pitch=pitch, rhythm=None, stress=None))
     assert payload["pitch_range"] == base
     assert payload["pitch_range_semitones"] == pytest.approx(12.0)
-    assert payload["pitch_range_label"] == "nice variety"
+    assert payload["pitch_range_label"] == "measured pitch range"
 
 
 @pytest.fixture

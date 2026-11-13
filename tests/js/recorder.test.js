@@ -320,7 +320,7 @@ describe('IntercomRecorder', () => {
             await recorder.submitAudioBlob(mockWav, 'test.wav');
 
             expect(fetchSpy).toHaveBeenCalledWith('/api/analyze', expect.objectContaining({ method: 'POST' }));
-            expect(displaySpy).toHaveBeenCalledWith(mockResult);
+            expect(displaySpy).toHaveBeenCalledWith(mockResult, mockWav);
 
             fetchSpy.mockRestore();
             displaySpy.mockRestore();

@@ -123,7 +123,8 @@ async def test_all_heavy_primary_stages_run_off_event_loop() -> None:
     ):
         analyzer.return_value.analyze_complete.side_effect = lambda **kwargs: observe(None)
         result = await _run_analysis_pipeline("unused.wav", "hello", "standalone")
-    assert result["success"]
+    assert not result["success"]
+    assert result["status"] == "partial"
     assert "prosody feedback only" in result["feedback"]
     assert len(observed) == 4
     assert all(thread != loop_thread for thread in observed)

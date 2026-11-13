@@ -17,12 +17,15 @@ async function openHome(page) {
 /**
  * Switch to a tab by name.
  * @param {import('@playwright/test').Page} page
- * @param {'analysis' | 'animation' | 'prosody'} tabName
+ * @param {'analysis' | 'animation' | 'prosody' | 'comparison'} tabName
  */
 async function switchToTab(page, tabName) {
-    const btn = page.locator(`#tab-btn-${tabName}`);
-    await btn.click();
-    await page.waitForTimeout(200);
+    if (tabName === 'prosody' || tabName === 'animation') {
+        await page.evaluate(name => window.switchTab(name), tabName);
+    } else {
+        await page.locator(`#tab-btn-${tabName}`).click();
+    }
+    await expect(page.locator(`#tab-panel-${tabName}`)).toBeVisible();
 }
 
 /**

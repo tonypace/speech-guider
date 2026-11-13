@@ -34,7 +34,7 @@ class PitchContour:
 class RhythmMetrics:
     """Rhythm analysis results using nPVI."""
 
-    npvi: float
+    npvi: float | None
     vowel_durations: list[float]
     classification: str  # "syllable-timed" or "stress-timed"
 
@@ -184,10 +184,20 @@ class ProsodyAnalyzer:
         """
         if not vowel_timestamps or len(vowel_timestamps) < 2:
             return RhythmMetrics(
-                npvi=0.0,
+                npvi=None,
                 vowel_durations=[],
                 classification="insufficient_data",
             )
+
+        if any(
+            not math.isfinite(start)
+            or not math.isfinite(end)
+            or start < 0
+            or end <= start
+            or (index > 0 and start < vowel_timestamps[index - 1][1])
+            for index, (start, end) in enumerate(vowel_timestamps)
+        ):
+            return RhythmMetrics(None, [], "invalid_intervals")
 
         vowel_durations = [end - start for start, end in vowel_timestamps]
 

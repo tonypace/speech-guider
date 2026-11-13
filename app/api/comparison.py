@@ -9,6 +9,7 @@ import torch
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from app.api.settings import load_settings
 from app.services.concurrency import run_inference
 from app.utils.audio import load_audio_tensor
 from src.audio.reference_tts import ReferenceAudio, TTSProviderFactory
@@ -19,12 +20,15 @@ from src.services.model_cache import get_ssl_cache_identity, get_ssl_predictor
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+REFERENCE_TEXT_LIMIT = 1000
 
 
 class ReferenceAnimationRequest(BaseModel):
     """Request for reference animation generation."""
 
-    target_text: str = Field(..., min_length=1, max_length=500, description="Text to synthesize")
+    target_text: str = Field(
+        ..., min_length=1, max_length=REFERENCE_TEXT_LIMIT, description="Text to synthesize"
+    )
     tts_provider: str = Field(default="omnivoice", description="TTS provider to use")
 
 
@@ -80,6 +84,7 @@ def _generate_reference_asset(
     text: str,
     tts_provider: str = "omnivoice",
     cache: Optional[ComparisonCache] = None,
+    contact_enabled: bool = False,
 ) -> tuple[ReferenceAsset, bool]:
     """Generate reference audio and animation frames.
 
@@ -92,7 +97,7 @@ def _generate_reference_asset(
             "version": 2,
             "provider_name": tts_provider,
             "tts": provider.cache_identity(),
-            "ssl": get_ssl_cache_identity(),
+            "ssl": get_ssl_cache_identity(contact_enabled),
             "audio_sample_rate": 8000,
         },
         sort_keys=True,
@@ -108,7 +113,9 @@ def _generate_reference_asset(
 
     audio_tensor = _prepare_reference_audio_tensor(reference_audio)
     trajectory = get_ssl_predictor().predict(
-        audio_tensor, sample_rate=DEFAULT_SSL_FEATURE_CONFIG.sample_rate
+        audio_tensor,
+        sample_rate=DEFAULT_SSL_FEATURE_CONFIG.sample_rate,
+        contact_enabled=contact_enabled,
     )
 
     frames = aai_to_canonical_states_batch(
@@ -147,6 +154,7 @@ async def generate_reference_animation(request: ReferenceAnimationRequest):
             _generate_reference_asset,
             text=request.target_text,
             tts_provider=request.tts_provider,
+            contact_enabled=load_settings().contact_enabled,
         )
 
         import base64

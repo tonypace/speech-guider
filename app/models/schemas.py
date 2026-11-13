@@ -47,7 +47,7 @@ class ProsodyMetrics(BaseModel):
     pitch_mean: float
     pitch_range: float
     pitch_variability: float
-    npvi: float  # Normalized Pairwise Variability Index
+    npvi: float | None  # Normalized Pairwise Variability Index
     stress_pattern: Optional[str] = None
 
 
