@@ -24,17 +24,24 @@ class AppSettings(BaseModel):
 
 
 def _settings_path() -> Path:
-    return state.PRESETS_FILE.with_name("settings.json")
+    return state.data_file("settings.json")
 
 
 def load_settings() -> AppSettings:
-    try:
-        return AppSettings.model_validate_json(_settings_path().read_bytes())
-    except FileNotFoundError:
-        return AppSettings()
-    except (OSError, ValidationError):
-        logger.warning("Ignoring unreadable settings at %s", _settings_path(), exc_info=True)
-        return AppSettings()
+    path = _settings_path()
+    with state.STATE_LOCK:
+        try:
+            return AppSettings.model_validate_json(path.read_bytes())
+        except FileNotFoundError:
+            return AppSettings()
+        except (OSError, ValidationError):
+            logger.warning("Ignoring unreadable settings at %s", path, exc_info=True)
+            return AppSettings()
+
+
+def _write_settings(settings: AppSettings) -> None:
+    with state.STATE_LOCK:
+        write_json_atomic(_settings_path(), settings.model_dump(mode="json"))
 
 
 def settings_payload(settings: AppSettings) -> dict[str, object]:
@@ -48,7 +55,7 @@ def settings_payload(settings: AppSettings) -> dict[str, object]:
 @router.put("/api/settings")
 async def save_settings(settings: AppSettings) -> dict[str, object]:
     try:
-        await run_blocking(write_json_atomic, _settings_path(), settings.model_dump(mode="json"))
+        await run_blocking(_write_settings, settings)
     except (OSError, ValueError) as exc:
         logger.exception("Could not save settings")
         raise HTTPException(status_code=500, detail="Could not save settings.") from exc

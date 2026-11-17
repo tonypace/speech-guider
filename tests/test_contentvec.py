@@ -1,12 +1,7 @@
 """Tests for SSL AAI predictor."""
 
-import sys
-from pathlib import Path
-
 import pytest
 import torch
-
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
 def create_sine_wave(
@@ -19,7 +14,7 @@ def create_sine_wave(
 
 
 class TestSSLAAIPredictor:
-    """Tests for SSL AAI predictor with ContentVec + DANN."""
+    """Tests for SSL AAI predictor with ContentVec-L7 + R4."""
 
     def test_ssl_predictor_initialization(self) -> None:
         """Test that SSL predictor can be initialized."""
@@ -86,27 +81,65 @@ class TestSSLAAIPredictor:
         with pytest.raises(ValueError, match="NaN or Inf"):
             predictor._validate_output(nan_output)
 
-    def test_dann_predictor_head_forward(self) -> None:
-        """Test DANN predictor head forward pass."""
-        from src.models.ssl_aai_predictor import DANNPredictorHead
+    def test_ssl_predictor_invalid_config_raises(self) -> None:
+        """Test that SSLAAIPredictor rejects mismatched SSLFeatureConfig."""
+        from src.models.ssl_aai_predictor import SSLAAIPredictor
+        from src.models.ssl_common import SSLFeatureConfig
 
-        head = DANNPredictorHead(input_dim=768, hidden_dim=256, output_dim=9)
+        bad_configs = [
+            SSLFeatureConfig(sample_rate=22050),
+            SSLFeatureConfig(target_layer=12),
+            SSLFeatureConfig(feature_dim=512),
+            SSLFeatureConfig(frame_rate=25),
+        ]
+        for config in bad_configs:
+            with pytest.raises(ValueError, match="R4 requires 16 kHz"):
+                SSLAAIPredictor(ssl_config=config)
 
-        # Test with 2D input (T, 768)
-        x = torch.randn(50, 768)
-        output = head(x)
+    def test_ssl_predictor_input_audio_validation(self) -> None:
+        """Test that predict() validates waveform dimensionality and finiteness."""
+        from src.models.ssl_aai_predictor import SSLAAIPredictor
 
-        assert output.shape == (50, 9)
-        assert output.min() >= 0.0  # Clamped
-        assert output.max() <= 1.0  # Clamped
+        predictor = SSLAAIPredictor()
+        predictor._loaded = True
 
-        # Test with 3D input (B, T, 768)
-        x_batch = torch.randn(2, 50, 768)
-        output_batch = head(x_batch)
+        with pytest.raises(ValueError, match="nonempty mono waveform"):
+            predictor.predict(torch.zeros(0))
 
-        assert output_batch.shape == (2, 50, 9)
-        assert output_batch.min() >= 0.0
-        assert output_batch.max() <= 1.0
+        with pytest.raises(ValueError, match="nonempty mono waveform"):
+            predictor.predict(torch.zeros(2, 1600))
+
+        bad_audio = torch.tensor([0.0, float("nan"), 0.1])
+        with pytest.raises(ValueError, match="NaN or Inf"):
+            predictor.predict(bad_audio)
+
+
+class TestSSLCommonDeviceHelpers:
+    """Tests for device selection and cache cleanup utilities."""
+
+    def test_get_best_torch_device_prefers_mps_over_cuda(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Device priority must follow MPS > CUDA > CPU."""
+        from src.models.ssl_common import get_best_torch_device
+
+        monkeypatch.setattr(torch.backends.mps, "is_available", lambda: True)
+        monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+        assert get_best_torch_device() == "mps"
+
+        monkeypatch.setattr(torch.backends.mps, "is_available", lambda: False)
+        monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+        assert get_best_torch_device() == "cuda"
+
+        monkeypatch.setattr(torch.backends.mps, "is_available", lambda: False)
+        monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+        assert get_best_torch_device() == "cpu"
+
+    def test_clear_torch_device_cache_handles_none(self) -> None:
+        """clear_torch_device_cache(None) must safely no-op."""
+        from src.models.ssl_common import clear_torch_device_cache
+
+        clear_torch_device_cache(None)
 
 
 class TestAAIAdapter:

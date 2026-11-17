@@ -8,15 +8,7 @@ import scipy.io.wavfile as wavfile
 import torch
 
 from src.audio import AudioContext, ProsodyAnalyzer
-from src.models.alignment import ForcedAligner, _classify_phoneme
-
-
-def test_phoneme_classification_logic():
-    """Test phoneme classification works independently."""
-    assert _classify_phoneme("i") == (True, True)
-    assert _classify_phoneme("b") == (False, True)
-    assert _classify_phoneme("p") == (False, False)
-    assert _classify_phoneme("s") == (False, False)
+from src.models.alignment import ForcedAligner
 
 
 def test_prosody_extraction_from_audio():
@@ -64,7 +56,6 @@ def test_forced_aligner_placeholder():
 
 
 if __name__ == "__main__":
-    test_phoneme_classification_logic()
     test_prosody_extraction_from_audio()
     test_forced_aligner_placeholder()
     print("\n✅ All integration tests passed!")

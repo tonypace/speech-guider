@@ -2,6 +2,7 @@ import { trimProsodyHistory, loadHistory, storeRecord, getRoleId, setRoleId, cre
 import { listen, releaseCapture } from './capture_resources.js';
 import { microphoneError, openMicrophone } from './microphone.js';
 import { convertAudioToWav, encodePcmWav } from './audio_conversion.js';
+import { escapeHtml } from './ipa_tooltips.js';
 
 function midiToNoteName(midi) {
     if (midi === null || midi === undefined || Number.isNaN(midi)) {
@@ -23,12 +24,6 @@ function formatMetricValue(value, suffix = '') {
         return `${value.toFixed(value >= 100 ? 0 : 2)}${suffix}`;
     }
     return `${value}${suffix}`;
-}
-
-function escapeHtml(value) {
-    return String(value).replace(/[&<>"']/g, (character) => ({
-        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', '\'': '&#39;',
-    })[character]);
 }
 
 const BAR_DURATION_SECONDS = 2.0;
@@ -174,7 +169,7 @@ function buildMusicalScoreChart(record, options = {}) {
     if (bars.length === 0) {
         return { traces: [], layout: {}, frames: [] };
     }
-    const { stressed, unstressed } = classifySyllableStress(syllableOnsets, pitchTrack);
+    const { stressed, unstressed } = classifySyllableStress(syllableOnsets);
     const graceTimes = assignGraceNotesBetween(unstressed, stressed);
     const allMidi = pitchTrack.map((p) => p.midi).filter((m) => m !== null && !Number.isNaN(m));
     const globalMinMidi = allMidi.length ? Math.floor(Math.min(...allMidi)) - 1 : 36;
@@ -182,8 +177,6 @@ function buildMusicalScoreChart(record, options = {}) {
     const { tickVals, tickText } = buildNoteTicks(globalMinMidi, globalMaxMidi);
     const beatInterval = barDuration / beatsPerBar;
     const traces = [];
-    const annotations = [];
-    const shapes = [];
 
     bars.forEach((bar) => {
         const localTimes = bar.points.map((p) => p.time - bar.startTime);
@@ -205,7 +198,7 @@ function buildMusicalScoreChart(record, options = {}) {
         let barGraceTimes = graceTimes
             .filter((t) => t >= bar.startTime && t < bar.startTime + barDuration)
             .map((t) => t - bar.startTime);
-        const barTraces = buildBarTrace(bar, quantizedMidi, localTimes, textValues, anchorTimes, barGraceTimes, [globalMinMidi, globalMaxMidi]);
+        const barTraces = buildBarTrace(bar, quantizedMidi, localTimes, textValues, anchorTimes, barGraceTimes);
         traces.push(...barTraces);
     });
     const axesDict = {};
@@ -239,8 +232,6 @@ function buildMusicalScoreChart(record, options = {}) {
         paper_bgcolor: 'white',
         plot_bgcolor: '#fafafa',
         margin: { l: 60, r: 20, t: 50, b: 60 },
-        annotations,
-        shapes,
         ...axesDict,
         showlegend: false,
         uniformtext: { mode: 'hide', minsize: 8 },
@@ -439,7 +430,11 @@ class ProsodyLabRecorder {
         this.startTime = Date.now();
         this.setStatus('Recording... release to analyze.');
 
-        this.recordBtn?.classList.add('recording');
+        if (this.recordBtn) {
+            this.recordBtn.classList.add('recording');
+            const btnText = this.recordBtn.querySelector('.btn-text');
+            if (btnText) btnText.textContent = 'Recording...';
+        }
         this.mediaRecorder.start(100);
         this.drawWaveform();
 
@@ -466,7 +461,11 @@ class ProsodyLabRecorder {
         this.isRecording = false;
         clearInterval(this.timerInterval);
         clearTimeout(this.recordingTimeout);
-        this.recordBtn?.classList.remove('recording');
+        if (this.recordBtn) {
+            this.recordBtn.classList.remove('recording');
+            const btnText = this.recordBtn.querySelector('.btn-text');
+            if (btnText) btnText.textContent = 'Hold to Record';
+        }
 
         if (this.animationId) {
             cancelAnimationFrame(this.animationId);
@@ -606,7 +605,7 @@ class ProsodyLabRecorder {
                 .join('');
         }
 
-        this.renderPlot(this.currentPlotEl, record, 'Current Recording');
+        this.renderPlot(this.currentPlotEl, record);
         this.renderFeedback(record);
     }
 
@@ -682,8 +681,8 @@ class ProsodyLabRecorder {
             this.studentLabelEl.textContent = studentRecord ? `Recording ${studentRecord.recording_id.slice(0, 6)}` : 'None selected';
         }
 
-        this.renderPlot(this.teacherPlotEl, teacherRecord, 'Teacher Sample');
-        this.renderPlot(this.studentPlotEl, studentRecord, 'Student Sample');
+        this.renderPlot(this.teacherPlotEl, teacherRecord);
+        this.renderPlot(this.studentPlotEl, studentRecord);
     }
 
     renderPlot(targetElement, record) {

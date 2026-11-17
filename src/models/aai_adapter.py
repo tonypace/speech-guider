@@ -1,19 +1,19 @@
 """AAI tract-variable adapter for SVG articulatory animation.
 
-NORMALIZATION EVOLUTION (Documented for Future Work):
------------------------------------------------------
-| Stage | Normalization | Status                    |
-|-------|--------------|---------------------------|
-| Old   | z_score      | Removed (DistilHuBERT)    |
-| Now   | robust_01    | Current (ContentVec+DANN) |
-| Future| hard_sigmoid_01 | Under refinement       |
+NORMALIZATION MODES:
+--------------------
+| Normalization        | Status                       |
+|----------------------|------------------------------|
+| speaker_z_normalized | Current (ContentVec-L7 + R4) |
+| robust_01            | Legacy unit-interval [0, 1]  |
+| z_score              | Legacy denormalized via stats|
+| raw                  | Direct physical/unscaled pass|
 
-- z_score: Values in (-inf, +inf), required denormalization via AAINormalizationProfile
+- speaker_z_normalized: R4 rig values in unit interval, clamped to [0, 1] without denormalization
 - robust_01: Values already in [0, 1], no denormalization needed
-- hard_sigmoid_01: Hard-sigmoid clamped to [0, 1], upcoming refinement
+- z_score: Values in (-inf, +inf), denormalized via AAINormalizationProfile
 
-The adapter handles both z_score (backward compatibility) and robust_01 (current).
-For robust_01, values are used directly as unit interval inputs.
+The adapter handles speaker_z_normalized (current R4), robust_01, and legacy z_score/raw modes.
 """
 
 from dataclasses import dataclass, field
@@ -111,21 +111,6 @@ class AAITractVariables:
     glo: float
     lat: float
 
-    def as_dict(self) -> dict[str, float]:
-        """Return named AAI fields."""
-
-        return {
-            "LP": self.lp,
-            "LA": self.la,
-            "TTCL": self.ttcl,
-            "TTCD": self.ttcd,
-            "TBCL": self.tbcl,
-            "TBCD": self.tbcd,
-            "VEL": self.vel,
-            "GLO": self.glo,
-            "LAT": self.lat,
-        }
-
 
 DEFAULT_AAI_REFERENCE_PROFILE = AAINormalizationProfile(
     mean=(-3.035, 33.41, 0.0, 14.96, 0.85, 7.78, 11.64, 1.0, 0.0),
@@ -181,7 +166,7 @@ def representative_aai_pose(
     Args:
         frames: Sequence of (9,) TV rows
         profile: Normalization profile (used for z_score denormalization)
-        normalization: One of "raw", "z_score", or "robust_01"
+        normalization: One of "raw", "z_score", "robust_01", or "speaker_z_normalized"
 
     Returns:
         AAITractVariables representing the median pose
@@ -244,10 +229,10 @@ def _resolve_aai_input_variables(
     profile: AAINormalizationProfile,
     metadata: AAIConversionMetadata,
 ) -> AAITractVariables:
-    """Resolve incoming AAI values into one consistent physical scale.
+    """Resolve incoming AAI values into one consistent physical or unit scale.
 
-    For z_score: denormalize to physical units (mm)
-    For robust_01: values already in [0, 1], pass through
+    For z_score: denormalize to physical units (mm).
+    For speaker_z_normalized and robust_01: clamp values to [0, 1].
     """
     if metadata.normalization == "z_score":
         return denormalize_aai_row(
@@ -283,13 +268,37 @@ def _resolve_aai_input_variables(
         return tract_variables
 
 
+_MASKED_FIELD_CANONICAL_MAP: dict[str, str] = {
+    "VEL": "velic_aperture",
+    "GLO": "glottal_aperture",
+    "LAT": "lateral_tongue_drop",
+}
+
+
+def _apply_masked_field_fallbacks(
+    candidate: dict[str, float],
+    metadata: AAIConversionMetadata,
+    fallback: Mapping[str, float],
+    defaults: Mapping[str, float],
+) -> None:
+    """Replace masked AAI channels with fallback or default canonical values."""
+    masked_fields = set(metadata.masked_fields)
+    if metadata.source_dataset in AAI_MASKED_FIELDS_BY_SOURCE:
+        masked_fields |= AAI_MASKED_FIELDS_BY_SOURCE[metadata.source_dataset]
+    if not masked_fields:
+        return
+    for aai_key, canonical_key in _MASKED_FIELD_CANONICAL_MAP.items():
+        if aai_key in masked_fields:
+            candidate[canonical_key] = fallback.get(canonical_key, defaults[canonical_key])
+
+
 def _robust_01_row_to_canonical_candidate(
     values: Sequence[float],
     fallback: dict[str, float],
     defaults: dict[str, float],
     metadata: AAIConversionMetadata,
 ) -> dict[str, float]:
-    """Convert one robust_01 TV row to a canonical state candidate.
+    """Convert one unit-interval (speaker_z_normalized / robust_01) TV row to canonical state.
 
     Field order: LP, LA, TTCL, TTCD, TBCL, TBCD, VEL, GLO, LAT
     """
@@ -305,20 +314,7 @@ def _robust_01_row_to_canonical_candidate(
         "glottal_aperture": clamp_unit(values[7]),  # GLO
     }
 
-    masked_fields = set(metadata.masked_fields)
-    if metadata.source_dataset in AAI_MASKED_FIELDS_BY_SOURCE:
-        masked_fields |= AAI_MASKED_FIELDS_BY_SOURCE[metadata.source_dataset]
-
-    if masked_fields:
-        masked_field_mapping = {
-            "VEL": "velic_aperture",
-            "GLO": "glottal_aperture",
-            "LAT": "lateral_tongue_drop",
-        }
-        for aai_key, canonical_key in masked_field_mapping.items():
-            if aai_key in masked_fields:
-                candidate[canonical_key] = fallback.get(canonical_key, defaults[canonical_key])
-
+    _apply_masked_field_fallbacks(candidate, metadata, fallback, defaults)
     return apply_global_articulatory_calibration(normalize_svg_state(candidate))
 
 
@@ -330,7 +326,8 @@ def _resolved_aai_to_canonical_state(
 ) -> dict[str, float]:
     """Map resolved AAI tract variables into canonical normalized state.
 
-    Handles both z_score (physical mm values) and robust_01 ([0,1] values).
+    Handles unit-interval modes (speaker_z_normalized, robust_01) and legacy
+    z_score (physical mm) / raw values.
     """
     defaults = svg_state_to_dict(default_articulatory_state())
     fallback = dict(fallback_state or defaults)
@@ -371,19 +368,7 @@ def _resolved_aai_to_canonical_state(
             "glottal_aperture": _glo_to_unit_interval(tract_variables.glo),
         }
 
-        masked_fields = set(metadata.masked_fields)
-        if metadata.source_dataset in AAI_MASKED_FIELDS_BY_SOURCE:
-            masked_fields |= AAI_MASKED_FIELDS_BY_SOURCE[metadata.source_dataset]
-
-        masked_field_mapping = {
-            "VEL": "velic_aperture",
-            "GLO": "glottal_aperture",
-            "LAT": "lateral_tongue_drop",
-        }
-        for aai_key, canonical_key in masked_field_mapping.items():
-            if aai_key in masked_fields:
-                candidate[canonical_key] = fallback.get(canonical_key, defaults[canonical_key])
-
+        _apply_masked_field_fallbacks(candidate, metadata, fallback, defaults)
         return apply_global_articulatory_calibration(normalize_svg_state(candidate))
 
 
@@ -411,11 +396,11 @@ def aai_to_canonical_states_batch(
     metadata: AAIConversionMetadata,
     fallback_state: Mapping[str, float] | None = None,
 ) -> list[dict[str, float]]:
-    """Convert batch of tract variables to canonical states (vectorized).
+    """Convert batch of tract variables to canonical states.
 
-    For robust_01 normalization, the conversion is element-wise clamp + calibration,
-    which can be done efficiently with numpy. For z_score, falls back to per-frame
-    processing.
+    For unit-interval normalizations (speaker_z_normalized, robust_01), clamps
+    array values to [0, 1] before per-frame mapping and calibration. For z_score
+    or raw, falls back to full per-frame resolution.
 
     Args:
         tvs_array: Array of shape (T, 9) with tract variable rows

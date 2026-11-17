@@ -1,5 +1,6 @@
 """Error selection endpoint for articulatory feedback."""
 
+import logging
 from html import escape
 from typing import Any
 
@@ -14,6 +15,7 @@ from src.models.articulatory import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class AAIPayloadError(Exception):
@@ -35,7 +37,7 @@ def _resolve_animation_params(
             return parse_aai_animation_payload(aai_payload, fallback_state=fallback_state)
         except (KeyError, ValueError, TypeError) as exc:
             # Specific parsing errors - log and fall back to symbolic mapping
-            print(f"[_resolve_animation_params] Failed to parse AAI payload: {exc}")
+            logger.debug("Failed to parse AAI payload: %s", exc)
             # Re-raise as specific error type for better handling
             raise AAIPayloadError(f"Invalid AAI payload: {exc}") from exc
 
@@ -43,7 +45,7 @@ def _resolve_animation_params(
 
 
 @router.post("/api/select-error", response_model=SelectErrorResponse)
-async def select_error(request: SelectErrorRequest):
+async def select_error(request: SelectErrorRequest) -> SelectErrorResponse:
     """
     Get articulatory feedback for a selected error.
 
@@ -53,18 +55,21 @@ async def select_error(request: SelectErrorRequest):
     Returns:
         Articulatory feedback with animation parameters
     """
-    print(f"[select_error] Called with index: {request.error_index}")
-    print(f"[select_error] Errors count: {len(request.errors)}")
+    logger.debug(
+        "select_error called with index=%d, errors_count=%d",
+        request.error_index,
+        len(request.errors),
+    )
 
     errors = request.errors
     idx = request.error_index
 
     if idx < 0 or idx >= len(errors):
-        print(f"[select_error] Invalid index: {idx}")
+        logger.debug("Invalid error index: %d", idx)
         raise HTTPException(status_code=400, detail="Invalid error index")
 
     error = errors[idx]
-    print(f"[select_error] Selected error: {error}")
+    logger.debug("Selected error: %s", error)
 
     # Use articulatory mapper to generate descriptions
     mapper = ArticulatoryMapper()
@@ -72,8 +77,10 @@ async def select_error(request: SelectErrorRequest):
     # Generate comparison descriptions
     target_phoneme = error.get("target_phoneme", "")
     predicted_phoneme = error.get("predicted_phoneme", "")
-    print(
-        f"[select_error] target_phoneme: {target_phoneme}, predicted_phoneme: {predicted_phoneme}"
+    logger.debug(
+        "target_phoneme=%s, predicted_phoneme=%s",
+        target_phoneme,
+        predicted_phoneme,
     )
 
     # Get descriptions (using HTML instead of markdown)
@@ -101,16 +108,16 @@ async def select_error(request: SelectErrorRequest):
             error.get("animation_left"),
             mapper,
         )
-        print(f"[select_error] target_params from mapper: {target_params}")
-        print(f"[select_error] predicted_params from mapper: {predicted_params}")
+        logger.debug("target_params from mapper: %s", target_params)
+        logger.debug("predicted_params from mapper: %s", predicted_params)
     except AAIPayloadError as e:
         # AAI payload error - log specific message and fall back to default
-        print(f"[select_error] AAI payload error, using fallback: {e}")
+        logger.debug("AAI payload error, using fallback: %s", e)
         target_params = svg_state_to_dict(default_articulatory_state())
         predicted_params = dict(target_params)
     except (KeyError, ValueError, TypeError) as e:
         # Data structure errors - log and fall back
-        print(f"[select_error] Data error getting animation params: {e}")
+        logger.debug("Data error getting animation params: %s", e)
         target_params = svg_state_to_dict(default_articulatory_state())
         predicted_params = dict(target_params)
 
@@ -121,13 +128,7 @@ async def select_error(request: SelectErrorRequest):
     elif error.get("error_type") == "voicing":
         highlight_zone = "glottis"
 
-    response_data = {
-        "incorrect_desc": incorrect_desc,
-        "correct_desc": correct_desc,
-        "animation_params": {"left": predicted_params, "right": target_params},
-        "highlight_params": {"zone": highlight_zone},
-    }
-    print(f"[select_error] Returning response: {response_data}")
+    logger.debug("Returning select_error response for highlight zone: %s", highlight_zone)
 
     return SelectErrorResponse(
         incorrect_desc=incorrect_desc,

@@ -10,7 +10,7 @@ describe('IntercomRecorder', () => {
     let recorder;
 
     beforeEach(async () => {
-    // Setup DOM elements
+        // Setup DOM elements
         document.body.innerHTML = `
       <div id="recorder">
         <button id="record-btn">Record</button>
@@ -29,9 +29,10 @@ describe('IntercomRecorder', () => {
         global.MediaRecorder = MockMediaRecorder;
         global.AudioContext = MockAudioContext;
         global.MediaStream = MockMediaStream;
-    
+
         // Mock navigator.mediaDevices
         Object.defineProperty(global.navigator, 'mediaDevices', {
+            configurable: true,
             writable: true,
             value: {
                 getUserMedia: vi.fn().mockResolvedValue(new MockMediaStream()),
@@ -49,6 +50,9 @@ describe('IntercomRecorder', () => {
 
     afterEach(() => {
         recorder?.destroy();
+        window.recorder?.destroy?.();
+        delete window.recorder;
+        delete window.currentTab;
         vi.useRealTimers();
     });
 
@@ -79,107 +83,147 @@ describe('IntercomRecorder', () => {
     describe('Initialization', () => {
         it('should detect HTTPS requirement', async () => {
             recorder.location = { protocol: 'http:', hostname: 'example.com' };
-        
+
             await recorder.init();
-            // Should show HTTPS required message
             expect(recorder.mediaRecorder).toBeNull();
+            expect(document.getElementById('https-error-msg')).not.toBeNull();
+            expect(recorder.fileUploadSection.style.display).toBe('block');
         });
 
         it('should skip HTTPS check for localhost', async () => {
             recorder.location = { protocol: 'http:', hostname: 'localhost' };
-        
-            // Should proceed with initialization
+
             await recorder.init();
-            // On localhost, it should try to get user media
+            expect(global.navigator.mediaDevices.getUserMedia).toHaveBeenCalledOnce();
+            expect(recorder.mediaRecorder).not.toBeNull();
+            expect(document.getElementById('https-error-msg')).toBeNull();
+            expect(recorder.fileUploadSection.style.display).toBe('none');
         });
 
         it('should handle microphone permission denial', async () => {
-            // Mock permission denial
-            global.navigator.mediaDevices.getUserMedia = vi.fn().mockRejectedValue(new Error('Permission denied'));
-        
+            const denied = Object.assign(new Error('Permission denied'), { name: 'NotAllowedError' });
+            global.navigator.mediaDevices.getUserMedia = vi.fn().mockRejectedValue(denied);
+
             await recorder.init();
-            // Should show permission prompt
+            expect(recorder.mediaRecorder).toBeNull();
+            const prompt = document.getElementById('mic-permission-msg');
+            expect(prompt).not.toBeNull();
+            expect(prompt.textContent).toContain('Microphone permission was denied');
+            expect(prompt.querySelector('button')?.textContent).toBe('Retry microphone');
+            expect(recorder.fileUploadSection.style.display).toBe('block');
         });
     });
 
     describe('Recording Lifecycle', () => {
-        it('should start recording when startRecording is called', async () => {
-            // Setup a mock stream
+        it('should start recording when startRecording is called', () => {
             const mockStream = new MockMediaStream();
             recorder.setupRecorder(mockStream);
-        
+            recorder.setupVisualizer(mockStream);
+
             recorder.startRecording();
             expect(recorder.isRecording).toBe(true);
+            expect(recorder.recordBtn.classList.contains('recording')).toBe(true);
         });
 
-        it('should stop recording when stopRecording is called', async () => {
-            // Start first
+        it('should stop recording when stopRecording is called', () => {
             const mockStream = new MockMediaStream();
             recorder.setupRecorder(mockStream);
-        
-            recorder.isRecording = true;
-            recorder.startTime = Date.now();
-        
+            recorder.setupVisualizer(mockStream);
+            vi.spyOn(recorder, 'sendForAnalysis').mockResolvedValue();
+
+            recorder.startRecording();
             recorder.stopRecording();
             expect(recorder.isRecording).toBe(false);
+            expect(recorder.recordBtn.classList.contains('recording')).toBe(false);
         });
 
-        it('should collect audio chunks while recording', async () => {
+        it('should collect audio chunks while recording', () => {
             const mockStream = new MockMediaStream();
             recorder.setupRecorder(mockStream);
-        
+
             // Simulate dataavailable event
             const mockBlob = new Blob(['test audio data'], { type: 'audio/wav' });
             recorder.mediaRecorder.ondataavailable({ data: mockBlob });
-          
+
             expect(recorder.audioChunks.length).toBeGreaterThan(0);
         });
 
         it('updates elapsed recording time', () => {
             vi.useFakeTimers();
-            recorder.setupRecorder(new MockMediaStream());
+            const mockStream = new MockMediaStream();
+            recorder.setupRecorder(mockStream);
+            recorder.setupVisualizer(mockStream);
             vi.spyOn(recorder, 'sendForAnalysis').mockResolvedValue();
             recorder.startRecording();
             vi.advanceTimersByTime(5100);
             expect(recorder.recTimer.textContent).toBe('00:05');
             recorder.stopRecording();
         });
-
     });
 
     describe('Event Handlers', () => {
-        it('should start recording on F5 keydown', () => {
-            const startSpy = vi.fn();
-            recorder.startRecording = startSpy;
-            recorder.isRecording = false;
-        
-            // Simulate F5 keydown
-            const event = new KeyboardEvent('keydown', { key: 'F5' });
+        it('should start recording on F5 keydown when on analysis tab', () => {
+            window.currentTab = 'analysis';
+            const mockStream = new MockMediaStream();
+            recorder.setupRecorder(mockStream);
+            recorder.setupVisualizer(mockStream);
+            const startSpy = vi.spyOn(recorder, 'startRecording');
+
+            const event = new KeyboardEvent('keydown', { key: 'F5', cancelable: true });
             document.dispatchEvent(event);
-        
-            // The event listener is set up in bindEvents
-            // Since we've overwritten startRecording, check if it was called
-            // Note: This may not work exactly as expected due to event listener setup
+
+            expect(event.defaultPrevented).toBe(true);
+            expect(startSpy).toHaveBeenCalledOnce();
+            expect(recorder.isRecording).toBe(true);
         });
 
-        it('should stop recording on F5 keyup', () => {
-            const stopSpy = vi.fn();
-            recorder.stopRecording = stopSpy;
-            recorder.isRecording = true;
-        
-            // Simulate F5 keyup
-            const event = new KeyboardEvent('keyup', { key: 'F5' });
+        it('should ignore F5 keydown outside analysis tab', () => {
+            window.currentTab = 'comparison';
+            const mockStream = new MockMediaStream();
+            recorder.setupRecorder(mockStream);
+            recorder.setupVisualizer(mockStream);
+            const startSpy = vi.spyOn(recorder, 'startRecording');
+
+            const event = new KeyboardEvent('keydown', { key: 'F5', cancelable: true });
             document.dispatchEvent(event);
+
+            expect(event.defaultPrevented).toBe(false);
+            expect(startSpy).not.toHaveBeenCalled();
+            expect(recorder.isRecording).toBe(false);
         });
 
-        it('should handle mousedown/mouseup events', () => {
-            // Simulate mousedown
-            const mousedownEvent = new MouseEvent('mousedown');
-            recorder.recordBtn.dispatchEvent(mousedownEvent);
-        
-            // Simulate mouseup
-            const mouseupEvent = new MouseEvent('mouseup');
-            recorder.recordBtn.dispatchEvent(mouseupEvent);
+        it('should stop recording on F5 keyup when on analysis tab', () => {
+            window.currentTab = 'analysis';
+            const mockStream = new MockMediaStream();
+            recorder.setupRecorder(mockStream);
+            recorder.setupVisualizer(mockStream);
+            vi.spyOn(recorder, 'sendForAnalysis').mockResolvedValue();
+            recorder.startRecording();
+            const stopSpy = vi.spyOn(recorder, 'stopRecording');
+
+            const event = new KeyboardEvent('keyup', { key: 'F5', cancelable: true });
+            document.dispatchEvent(event);
+
+            expect(event.defaultPrevented).toBe(true);
+            expect(stopSpy).toHaveBeenCalledOnce();
+            expect(recorder.isRecording).toBe(false);
+        });
+
+        it('should start and stop recording on mousedown/mouseup events', () => {
+            const mockStream = new MockMediaStream();
+            recorder.setupRecorder(mockStream);
+            recorder.setupVisualizer(mockStream);
+            vi.spyOn(recorder, 'sendForAnalysis').mockResolvedValue();
+            const startSpy = vi.spyOn(recorder, 'startRecording');
+            const stopSpy = vi.spyOn(recorder, 'stopRecording');
+
+            recorder.recordBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+            expect(startSpy).toHaveBeenCalledOnce();
+            expect(recorder.isRecording).toBe(true);
+
+            recorder.recordBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+            expect(stopSpy).toHaveBeenCalledOnce();
+            expect(recorder.isRecording).toBe(false);
         });
     });
 
@@ -187,12 +231,13 @@ describe('IntercomRecorder', () => {
         it('should create analyser node', () => {
             const mockStream = new MockMediaStream();
             recorder.setupVisualizer(mockStream);
-        
+
             expect(recorder.analyser).toBeDefined();
         });
 
         it('should have canvas context', () => {
-            expect(recorder.canvasCtx).toBeDefined();
+            expect(recorder.canvasCtx).not.toBeNull();
+            expect(typeof recorder.canvasCtx.fillRect).toBe('function');
         });
     });
 
@@ -216,42 +261,53 @@ describe('IntercomRecorder', () => {
 
     describe('Error Handling', () => {
         it('should handle missing DOM elements gracefully', () => {
-            // Clear DOM
             document.body.innerHTML = '';
-      
+
             const newRecorder = new recorder.constructor();
-            // Should not throw
             expect(newRecorder).toBeDefined();
             newRecorder.destroy();
         });
 
-        it('should handle browser not supporting MediaRecorder', () => {
-            // Remove MediaRecorder
+        it('should fall back to file upload when MediaRecorder is missing', async () => {
             const originalMediaRecorder = global.MediaRecorder;
             global.MediaRecorder = undefined;
-      
-            recorder.init();
-            // Should show not supported message
-      
-            // Restore
-            global.MediaRecorder = originalMediaRecorder;
+
+            try {
+                await recorder.init();
+                expect(recorder.mediaRecorder).toBeNull();
+                expect(document.getElementById('mic-permission-msg')).not.toBeNull();
+                expect(recorder.fileUploadSection.style.display).toBe('block');
+            } finally {
+                global.MediaRecorder = originalMediaRecorder;
+            }
+        });
+
+        it('should show unsupported message when mediaDevices is unavailable', async () => {
+            Object.defineProperty(global.navigator, 'mediaDevices', {
+                configurable: true,
+                writable: true,
+                value: undefined,
+            });
+
+            await recorder.init();
+            expect(recorder.mediaRecorder).toBeNull();
+            const errorMsg = document.getElementById('browser-error-msg');
+            expect(errorMsg).not.toBeNull();
+            expect(errorMsg.textContent).toContain('doesn\'t support microphone recording');
+            expect(recorder.fileUploadSection.style.display).toBe('block');
         });
     });
 
     describe('Global Registration', () => {
-        it.skip('should register IntercomRecorder globally', () => {
-            // Skip - script loading in jsdom differs from real browser
-            if (typeof window !== 'undefined') {
-                expect(window.IntercomRecorder || typeof IntercomRecorder !== 'undefined').toBeTruthy();
-            }
+        it('should register IntercomRecorder globally', async () => {
+            const mod = await import('../../static/js/recorder.js');
+            expect(window.IntercomRecorder).toBe(mod.IntercomRecorder);
         });
 
-        it('should create global recorder instance', () => {
-            if (typeof window !== 'undefined') {
-                // The script creates window.recorder at the end
-                // This may not be set during tests
-                expect(window.recorder || true).toBeTruthy();
-            }
+        it('should create global recorder instance on DOMContentLoaded', () => {
+            document.dispatchEvent(new Event('DOMContentLoaded'));
+            expect(window.recorder).toBeInstanceOf(window.IntercomRecorder);
+            expect(document.getElementById('recorder').style.display).toBe('block');
         });
     });
 
@@ -272,7 +328,6 @@ describe('IntercomRecorder', () => {
         });
 
         it('handleFileUpload rejects empty target text and clears input', async () => {
-            // Override target text to be empty
             const targetInput = document.getElementById('target_text');
             targetInput.value = '';
 
@@ -304,9 +359,6 @@ describe('IntercomRecorder', () => {
         });
 
         it('_clearFileInput calls value = "" on audio input', () => {
-            // JSDOM prevents setting .value on file inputs even to empty string,
-            // but the actual browser implementation works correctly.
-            // Verify the method exists and is callable.
             expect(typeof recorder._clearFileInput).toBe('function');
         });
 
@@ -332,7 +384,6 @@ describe('IntercomRecorder', () => {
             const mockResponse = { ok: true, json: () => Promise.resolve(mockResult) };
             const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse);
             vi.spyOn(recorder, 'displayResults').mockImplementation(() => {
-                // displayResults hides the progress container in the real implementation
                 const pc = document.getElementById('progress-container');
                 if (pc) pc.classList.add('hidden');
             });
@@ -342,7 +393,6 @@ describe('IntercomRecorder', () => {
 
             await recorder.submitAudioBlob(mockWav, 'test.wav');
 
-            // After completion displayResults hides the progress container
             expect(progressContainer.classList.contains('hidden')).toBe(true);
 
             fetchSpy.mockRestore();

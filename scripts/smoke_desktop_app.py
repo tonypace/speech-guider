@@ -52,12 +52,17 @@ class Session:
 
 
 def _request(
-    base: str, path: str, data: dict[str, object] | None = None, timeout: float = 5
+    base: str,
+    path: str,
+    data: dict[str, object] | None = None,
+    timeout: float = 5,
+    method: str | None = None,
 ) -> bytes:
     request = Request(
         f"{base}{path}",
         data=json.dumps(data).encode() if data is not None else None,
         headers={"Content-Type": "application/json"} if data is not None else {},
+        method=method,
     )
     with build_opener(ProxyHandler({})).open(request, timeout=timeout) as response:
         return bytes(response.read())
@@ -219,9 +224,21 @@ def smoke(bundle: Path) -> None:
                     print(
                         "Bundled OmniVoice and R4 produced reference audio and frames.", flush=True
                     )
-                _request(
-                    first.base, "/api/presets", {"phoneme": "i", "params": {"lip_aperture": 0.41}}
+                saved_settings = json.loads(
+                    _request(
+                        first.base,
+                        "/api/settings",
+                        {
+                            "contact_enabled": False,
+                            "microphone_enabled": True,
+                            "microphone_device_id": "smoke-mic-1",
+                            "microphone_label": "Smoke Mic",
+                        },
+                        method="PUT",
+                    )
                 )
+                if saved_settings.get("microphone_device_id") != "smoke-mic-1":
+                    raise RuntimeError("Settings update did not persist expected microphone ID.")
                 _quit(first.process)
                 _verify_stopped(first)
             print(
@@ -232,9 +249,12 @@ def smoke(bundle: Path) -> None:
             with _hold_port(first.port), _launch(executable, scratch, 2) as second:
                 if second.port in (DEFAULT_PORT, first.port):
                     raise RuntimeError("The relaunch reused an occupied port.")
-                presets = json.loads(_request(second.base, "/api/presets"))
-                if presets["phonemes"]["i"]["params"]["lip_aperture"] != 0.41:
-                    raise RuntimeError("Saved preset did not survive the changed WebView origin.")
+                second_root = _request(second.base, "/")
+                if (
+                    b'"microphone_device_id": "smoke-mic-1"' not in second_root
+                    or b'"contact_enabled": false' not in second_root
+                ):
+                    raise RuntimeError("Saved settings did not survive the changed WebView origin.")
                 if not _child_owned(second.backend_pid, second.process.pid):
                     raise RuntimeError("Backend PID no longer belongs to this launch.")
                 os.kill(second.backend_pid, signal.SIGKILL)
@@ -246,7 +266,7 @@ def smoke(bundle: Path) -> None:
                 _verify_stopped(second)
                 _quit(second.process)
             print(
-                f"WebView relaunched on {second.port}; preset persisted; backend crash handled.",
+                f"WebView relaunched on {second.port}; settings persisted; backend crash handled.",
                 flush=True,
             )
     print(f"Packaged desktop smoke passed: {bundle}")

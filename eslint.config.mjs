@@ -18,7 +18,8 @@ export default defineConfig([
             'static/vendor/**',
             'coverage/**',
             'playwright-report/**',
-            'test-results/**'
+            'test-results/**',
+            '.opencode/**'
         ]
     },
     {
@@ -71,15 +72,6 @@ export default defineConfig([
                 afterAll: 'readonly',
                 afterEach: 'readonly',
                 vi: 'readonly'
-            }
-        }
-    },
-    {
-        files: ['static/js/*.js'],
-        languageOptions: {
-            globals: {
-                ...globals.browser,
-                SvgArticulatoryRenderer: 'readonly'
             }
         }
     }

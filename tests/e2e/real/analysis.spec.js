@@ -2,13 +2,9 @@
  * Real-backend smoke tests for the analysis flow.
  *
  * These tests verify the app handles a real audio upload and analysis
- * end-to-end.  They pass whether or not pronunciation errors are detected —
+ * end-to-end. They pass whether or not pronunciation errors are detected —
  * their job is to catch wiring and rendering regressions, not to validate
  * phonetic correctness.
- *
- * NOTE: File upload tests are SKIPPED because the file upload handler
- * (listening for file input changes and calling sendForAnalysis) is not yet
- * implemented in recorder.js. The UI flow is already covered by mocked tests.
  *
  * Run: npx playwright test tests/e2e/real/analysis.spec.js
  */
@@ -16,87 +12,83 @@
 const { test, expect } = require('@playwright/test');
 const { openHome, waitForAnalysisDone, expectSvgHealthy } = require('../helpers/app');
 
+const FIXTURE_PATH = 'tests/e2e/fixtures/test-audio.wav';
+
+async function disableMicrophone(page) {
+    await page.addInitScript(() => {
+        Object.defineProperty(navigator, 'mediaDevices', {
+            configurable: true,
+            value: undefined,
+        });
+    });
+}
+
+async function uploadFixtureAudio(page, targetText) {
+    await page.fill('#target_text', targetText);
+    const responsePromise = page.waitForResponse(
+        (response) => response.url().includes('/api/analyze') && response.request().method() === 'POST',
+        { timeout: 60000 },
+    );
+    await page.locator('#audio').setInputFiles(FIXTURE_PATH);
+    const response = await responsePromise;
+    expect(response.status()).toBe(200);
+    await waitForAnalysisDone(page, 60000);
+    return response;
+}
+
 test.describe('Analysis — Real Backend Smoke', () => {
+    test.describe.configure({ mode: 'serial' });
 
-    test.skip('submits real analysis with fixture audio and completes without crashing', async ({ page }) => {
-    // SKIPPED: File upload handler not implemented in recorder.js
-    // The file input exists in HTML but no JS handles file selection.
-    // UI flow is covered by mocked tests.
+    test('reveals file upload fallback when microphone API is unavailable', async ({ page }) => {
+        await disableMicrophone(page);
         await openHome(page);
-        const fixturePath = 'tests/e2e/fixtures/test-audio.wav';
-        await page.fill('#target_text', 'The weather is very hot today.');
-        const fileInput = page.locator('input[type="file"]');
-        await fileInput.setInputFiles(fixturePath);
-        await page.click('button[type="submit"]');
-        await waitForAnalysisDone(page, 60000);
-        await expect(page.locator('body')).toBeVisible();
+
+        await expect(page.locator('#browser-error-msg')).toBeVisible();
+        await expect(page.locator('#file-upload-section')).toBeVisible();
+        await expect(page.locator('#audio')).toBeVisible();
+    });
+
+    test('submits real analysis via #audio upload and renders feedback without crashing', async ({ page }) => {
+        await disableMicrophone(page);
+        await openHome(page);
+        await uploadFixtureAudio(page, 'The weather is very hot today.');
+
+        await expect(page.locator('#feedback-container')).not.toBeEmpty();
+        await expect(page.locator('#progress-container')).toBeHidden();
         await expect(page.locator('#analyze-form')).toBeVisible();
     });
 
-    test.skip('analysis passes even when no errors are detected', async ({ page }) => {
-    // SKIPPED: File upload handler not implemented in recorder.js
+    test('analysis passes even when no pronunciation errors are detected', async ({ page }) => {
+        await disableMicrophone(page);
         await openHome(page);
-        await page.fill('#target_text', 'Hello world.');
-        const fileInput = page.locator('input[type="file"]');
-        await fileInput.setInputFiles('tests/e2e/fixtures/test-audio.wav');
-        await page.click('button[type="submit"]');
-        await waitForAnalysisDone(page, 60000);
-        await expect(page.locator('body')).toBeVisible();
+        await uploadFixtureAudio(page, 'Hello world.');
+
+        await expect(page.locator('#feedback-container')).not.toBeEmpty();
         await expect(page.locator('#analyze-form')).toBeVisible();
     });
 
-    test.skip('if errors exist, clicking one mounts left/right renderers', async ({ page }) => {
-    // SKIPPED: File upload handler not implemented in recorder.js
+    test('if errors exist, clicking one mounts healthy left/right renderers and updates labels', async ({ page }) => {
+        await disableMicrophone(page);
         await openHome(page);
-        await page.fill('#target_text', 'The weather is very hot today.');
-        await page.locator('input[type="file"]').setInputFiles('tests/e2e/fixtures/test-audio.wav');
-        await page.click('button[type="submit"]');
-        await waitForAnalysisDone(page, 60000);
-        const errorButtons = page.locator('#error-list button');
-        const count = await errorButtons.count();
-        if (count === 0) return;
-        await errorButtons.first().click();
-        await page.waitForTimeout(500);
-        await expect(page.locator('#svg-articulatory-left svg')).toBeAttached();
-        await expect(page.locator('#svg-articulatory-right svg')).toBeAttached();
-        await expect(page.locator('#left-tongue')).toBeAttached();
-        await expect(page.locator('#right-tongue')).toBeAttached();
-    });
+        await uploadFixtureAudio(page, 'The weather is very hot today.');
 
-    test.skip('if errors exist, clicking one updates phoneme labels', async ({ page }) => {
-    // SKIPPED: File upload handler not implemented in recorder.js
-        await openHome(page);
-        await page.fill('#target_text', 'The weather is very hot today.');
-        await page.locator('input[type="file"]').setInputFiles('tests/e2e/fixtures/test-audio.wav');
-        await page.click('button[type="submit"]');
-        await waitForAnalysisDone(page, 60000);
         const errorButtons = page.locator('#error-list button');
         if (await errorButtons.count() === 0) return;
+
         const leftLabelBefore = await page.locator('#left-phoneme').textContent();
         const rightLabelBefore = await page.locator('#right-phoneme').textContent();
+
         await errorButtons.first().click();
-        await page.waitForTimeout(500);
+        await expect(page.locator('#svg-articulatory-left svg')).toBeAttached();
+        await expect(page.locator('#svg-articulatory-right svg')).toBeAttached();
+        await expectSvgHealthy(page, 'left');
+        await expectSvgHealthy(page, 'right');
+
         const leftLabel = await page.locator('#left-phoneme').textContent();
         const rightLabel = await page.locator('#right-phoneme').textContent();
         expect(leftLabel.trim()).not.toBe('-');
         expect(rightLabel.trim()).not.toBe('-');
-        const changed = leftLabel !== leftLabelBefore || rightLabel !== rightLabelBefore;
-        expect(changed).toBe(true);
-    });
-
-    test.skip('analysis result renderers have non-empty geometry when errors are present', async ({ page }) => {
-    // SKIPPED: File upload handler not implemented in recorder.js
-        await openHome(page);
-        await page.fill('#target_text', 'The weather is very hot today.');
-        await page.locator('input[type="file"]').setInputFiles('tests/e2e/fixtures/test-audio.wav');
-        await page.click('button[type="submit"]');
-        await waitForAnalysisDone(page, 60000);
-        const errorButtons = page.locator('#error-list button');
-        if (await errorButtons.count() === 0) return;
-        await errorButtons.first().click();
-        await page.waitForTimeout(500);
-        await expectSvgHealthy(page, 'left');
-        await expectSvgHealthy(page, 'right');
+        expect(leftLabel !== leftLabelBefore || rightLabel !== rightLabelBefore).toBe(true);
     });
 
 });

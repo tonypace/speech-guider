@@ -31,18 +31,24 @@ def desktop_enabled() -> bool:
 
 
 def _history_path() -> Path:
-    return state.PRESETS_FILE.with_name("prosody-history.json")
+    return state.data_file("prosody-history.json")
 
 
 def load_desktop_history() -> DesktopHistory:
     path = _history_path()
-    try:
-        return DesktopHistory.model_validate_json(path.read_bytes())
-    except FileNotFoundError:
-        return DesktopHistory()
-    except (OSError, ValidationError):
-        logger.warning("Ignoring unreadable desktop history at %s", path, exc_info=True)
-        return DesktopHistory()
+    with state.STATE_LOCK:
+        try:
+            return DesktopHistory.model_validate_json(path.read_bytes())
+        except FileNotFoundError:
+            return DesktopHistory()
+        except (OSError, ValidationError):
+            logger.warning("Ignoring unreadable desktop history at %s", path, exc_info=True)
+            return DesktopHistory()
+
+
+def _write_desktop_history(history: DesktopHistory) -> None:
+    with state.STATE_LOCK:
+        write_json_atomic(_history_path(), history.model_dump(mode="json"))
 
 
 @router.put("/api/desktop-history", status_code=204)
@@ -50,7 +56,7 @@ async def save_desktop_history(history: DesktopHistory) -> None:
     if not desktop_enabled():
         raise HTTPException(status_code=404, detail="Desktop history is unavailable")
     try:
-        await run_blocking(write_json_atomic, _history_path(), history.model_dump(mode="json"))
+        await run_blocking(_write_desktop_history, history)
     except (OSError, ValueError) as exc:
         logger.exception("Desktop history save failed")
         raise HTTPException(status_code=500, detail="Could not save desktop history.") from exc

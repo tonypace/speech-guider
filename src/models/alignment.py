@@ -8,10 +8,13 @@ TODO: Integrate a phoneme recognition model (e.g., MMS-300m-FA or similar CTC
 model) to restore forced alignment and error detection functionality.
 """
 
+import logging
 from dataclasses import dataclass
 from typing import Optional
 
 import torch
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -190,7 +193,6 @@ def _classify_phoneme(phoneme: str) -> tuple[bool, bool]:
         "ɦ",
         "ʝ",
         "β",
-        "ɦ",
         # Palatalized fricatives
         "vʲ",
         "ɦʲ",
@@ -217,11 +219,8 @@ def _classify_phoneme(phoneme: str) -> tuple[bool, bool]:
         # Palatalized approximants
         "lʲ",
         "rʲ",
-        "nʲ",
-        "ŋʲ",
         "ʎʲ",
         # Laterals
-        "ɬ",
         "ɭ",
         # Taps/Flaps
         "ɾ",
@@ -230,7 +229,6 @@ def _classify_phoneme(phoneme: str) -> tuple[bool, bool]:
         "r",
         "ʀ",
         "r̝",
-        "r̩",
         # Affricates
         "dʒ",
         "dʑ",
@@ -249,10 +247,17 @@ def _classify_phoneme(phoneme: str) -> tuple[bool, bool]:
         "ɠ",
     }
 
+    voiceless_consonants = {
+        # Voiceless lateral fricative
+        "ɬ",
+    }
+
     clean_phone = phoneme.strip().strip("/")
 
     is_vowel = clean_phone in vowels
-    is_voiced = is_vowel or clean_phone in voiced_consonants
+    is_voiced = is_vowel or (
+        clean_phone in voiced_consonants and clean_phone not in voiceless_consonants
+    )
 
     return is_vowel, is_voiced
 
@@ -261,7 +266,7 @@ class ForcedAligner:
     """Placeholder aligner. Non-functional pending phoneme CTC model integration."""
 
     def __init__(self) -> None:
-        print("WARNING: ForcedAligner is non-functional pending phoneme model integration.")
+        logger.warning("ForcedAligner is non-functional pending phoneme model integration.")
 
     def analyze_pronunciation(
         self,

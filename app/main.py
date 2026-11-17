@@ -1,6 +1,5 @@
 """Main FastAPI application entry point."""
 
-import os
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -14,12 +13,10 @@ from app.api import (
     comparison,
     desktop_history,
     errors,
-    presets,
     prosody_lab,
     settings,
     sse,
 )
-from app.services.state import load_presets
 from src.services.desktop_assets import desktop_asset_dir, desktop_assets_missing
 
 # Create FastAPI app
@@ -51,7 +48,6 @@ app.include_router(analyze.router)
 app.include_router(comparison.router)
 app.include_router(desktop_history.router)
 app.include_router(prosody_lab.router)
-app.include_router(presets.router)
 app.include_router(settings.router)
 app.include_router(errors.router)
 app.include_router(sse.router)
@@ -66,7 +62,6 @@ async def root(request: Request) -> HTMLResponse:
         name="index.html",
         context={
             "request": request,
-            "phoneme_presets": load_presets(),
             "settings": settings.settings_payload(settings.load_settings()),
             "reference_text_limit": comparison.REFERENCE_TEXT_LIMIT,
             "is_desktop": is_desktop,
@@ -77,9 +72,6 @@ async def root(request: Request) -> HTMLResponse:
                 if is_desktop
                 else None
             ),
-            "feature_flags": {
-                "svgArticulatoryRenderer": os.environ.get("SVG_ARTICULATORY_RENDERER", "1") != "0",
-            },
         },
     )
 

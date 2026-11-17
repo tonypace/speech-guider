@@ -29,28 +29,34 @@ test.describe('Prosody Lab — Mocked UI Flow', () => {
         await expect(prosodyPanel).toBeVisible();
     });
 
-    test('switching to prosody tab stops animation renderer', async ({ page }) => {
-    // start on animation tab
-        await switchToTab(page, 'animation');
+    test('switching from analysis to prosody hides analysis panel', async ({ page }) => {
+        await switchToTab(page, 'analysis');
+        await expect(page.locator('#tab-panel-analysis')).toBeVisible();
 
-        // animation renderer should not be running after switch away
         await switchToTab(page, 'prosody');
-
-        // prosody tab must be visible
-        const prosodyPanel = page.locator('#tab-panel-prosody');
-        await expect(prosodyPanel).toBeVisible();
+        await expect(page.locator('#tab-panel-prosody')).toBeVisible();
+        await expect(page.locator('#tab-panel-analysis')).toBeHidden();
     });
 
-    test('prosody tab switching is reversible', async ({ page }) => {
+    test('tab switching across analysis, prosody, comparison, and settings is reversible', async ({ page }) => {
         await switchToTab(page, 'prosody');
         await expect(page.locator('#tab-panel-prosody')).toBeVisible();
 
-        await switchToTab(page, 'animation');
-        await expect(page.locator('#tab-panel-animation')).toBeVisible();
-        await expect(page.locator('#svg-articulatory-animation')).toBeVisible();
+        await switchToTab(page, 'comparison');
+        await expect(page.locator('#tab-panel-comparison')).toBeVisible();
+        await expect(page.locator('#tab-panel-prosody')).toBeHidden();
+
+        await switchToTab(page, 'settings');
+        await expect(page.locator('#tab-panel-settings')).toBeVisible();
+        await expect(page.locator('#tab-panel-comparison')).toBeHidden();
+
+        await switchToTab(page, 'analysis');
+        await expect(page.locator('#tab-panel-analysis')).toBeVisible();
+        await expect(page.locator('#tab-panel-settings')).toBeHidden();
 
         await switchToTab(page, 'prosody');
         await expect(page.locator('#tab-panel-prosody')).toBeVisible();
+        await expect(page.locator('#tab-panel-analysis')).toBeHidden();
     });
 
 });

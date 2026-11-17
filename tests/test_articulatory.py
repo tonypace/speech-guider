@@ -1,10 +1,5 @@
 """Tests for articulatory mapping module."""
 
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
 from src.models.aai_adapter import (
     AAIConversionMetadata,
     AAINormalizationProfile,
@@ -23,7 +18,6 @@ from src.models.articulatory import (
     ArticulatoryState,
     PhonemeDescription,
     default_articulatory_state,
-    format_with_html_tooltips,
     legacy_to_svg_state,
     normalize_svg_state,
     svg_state_to_dict,
@@ -35,7 +29,6 @@ def test_articulatory_mapper_initialization():
     mapper = ArticulatoryMapper()
 
     assert mapper is not None
-    assert hasattr(mapper, "_feature_definitions")
     assert hasattr(mapper, "_tooltip_definitions")
 
     print("✓ ArticulatoryMapper initialization test passed")
@@ -76,65 +69,6 @@ def test_parameter_mapping():
 
     print("✓ Parameter mapping test passed")
     print(f"  SVG state keys: {list(svg_state.keys())}")
-
-
-def test_delta_calculation():
-    """Test delta calculation between target and predicted parameters."""
-    mapper = ArticulatoryMapper()
-
-    # Create two sets of parameters with known differences
-    target_params = ArticulatoryParameters(0.7, 0.3, 0.0, 0.0, 0.8, 0.1, 0.2, 0.9, 0.0)
-
-    predicted_params = ArticulatoryParameters(0.3, 0.7, 0.0, 0.0, 0.2, 0.9, 0.1, 0.1, 0.0)
-
-    delta_description, highlight_zone = mapper.calculate_delta(target_params, predicted_params)
-
-    assert delta_description is not None
-    assert highlight_zone in [None, "lips", "tongue_tip", "tongue_body", "glottis"]
-
-    print("✓ Delta calculation test passed")
-    print(f"  - Delta Description: {delta_description}")
-    print(f"  - Highlight Zone: {highlight_zone}")
-
-
-def test_tooltip_formatting():
-    """Test HTML tooltip formatting."""
-    description = PhonemeDescription(
-        technical_name="Voiced Alveolar Fricative",
-        ipa_symbol="z",
-        features={
-            "place": "alveolar",
-            "manner": "fricative",
-            "voicing": "voiced",
-        },
-        tooltips={
-            "place": "Tongue against bony ridge behind upper teeth",
-            "manner": "Air forced through narrow channel, creating friction",
-            "voicing": "Vocal cords are vibrating",
-        },
-    )
-
-    html = format_with_html_tooltips(description)
-
-    assert isinstance(html, str)
-    assert "title=" in html or html == ""
-    assert "tooltip" in html or html == ""
-
-    print("✓ Tooltip formatting test passed")
-    print(f"  HTML Output: {html}")
-
-
-def test_feature_definitions():
-    """Test that feature definitions are properly structured."""
-    mapper = ArticulatoryMapper()
-
-    required_features = ["place", "manner", "voicing", "rounding"]
-
-    for feature in required_features:
-        assert feature in mapper._feature_definitions or feature in mapper._tooltip_definitions
-
-    print("✓ Feature definitions test passed")
-    print(f"  Features defined: {list(mapper._feature_definitions.keys())}")
 
 
 def test_common_ipa_symbols():
@@ -642,9 +576,6 @@ if __name__ == "__main__":
     test_articulatory_mapper_initialization()
     test_phoneme_description()
     test_parameter_mapping()
-    test_delta_calculation()
-    test_tooltip_formatting()
-    test_feature_definitions()
     test_common_ipa_symbols()
     test_consonant_templates()
     test_vowel_templates()

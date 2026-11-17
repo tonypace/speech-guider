@@ -1,7 +1,7 @@
 const { test, expect } = require('@playwright/test');
-const { openHome, setRangeValue, switchToTab } = require('../helpers/app');
+const { openHome, switchToTab } = require('../helpers/app');
 
-test('all tabs, preset styling and real plots work without external requests', async ({ page, context, baseURL }) => {
+test('all tabs, styling and real plots work without external requests', async ({ page, context, baseURL }) => {
     const appOrigin = new URL(baseURL).origin;
     const externalRequests = [];
     await context.route('**/*', async (route) => {
@@ -29,36 +29,30 @@ test('all tabs, preset styling and real plots work without external requests', a
 
     await openHome(page);
     await expect(page.locator('#tab-panel-analysis')).toBeVisible();
-    await expect(page.locator('#tab-panel-animation')).toBeHidden();
+    await expect(page.locator('#tab-btn-animation')).toHaveCount(0);
+    await expect(page.locator('#tab-panel-animation')).toHaveCount(0);
     await page.evaluate(() => {
         window.__testAnalyze__('Offline exercise', { success: false, error: 'Try another recording.' });
     });
     await expect(page.getByText('Try another recording.')).toHaveCSS('color', 'rgb(185, 28, 28)');
 
-    await switchToTab(page, 'animation');
-    await expect(page.locator('#tab-panel-animation')).toBeVisible();
-    await expect(page.locator('#tab-panel-analysis')).toBeHidden();
-    await expect(page.locator('#svg-articulatory-animation svg')).toBeAttached();
-    const phoneme = page.locator('[data-phoneme="i"]');
-    await phoneme.click();
-    await page.mouse.move(0, 0);
-    await expect(phoneme).toHaveCSS('background-color', 'rgb(59, 130, 246)');
-    await setRangeValue(page.locator('#tbcd-slider'), '0.42');
-    await page.locator('#save-position-btn').click();
-    await expect(page.locator('#save-status')).toHaveText('Saved!');
-    await openHome(page);
-    await switchToTab(page, 'animation');
-    await phoneme.click();
-    await expect(page.locator('#tbcd-val')).toHaveText('0.42');
-
     await expect(page.locator('#tab-btn-prosody')).toBeHidden();
     await switchToTab(page, 'prosody');
     await expect(page.locator('#tab-panel-prosody')).toBeVisible();
+    await expect(page.locator('#tab-panel-analysis')).toBeHidden();
     await expect(page.locator('#prosody-current-plot .main-svg').first()).toBeVisible();
     expect(await page.evaluate(() => window.Plotly.version)).toBe('2.32.0');
 
     await switchToTab(page, 'comparison');
     await expect(page.locator('#tab-panel-comparison')).toBeVisible();
     await expect(page.locator('#tab-panel-prosody')).toBeHidden();
+
+    await switchToTab(page, 'settings');
+    await expect(page.locator('#tab-panel-settings')).toBeVisible();
+    await expect(page.locator('#tab-panel-comparison')).toBeHidden();
+
+    await switchToTab(page, 'analysis');
+    await expect(page.locator('#tab-panel-analysis')).toBeVisible();
+    await expect(page.locator('#tab-panel-settings')).toBeHidden();
     expect(externalRequests).toEqual([]);
 });

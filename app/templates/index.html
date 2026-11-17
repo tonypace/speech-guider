@@ -39,11 +39,6 @@
                     class="tab-btn tab-btn-active px-6 py-3 font-medium text-blue-600 border-b-2 border-blue-600 -mb-px">
                 Analysis
             </button>
-            <button hidden id="tab-btn-animation"
-                    onclick="switchTab('animation')"
-                    class="tab-btn px-6 py-3 font-medium text-gray-500 hover:text-gray-700">
-                Animation Lab
-            </button>
             <button hidden id="tab-btn-prosody"
                     onclick="switchTab('prosody')"
                     class="tab-btn px-6 py-3 font-medium text-gray-500 hover:text-gray-700">
@@ -87,10 +82,10 @@
                     
                     <button id="record-btn" 
                             type="button"
-                            class="w-32 h-32 rounded-full bg-red-600 text-white font-semibold text-lg shadow-lg hover:bg-red-700 focus:outline-none focus:ring-4 focus:ring-red-300 transition-all transform hover:scale-105 active:scale-95"
+                            class="record-button w-32 h-32 rounded-full bg-red-600 text-white font-semibold text-lg shadow-lg hover:bg-red-700 focus:outline-none focus:ring-4 focus:ring-red-300 transition-all transform hover:scale-105 active:scale-95"
                             style="display: inline-flex; flex-direction: column; align-items: center; justify-content: center;">
                         <span class="text-3xl mb-1">🎤</span>
-                        <span class="text-sm">Hold to Record</span>
+                        <span class="text-sm btn-text">Hold to Record</span>
                     </button>
                     
                     <div class="mt-3 text-sm text-gray-500">
@@ -177,143 +172,6 @@
 
         </div><!-- End tab-panel-analysis -->
 
-        <!-- Animation Lab Tab Panel -->
-        <div id="tab-panel-animation" class="tab-panel hidden">
-
-        <!-- Animation Lab Section -->
-        <section class="bg-white rounded-lg shadow-md p-4 mb-8">
-            <div class="flex flex-row gap-4">
-
-                <!-- Left: SVG renderer (fixed width) -->
-                <div id="anim-left-col" class="flex-shrink-0" style="width:380px">
-                    <div class="bg-gray-100 rounded-lg p-2">
-                        <div id="svg-articulatory-animation" class="bg-white rounded shadow mx-auto"></div>
-                    </div>
-                    <div class="flex items-center gap-2 mt-2">
-                        <span class="text-xs font-medium text-gray-500">Selected:</span>
-                        <span id="selected-phoneme" class="px-2 py-0.5 bg-blue-500 text-white rounded font-bold text-sm">-</span>
-                        <button id="save-position-btn" onclick="window.savePhonemePosition()" disabled
-                                class="px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700 transition disabled:bg-gray-400 disabled:cursor-not-allowed">
-                            Save
-                        </button>
-                        <span id="save-status" class="text-xs text-green-600 font-medium"></span>
-                    </div>
-                </div>
-
-                <!-- Right: controls -->
-                <div id="anim-right-col" class="flex-1 min-w-0">
-
-                    <!-- IPA phoneme strip -->
-                    <div id="phoneme-strip" class="flex flex-wrap gap-1 mb-3">
-                        <button onclick="window.selectPhoneme('i')"   class="phoneme-btn px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs hover:bg-blue-200" data-phoneme="i">i</button>
-                        <button onclick="window.selectPhoneme('ɪ')"   class="phoneme-btn px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs hover:bg-blue-200" data-phoneme="ɪ">ɪ</button>
-                        <button onclick="window.selectPhoneme('e')"   class="phoneme-btn px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs hover:bg-blue-200" data-phoneme="e">e</button>
-                        <button onclick="window.selectPhoneme('ɛ')"   class="phoneme-btn px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs hover:bg-blue-200" data-phoneme="ɛ">ɛ</button>
-                        <button onclick="window.selectPhoneme('æ')"   class="phoneme-btn px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs hover:bg-blue-200" data-phoneme="æ">æ</button>
-                        <button onclick="window.selectPhoneme('ə')"   class="phoneme-btn px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs hover:bg-blue-200" data-phoneme="ə">ə</button>
-                        <button onclick="window.selectPhoneme('ʌ')"   class="phoneme-btn px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs hover:bg-blue-200" data-phoneme="ʌ">ʌ</button>
-                        <button onclick="window.selectPhoneme('ɑ')"   class="phoneme-btn px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs hover:bg-blue-200" data-phoneme="ɑ">ɑ</button>
-                        <button onclick="window.selectPhoneme('ɔ')"   class="phoneme-btn px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs hover:bg-blue-200" data-phoneme="ɔ">ɔ</button>
-                        <button onclick="window.selectPhoneme('ʊ')"   class="phoneme-btn px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs hover:bg-blue-200" data-phoneme="ʊ">ʊ</button>
-                        <button onclick="window.selectPhoneme('u')"   class="phoneme-btn px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs hover:bg-blue-200" data-phoneme="u">u</button>
-                        <button onclick="window.selectPhoneme('o')"   class="phoneme-btn px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs hover:bg-blue-200" data-phoneme="o">o</button>
-                        <button onclick="window.selectPhoneme('p')"   class="phoneme-btn px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs hover:bg-green-200" data-phoneme="p">p</button>
-                        <button onclick="window.selectPhoneme('b')"   class="phoneme-btn px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs hover:bg-green-200" data-phoneme="b">b</button>
-                        <button onclick="window.selectPhoneme('t')"   class="phoneme-btn px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs hover:bg-green-200" data-phoneme="t">t</button>
-                        <button onclick="window.selectPhoneme('d')"   class="phoneme-btn px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs hover:bg-green-200" data-phoneme="d">d</button>
-                        <button onclick="window.selectPhoneme('k')"   class="phoneme-btn px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs hover:bg-green-200" data-phoneme="k">k</button>
-                        <button onclick="window.selectPhoneme('g')"   class="phoneme-btn px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs hover:bg-green-200" data-phoneme="g">g</button>
-                        <button onclick="window.selectPhoneme('m')"   class="phoneme-btn px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-xs hover:bg-purple-200" data-phoneme="m">m</button>
-                        <button onclick="window.selectPhoneme('n')"   class="phoneme-btn px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-xs hover:bg-purple-200" data-phoneme="n">n</button>
-                        <button onclick="window.selectPhoneme('ŋ')"   class="phoneme-btn px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-xs hover:bg-purple-200" data-phoneme="ŋ">ŋ</button>
-                        <button onclick="window.selectPhoneme('f')"   class="phoneme-btn px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded text-xs hover:bg-yellow-200" data-phoneme="f">f</button>
-                        <button onclick="window.selectPhoneme('v')"   class="phoneme-btn px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded text-xs hover:bg-yellow-200" data-phoneme="v">v</button>
-                        <button onclick="window.selectPhoneme('s')"   class="phoneme-btn px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded text-xs hover:bg-yellow-200" data-phoneme="s">s</button>
-                        <button onclick="window.selectPhoneme('z')"   class="phoneme-btn px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded text-xs hover:bg-yellow-200" data-phoneme="z">z</button>
-                        <button onclick="window.selectPhoneme('ʃ')"   class="phoneme-btn px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded text-xs hover:bg-yellow-200" data-phoneme="ʃ">ʃ</button>
-                        <button onclick="window.selectPhoneme('ʒ')"   class="phoneme-btn px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded text-xs hover:bg-yellow-200" data-phoneme="ʒ">ʒ</button>
-                        <button onclick="window.selectPhoneme('tʃ')"  class="phoneme-btn px-2 py-0.5 bg-orange-100 text-orange-700 rounded text-xs hover:bg-orange-200" data-phoneme="tʃ">tʃ</button>
-                        <button onclick="window.selectPhoneme('dʒ')"  class="phoneme-btn px-2 py-0.5 bg-orange-100 text-orange-700 rounded text-xs hover:bg-orange-200" data-phoneme="dʒ">dʒ</button>
-                        <button onclick="window.selectPhoneme('h')"   class="phoneme-btn px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded text-xs hover:bg-yellow-200" data-phoneme="h">h</button>
-                        <button onclick="window.selectPhoneme('l')"   class="phoneme-btn px-2 py-0.5 bg-teal-100 text-teal-700 rounded text-xs hover:bg-teal-200" data-phoneme="l">l</button>
-                        <button onclick="window.selectPhoneme('ɹ')"   class="phoneme-btn px-2 py-0.5 bg-teal-100 text-teal-700 rounded text-xs hover:bg-teal-200" data-phoneme="ɹ">ɹ</button>
-                        <button onclick="window.selectPhoneme('j')"   class="phoneme-btn px-2 py-0.5 bg-teal-100 text-teal-700 rounded text-xs hover:bg-teal-200" data-phoneme="j">j</button>
-                        <button onclick="window.selectPhoneme('w')"   class="phoneme-btn px-2 py-0.5 bg-teal-100 text-teal-700 rounded text-xs hover:bg-teal-200" data-phoneme="w">w</button>
-                    </div>
-
-                    <!-- 9 parameter sliders in 2-col grid -->
-                    <div class="grid grid-cols-2 gap-x-6 gap-y-1">
-                        <div class="flex items-center gap-2">
-                            <span class="text-xs text-gray-500 w-8">LA</span>
-                            <input type="range" id="la-slider" min="0" max="1" step="0.01" value="0.25"
-                                   class="flex-1 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-                                   oninput="window.updateAnimationFromSliders()">
-                            <span class="text-xs text-gray-400 w-6 text-right" id="la-val">0.25</span>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <span class="text-xs text-gray-500 w-8">LP</span>
-                            <input type="range" id="lp-slider" min="0" max="1" step="0.01" value="0.71"
-                                   class="flex-1 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-                                   oninput="window.updateAnimationFromSliders()">
-                            <span class="text-xs text-gray-400 w-6 text-right" id="lp-val">0.71</span>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <span class="text-xs text-gray-500 w-8">TTCL</span>
-                            <input type="range" id="ttcl-slider" min="0" max="1" step="0.01" value="0.20"
-                                   class="flex-1 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-                                   oninput="window.updateAnimationFromSliders()">
-                            <span class="text-xs text-gray-400 w-6 text-right" id="ttcl-val">.20</span>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <span class="text-xs text-gray-500 w-8">TTCD</span>
-                            <input type="range" id="ttcd-slider" min="0" max="1" step="0.01" value="1.00"
-                                   class="flex-1 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-                                   oninput="window.updateAnimationFromSliders()">
-                            <span class="text-xs text-gray-400 w-6 text-right" id="ttcd-val">1.00</span>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <span class="text-xs text-gray-500 w-8">LAT</span>
-                            <input type="range" id="lat-slider" min="0" max="40" step="1" value="0"
-                                   class="flex-1 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-                                   oninput="window.updateAnimationFromSliders()">
-                            <span class="text-xs text-gray-400 w-6 text-right" id="lat-val">0</span>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <span class="text-xs text-gray-500 w-8">VEL</span>
-                            <input type="range" id="vel-slider" min="0" max="1" step="0.01" value="0.00"
-                                   class="flex-1 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-                                   oninput="window.updateAnimationFromSliders()">
-                            <span class="text-xs text-gray-400 w-6 text-right" id="vel-val">0.00</span>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <span class="text-xs text-gray-500 w-8">TBCL</span>
-                            <input type="range" id="tbcl-slider" min="0" max="1" step="0.01" value="0.70"
-                                   class="flex-1 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-                                   oninput="window.updateAnimationFromSliders()">
-                            <span class="text-xs text-gray-400 w-6 text-right" id="tbcl-val">.70</span>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <span class="text-xs text-gray-500 w-8">TBCD</span>
-                            <input type="range" id="tbcd-slider" min="0" max="1" step="0.01" value="1.00"
-                                   class="flex-1 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-                                   oninput="window.updateAnimationFromSliders()">
-                            <span class="text-xs text-gray-400 w-6 text-right" id="tbcd-val">1.00</span>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <span class="text-xs text-gray-500 w-8">GLO</span>
-                            <input type="range" id="glo-slider" min="0" max="30" step="1" value="0"
-                                   class="flex-1 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-                                   oninput="window.updateAnimationFromSliders()">
-                            <span class="text-xs text-gray-400 w-6 text-right" id="glo-val">0</span>
-                        </div>
-                    </div>
-
-                </div>
-            </div>
-        </section>
-
-        </div><!-- End tab-panel-animation -->
-
         <!-- Prosody Lab Tab Panel -->
         <div id="tab-panel-prosody" class="tab-panel hidden">
             <section class="bg-white rounded-lg shadow-md p-6 mb-8">
@@ -330,10 +188,10 @@
 
                             <button id="prosody-record-btn"
                                     type="button"
-                                    class="w-32 h-32 rounded-full bg-emerald-600 text-white font-semibold text-lg shadow-lg hover:bg-emerald-700 focus:outline-none focus:ring-4 focus:ring-emerald-300 transition-all transform hover:scale-105 active:scale-95"
+                                    class="record-button w-32 h-32 rounded-full bg-emerald-600 text-white font-semibold text-lg shadow-lg hover:bg-emerald-700 focus:outline-none focus:ring-4 focus:ring-emerald-300 transition-all transform hover:scale-105 active:scale-95"
                                     style="display: inline-flex; flex-direction: column; align-items: center; justify-content: center;">
                                 <span class="text-3xl mb-1">🎙</span>
-                                <span class="text-sm">Hold to Record</span>
+                                <span class="text-sm btn-text">Hold to Record</span>
                             </button>
 
                             <div class="mt-3 text-sm text-gray-500">
@@ -529,18 +387,6 @@
                             </select>
                         </div>
 
-                        <!-- Zoom Control -->
-                        <div class="flex items-center gap-2">
-                            <label class="text-sm text-gray-600">Zoom:</label>
-                            <input type="range" 
-                                   id="comparison-zoom" 
-                                   min="1" 
-                                   max="10" 
-                                   value="1"
-                                   class="w-24 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer disabled:opacity-50"
-                                   disabled>
-                        </div>
-
                         <!-- Link Playheads -->
                         <label class="flex items-center gap-2 cursor-pointer">
                             <input type="checkbox" 
@@ -588,7 +434,7 @@
                         <li>Click Record, speak the text, then click Stop</li>
                         <li>Scrub or play to compare articulatory movements side-by-side</li>
                         <li>Use "Link Playheads" to synchronize timelines</li>
-                        <li>Adjust speed and zoom to inspect details</li>
+                        <li>Adjust speed to inspect details</li>
                         <li>Set loop region to repeat difficult sections</li>
                     </ol>
                 </div>
@@ -641,32 +487,28 @@
         <section class="prose max-w-none">
             <h2 class="text-xl font-semibold text-gray-800 mb-3">Instructions</h2>
             <ol class="list-decimal list-inside space-y-1 text-gray-600">
-                <li>Read the target sentence aloud</li>
-                <li>Click "Choose File" to upload a .wav file (or use the microphone)</li>
-                <li>Click "Analyze Pronunciation" to receive feedback</li>
-                <li>Select an error to see articulatory visualization</li>
-                <li>Click "Animate" to see mouth/tongue positions</li>
+                <li>Enter the target sentence you want to practice</li>
+                <li>Hold the microphone button or F5 while reading aloud, then release to analyze (or upload a WAV/audio file when the recorder is unavailable)</li>
+                <li>Inspect the articulatory trajectory and prosody feedback</li>
+                <li>Select a detected error and click "Animate" to inspect mouth and tongue positions</li>
                 <li>Open Comparison Lab to compare your recording with a spoken reference</li>
             </ol>
             
             <div class="mt-4 p-4 bg-blue-50 rounded-md">
                 <p class="text-sm text-blue-800">
-                    <strong>Note:</strong> This system uses IPA-based phoneme analysis. For best results, speak clearly and at a moderate pace.
+                    <strong>Note:</strong> This system uses IPA-based phoneme and articulatory analysis. For best results, speak clearly and at a moderate pace.
                 </p>
             </div>
         </section>
     </div>
 
     <script>
-        window.__FEATURE_FLAGS__ = {{ feature_flags | tojson }};
         window.__SPEECH_GUIDER_DESKTOP__ = {{ is_desktop | tojson }};
         window.__DESKTOP_HISTORY__ = {{ desktop_history | tojson }};
-        window.__PHONEME_PRESETS__ = {{ phoneme_presets | tojson }};
         window.__SPEECH_GUIDER_SETTINGS__ = {{ settings | tojson }};
     </script>
     <script src="/static/vendor/plotly-2.32.0/plotly.min.js"></script>
     <script type="module" src="/static/js/app.js"></script>
-    <script type="module" src="/static/js/ssl_comparison_controller.js"></script>
     <script type="module" src="/static/js/comparison_lab.js"></script>
     <script type="module" src="/static/js/prosody_lab.js"></script>
     <script type="module" src="/static/js/settings.js"></script>
@@ -674,7 +516,7 @@
 
     <script>
         // Hide F5 hints when running in Tauri (Tab is used instead)
-        if (window.__TAURI__) {
+        if (window.__SPEECH_GUIDER_TAURI__ || window.__TAURI__) {
             document.querySelectorAll('kbd').forEach(kbd => {
                 if (kbd.textContent.trim() === 'F5') {
                     kbd.parentElement.style.display = 'none';

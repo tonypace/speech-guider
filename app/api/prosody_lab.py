@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi.responses import JSONResponse
 
 from app.models.schemas import ProsodyLabAnalysisResponse
 from app.services.concurrency import run_inference
@@ -16,13 +17,16 @@ logger = logging.getLogger(__name__)
 
 
 @router.post("/api/prosody-lab/analyze", response_model=ProsodyLabAnalysisResponse)
-async def analyze_prosody_lab(audio: UploadFile = File(..., description="Recording to analyze")):
+async def analyze_prosody_lab(
+    audio: UploadFile = File(..., description="Recording to analyze"),
+) -> JSONResponse:
     """Analyze a short recording for rhythm and intonation feedback."""
 
     temp_path = await save_upload_to_temp(audio)
     try:
         analysis = await run_inference(analyze_prosody_recording, temp_path)
-        return ProsodyLabAnalysisResponse(**analysis)
+        payload = ProsodyLabAnalysisResponse(**analysis).model_dump(mode="json")
+        return JSONResponse(content=payload)
     except HTTPException:
         raise
     except ValueError as exc:

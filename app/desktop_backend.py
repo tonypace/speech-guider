@@ -2,14 +2,12 @@
 
 import argparse
 import asyncio
-import json
 import logging
 import multiprocessing
 import os
 import signal
 import socket
 import sys
-import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -20,6 +18,8 @@ from starlette.datastructures import Headers
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.responses import PlainTextResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
+
+from app.services.atomic_json import write_json_atomic
 
 logger = logging.getLogger(__name__)
 
@@ -64,16 +64,7 @@ class _SameOrigin:
 
 def _publish_ready(path: Path, port: int) -> None:
     """The launcher must see either a complete handshake or no file."""
-    with tempfile.NamedTemporaryFile(
-        mode="w", dir=path.parent, encoding="utf-8", delete=False
-    ) as f:
-        temporary = Path(f.name)
-        try:
-            json.dump({"port": port, "pid": os.getpid()}, f)
-            f.flush()
-            os.replace(temporary, path)
-        finally:
-            temporary.unlink(missing_ok=True)
+    write_json_atomic(path, {"port": port, "pid": os.getpid()})
 
 
 def _parent_exited(parent_pid: int | None) -> bool:

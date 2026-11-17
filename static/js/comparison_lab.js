@@ -4,7 +4,7 @@
  * Manages:
  * - Explicit reference generation for the target sentence
  * - Side-by-side animation containers
- * - Timeline controls: play/pause, scrub, speed, zoom, loop
+ * - Timeline controls: play/pause, scrub, speed, loop
  * - Student recording integration
  */
 
@@ -44,14 +44,12 @@ class ComparisonLab {
         this.handleScrub = this.handleScrub.bind(this);
         this.handlePlayPause = this.handlePlayPause.bind(this);
         this.handleSpeedChange = this.handleSpeedChange.bind(this);
-        this.handleZoomChange = this.handleZoomChange.bind(this);
         this.handleLoopToggle = this.handleLoopToggle.bind(this);
         this.handleLinkToggle = this.handleLinkToggle.bind(this);
         this.startRecording = this.startRecording.bind(this);
         this.stopRecording = this.stopRecording.bind(this);
         this.onReferenceFrame = this.onReferenceFrame.bind(this);
         this.onStudentFrame = this.onStudentFrame.bind(this);
-        this.onTimeUpdate = this.onTimeUpdate.bind(this);
         this.onPlayStateChange = this.onPlayStateChange.bind(this);
     }
 
@@ -116,7 +114,6 @@ class ComparisonLab {
         this.controller = new SSLComparisonController({
             onReferenceFrame: this.onReferenceFrame,
             onStudentFrame: this.onStudentFrame,
-            onTimeUpdate: this.onTimeUpdate,
             onPlayStateChange: this.onPlayStateChange,
             onPlaybackError: (type) => {
                 if (type === 'reference') this.showReferenceStatus('error', 'Reference audio could not play.');
@@ -193,12 +190,6 @@ class ComparisonLab {
         const speedSelect = document.getElementById('comparison-speed');
         if (speedSelect) {
             listen(this, speedSelect, 'change', this.handleSpeedChange);
-        }
-
-        // Zoom slider
-        const zoomSlider = document.getElementById('comparison-zoom');
-        if (zoomSlider) {
-            listen(this, zoomSlider, 'input', this.handleZoomChange);
         }
 
         // Loop toggle
@@ -431,18 +422,6 @@ class ComparisonLab {
     }
 
     /**
-   * Handle zoom change
-   */
-    handleZoomChange(event) {
-        if (!this.controller) return;
-        const zoomLevel = parseInt(event.target.value, 10);
-        // Zoom 1 = full view, zoom 10 = narrow window
-        const windowSize = 1 / zoomLevel;
-        const currentPos = 0.5 - windowSize / 2;
-        this.controller.setZoomWindow(Math.max(0, currentPos), Math.min(1, currentPos + windowSize));
-    }
-
-    /**
    * Handle loop toggle
    */
     handleLoopToggle(event) {
@@ -505,13 +484,6 @@ class ComparisonLab {
     onStudentFrame(frame, time) {
         this.studentRenderer?.setState(frame);
         this.updateStudentScrub(time);
-    }
-
-    /**
-   * Callback when time updates
-   */
-    onTimeUpdate() {
-    // Update any shared UI elements
     }
 
     /**
@@ -732,7 +704,6 @@ class ComparisonLab {
             'comparison-ref-scrub',
             'comparison-student-scrub',
             'comparison-speed',
-            'comparison-zoom',
             'comparison-loop',
             'comparison-link',
         ];

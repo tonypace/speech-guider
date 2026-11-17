@@ -13,6 +13,7 @@ def test_phoneme_classification():
     assert _classify_phoneme("b") == (False, True)
     assert _classify_phoneme("p") == (False, False)
     assert _classify_phoneme("s") == (False, False)
+    assert _classify_phoneme("ɬ") == (False, False)  # voiceless lateral fricative
 
 
 def test_forced_alignment_basic():

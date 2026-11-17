@@ -1,9 +1,10 @@
 """Comparison API endpoints for reference generation and student analysis."""
 
+import base64
 import io
 import json
 import logging
-from typing import Optional
+from typing import Any
 
 import torch
 from fastapi import APIRouter, HTTPException
@@ -14,7 +15,7 @@ from app.services.concurrency import run_inference
 from app.utils.audio import load_audio_tensor
 from src.audio.reference_tts import ReferenceAudio, TTSProviderFactory
 from src.models.aai_adapter import AAIConversionMetadata, aai_to_canonical_states_batch
-from src.models.ssl_common import DEFAULT_SSL_FEATURE_CONFIG
+from src.models.ssl_common import DEFAULT_SSL_FEATURE_CONFIG, clear_torch_device_cache
 from src.services.comparison_cache import ComparisonCache, ReferenceAsset, get_comparison_cache
 from src.services.model_cache import get_ssl_cache_identity, get_ssl_predictor
 
@@ -59,17 +60,6 @@ class ReferenceAnimationResponse(BaseModel):
     cached: bool = Field(default=False, description="Whether result was cached")
 
 
-class TrajectoryPayload(BaseModel):
-    """Trajectory data for student or reference."""
-
-    audio_base64: str
-    audio_sample_rate: int
-    audio_duration_seconds: float
-    frame_rate: int
-    frames: list[AnimationFrame]
-    frame_count: int
-
-
 def _prepare_reference_audio_tensor(
     reference_audio: ReferenceAudio,
 ) -> torch.Tensor:
@@ -83,7 +73,7 @@ def _prepare_reference_audio_tensor(
 def _generate_reference_asset(
     text: str,
     tts_provider: str = "omnivoice",
-    cache: Optional[ComparisonCache] = None,
+    cache: ComparisonCache | None = None,
     contact_enabled: bool = False,
 ) -> tuple[ReferenceAsset, bool]:
     """Generate reference audio and animation frames.
@@ -104,19 +94,25 @@ def _generate_reference_asset(
     )
     cached = cache.get(text, namespace=namespace)
     if cached:
-        print(f"[ComparisonAPI] Cache hit for: '{text[:50]}...'")
+        logger.info("Comparison cache hit for: '%s...'", text[:50])
         return cached, True
 
-    print(f"[ComparisonAPI] Cache miss, generating reference for: '{text[:50]}...'")
+    logger.info("Comparison cache miss, generating reference for: '%s...'", text[:50])
 
     reference_audio = provider.synthesize(text, output_sample_rate=8000)
 
     audio_tensor = _prepare_reference_audio_tensor(reference_audio)
-    trajectory = get_ssl_predictor().predict(
-        audio_tensor,
-        sample_rate=DEFAULT_SSL_FEATURE_CONFIG.sample_rate,
-        contact_enabled=contact_enabled,
-    )
+    predictor = get_ssl_predictor()
+    try:
+        trajectory = predictor.predict(
+            audio_tensor,
+            sample_rate=DEFAULT_SSL_FEATURE_CONFIG.sample_rate,
+            contact_enabled=contact_enabled,
+        )
+    finally:
+        dev = getattr(predictor, "device", None)
+        if isinstance(dev, str):
+            clear_torch_device_cache(dev)
 
     frames = aai_to_canonical_states_batch(
         trajectory.numpy(),
@@ -138,7 +134,9 @@ def _generate_reference_asset(
 
 
 @router.post("/api/reference-animation", response_model=ReferenceAnimationResponse)
-async def generate_reference_animation(request: ReferenceAnimationRequest):
+async def generate_reference_animation(
+    request: ReferenceAnimationRequest,
+) -> ReferenceAnimationResponse:
     """Generate reference audio and articulatory animation from text.
 
     Uses TTS to synthesize audio, then runs SSL AAI predictor to extract
@@ -156,8 +154,6 @@ async def generate_reference_animation(request: ReferenceAnimationRequest):
             tts_provider=request.tts_provider,
             contact_enabled=load_settings().contact_enabled,
         )
-
-        import base64
 
         audio_b64 = base64.b64encode(asset.audio_bytes).decode("utf-8")
 
@@ -185,14 +181,14 @@ async def generate_reference_animation(request: ReferenceAnimationRequest):
 
 
 @router.get("/api/comparison-cache/stats")
-async def get_cache_stats():
+async def get_cache_stats() -> dict[str, Any]:
     """Get comparison cache statistics."""
     cache = get_comparison_cache()
     return cache.get_stats()
 
 
 @router.delete("/api/comparison-cache")
-async def clear_cache():
+async def clear_cache() -> dict[str, str]:
     """Clear all cached reference assets."""
     cache = get_comparison_cache()
     cache.clear()

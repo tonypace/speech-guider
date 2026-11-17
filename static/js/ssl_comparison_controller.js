@@ -2,7 +2,7 @@
  * SSL Comparison Controller - Manages side-by-side articulatory playback
  * 
  * Handles two timelines (reference + student) with synchronized or independent playback.
- * Provides audio editing controls: play/pause, scrub, speed, zoom, loop.
+ * Provides audio editing controls: play/pause, scrub, speed, loop.
  * Feeds frames to existing SVG renderer without modifying renderer geometry.
  */
 
@@ -22,7 +22,6 @@ class SSLComparisonController {
         this.isPlaying = { reference: false, student: false };
         this.playbackSpeed = options.defaultSpeed || 1.0;
         this.linkedPlayheads = options.linkedPlayheads ?? false;
-        this.zoomWindow = { start: 0, end: 1 }; // 0-1 normalized
 
         // Loop region
         this.loopRegion = { enabled: false, start: 0, end: 0 };
@@ -325,27 +324,6 @@ class SSLComparisonController {
     }
 
     /**
-   * Set zoom window (normalized 0-1)
-   */
-    setZoomWindow(start, end) {
-        this.zoomWindow = {
-            start: Math.max(0, Math.min(start, 1)),
-            end: Math.max(0, Math.min(end, 1)),
-        };
-    }
-
-    /**
-   * Get visible time range based on zoom window
-   */
-    getVisibleTimeRange(type) {
-        const duration = this.getDuration(type);
-        return {
-            start: this.zoomWindow.start * duration,
-            end: this.zoomWindow.end * duration,
-        };
-    }
-
-    /**
    * Set loop region
    */
     setLoopRegion(start, end, enabled = true) {
@@ -442,12 +420,6 @@ class SSLComparisonController {
         else this.studentTime = 0;
     }
 
-    clearTrack(type) {
-        this.resetTrack(type);
-        if (type === 'reference') this.referenceFrames = [];
-        else this.studentFrames = [];
-    }
-
     /**
    * Clear all data
    */
@@ -457,13 +429,9 @@ class SSLComparisonController {
         this.resetTrack('student');
         this.referenceFrames = [];
         this.studentFrames = [];
-        this.zoomWindow = { start: 0, end: 1 };
         this.loopRegion = { enabled: false, start: 0, end: 0 };
     }
 
-    /**
-   * Get current state for UI updates
-   */
     destroy() {
         if (this.destroyed) return;
         this.destroyed = true;
@@ -473,27 +441,6 @@ class SSLComparisonController {
         if (context && context.state !== 'closed') {
             Promise.resolve(context.close()).catch((error) => console.warn('Audio close failed', error));
         }
-    }
-
-    getState() {
-        return {
-            reference: {
-                time: this.referenceTime,
-                duration: this.getDuration('reference'),
-                isPlaying: this.isPlaying.reference,
-                currentFrame: this.getCurrentFrame('reference'),
-            },
-            student: {
-                time: this.studentTime,
-                duration: this.getDuration('student'),
-                isPlaying: this.isPlaying.student,
-                currentFrame: this.getCurrentFrame('student'),
-            },
-            speed: this.playbackSpeed,
-            linked: this.linkedPlayheads,
-            zoom: this.zoomWindow,
-            loop: this.loopRegion,
-        };
     }
 }
 

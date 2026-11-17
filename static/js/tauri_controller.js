@@ -13,8 +13,6 @@ class TauriController {
         this.currentErrorIndex = -1;
         this.prosodySamples = [];
         this.currentSampleIndex = -1;
-        this.animationPhonemes = [];
-        this.currentPhonemeIndex = -1;
         this.isRecording = false;
 
         if (this.isTauri) {
@@ -36,27 +34,8 @@ class TauriController {
     init() {
         console.log('[TauriController] Initializing in Tauri mode');
 
-        // Listen for menu bar launch events
-        this.setupMenuListeners();
-
         // Set up clicker input
         this.setupClickerInput();
-
-        // Build phoneme list for animation mode
-        this.buildPhonemeList();
-    }
-
-    /**
-   * Listen for Tauri menu bar events
-   */
-    setupMenuListeners() {
-        if (window.__TAURI__?.event) {
-            // Handle launch events from menu bar
-            window.__TAURI__.event.listen('speechguider:launch', (event) => {
-                console.log('[TauriController] Launch event:', event.payload);
-                this.handleLaunch(event.payload);
-            });
-        }
     }
 
     /**
@@ -73,9 +52,6 @@ class TauriController {
                 break;
             case 'prosody':
                 this.launchProsody();
-                break;
-            case 'animation':
-                this.launchAnimation();
                 break;
             default:
                 console.warn('[TauriController] Unknown launch mode:', mode);
@@ -114,22 +90,6 @@ class TauriController {
         // Reset state
         this.prosodySamples = [];
         this.currentSampleIndex = -1;
-    }
-
-    /**
-   * Launch animation mode
-   */
-    launchAnimation() {
-        console.log('[TauriController] Launching animation mode');
-        this.currentMode = 'animation';
-
-        // Switch to animation tab
-        if (window.switchTab) {
-            window.switchTab('animation');
-        }
-
-        // Reset state
-        this.currentPhonemeIndex = -1;
     }
 
     /**
@@ -193,9 +153,6 @@ class TauriController {
             case 'prosody':
                 this.previousProsodySample();
                 break;
-            case 'animation':
-                this.previousAnimationPhoneme();
-                break;
         }
     }
 
@@ -211,9 +168,6 @@ class TauriController {
                 break;
             case 'prosody':
                 this.nextProsodySample();
-                break;
-            case 'animation':
-                this.nextAnimationPhoneme();
                 break;
         }
     }
@@ -261,12 +215,6 @@ class TauriController {
    */
     handlePrimaryAction() {
         console.log('[TauriController] Primary action in', this.currentMode);
-
-        switch (this.currentMode) {
-            case 'animation':
-                this.animateCurrentPhoneme();
-                break;
-        }
     }
 
     // ========== PRONUNCIATION MODE ==========
@@ -383,63 +331,6 @@ class TauriController {
     stopProsodyRecording() {
         if (window.prosodyLabRecorder?.stopRecording) {
             window.prosodyLabRecorder.stopRecording();
-        }
-    }
-
-    // ========== ANIMATION MODE ==========
-
-    buildPhonemeList() {
-    // Build list of available phonemes from the phoneme buttons
-        this.animationPhonemes = [];
-        document.querySelectorAll('.phoneme-btn').forEach((btn) => {
-            const phoneme = btn.getAttribute('data-phoneme');
-            if (phoneme) {
-                this.animationPhonemes.push(phoneme);
-            }
-        });
-    }
-
-    previousAnimationPhoneme() {
-        if (this.animationPhonemes.length === 0) {
-            this.buildPhonemeList();
-        }
-
-        if (this.animationPhonemes.length === 0) return;
-
-        this.currentPhonemeIndex--;
-        if (this.currentPhonemeIndex < 0) {
-            this.currentPhonemeIndex = this.animationPhonemes.length - 1;
-        }
-
-        this.selectAnimationPhoneme(this.animationPhonemes[this.currentPhonemeIndex]);
-    }
-
-    nextAnimationPhoneme() {
-        if (this.animationPhonemes.length === 0) {
-            this.buildPhonemeList();
-        }
-
-        if (this.animationPhonemes.length === 0) return;
-
-        this.currentPhonemeIndex++;
-        if (this.currentPhonemeIndex >= this.animationPhonemes.length) {
-            this.currentPhonemeIndex = 0;
-        }
-
-        this.selectAnimationPhoneme(this.animationPhonemes[this.currentPhonemeIndex]);
-    }
-
-    selectAnimationPhoneme(phoneme) {
-        if (window.selectPhoneme) {
-            window.selectPhoneme(phoneme);
-            // Animation happens automatically via selectPhoneme
-        }
-    }
-
-    animateCurrentPhoneme() {
-        if (this.currentPhonemeIndex >= 0 &&
-        this.currentPhonemeIndex < this.animationPhonemes.length) {
-            this.selectAnimationPhoneme(this.animationPhonemes[this.currentPhonemeIndex]);
         }
     }
 }

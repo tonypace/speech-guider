@@ -2,30 +2,29 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
-import soundfile as sf
+from numpy.typing import NDArray
 
 from src.audio.prosody_lab import analyze_prosody_recording
 
 
-def _write_test_wav(path: Path) -> None:
+def test_analyze_prosody_recording_returns_summary(
+    dummy_wav_factory: Callable[..., Path],
+    create_dummy_wav: Callable[..., tuple[int, NDArray[np.int16]]],
+) -> None:
     sample_rate = 44100
-    tone_a = 0.4 * np.sin(
-        2 * np.pi * 220 * np.linspace(0, 0.4, int(sample_rate * 0.4), endpoint=False)
+    _, tone = create_dummy_wav(
+        duration=0.4, sample_rate=sample_rate, frequency=220.0, amplitude=0.4
     )
-    silence = np.zeros(int(sample_rate * 0.2), dtype=np.float32)
-    tone_b = 0.4 * np.sin(
-        2 * np.pi * 220 * np.linspace(0, 0.4, int(sample_rate * 0.4), endpoint=False)
+    silence = np.zeros(int(sample_rate * 0.2), dtype=np.int16)
+    audio_path = dummy_wav_factory(
+        "sample.wav",
+        sample_rate=sample_rate,
+        waveform=np.concatenate([tone, silence, tone]),
     )
-    waveform = np.concatenate([tone_a, silence, tone_b]).astype(np.float32)
-    sf.write(path, waveform, sample_rate, subtype="PCM_16")
-
-
-def test_analyze_prosody_recording_returns_summary(tmp_path) -> None:
-    audio_path = tmp_path / "sample.wav"
-    _write_test_wav(audio_path)
 
     result = analyze_prosody_recording(str(audio_path))
 

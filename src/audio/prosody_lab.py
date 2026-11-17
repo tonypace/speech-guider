@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import shutil
-import tempfile
+import logging
 import uuid
-from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
@@ -16,6 +14,8 @@ try:
     import soundfile as sf
 except ImportError:  # pragma: no cover - fallback for minimal environments
     sf = None  # type: ignore[assignment]
+
+logger = logging.getLogger(__name__)
 
 
 _NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
@@ -60,7 +60,7 @@ def _heuristic_syllable_markers(y: np.ndarray, sr: int) -> list[float]:
         peaks, _ = find_peaks(energy, distance=distance, prominence=max(energy.max() * 0.1, 1e-6))
         return [round(float(index * hop_length / sr), 3) for index in peaks]
     except ValueError as e:
-        print(f"[_heuristic_syllable_markers] Peak detection failed: {e}")
+        logger.warning("[_heuristic_syllable_markers] Peak detection failed: %s", e)
         return []
 
 
@@ -186,24 +186,6 @@ def _compute_pitch_track(y: np.ndarray, sr: int) -> dict[str, Any]:
     }
 
 
-def _normalize_audio_file(
-    audio_path: str, output_path: Path, sample_rate: int = 44100
-) -> tuple[np.ndarray, int]:
-    """Load an audio file and write a normalized mono WAV copy."""
-
-    y, sr = _load_audio_samples(audio_path, sample_rate)
-
-    if y.size == 0:
-        raise ValueError("Audio file is empty")
-
-    y = y.astype(np.float32)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    if sf is None:
-        raise RuntimeError("soundfile is required for audio normalization")
-    sf.write(output_path, y, sr, subtype="PCM_16")
-    return y, sr
-
-
 def _load_audio_samples(audio_path: str, sample_rate: int) -> tuple[np.ndarray, int]:
     """Load audio using soundfile or scipy fallback."""
 
@@ -217,7 +199,7 @@ def _load_audio_samples(audio_path: str, sample_rate: int) -> tuple[np.ndarray, 
                 sr = sample_rate
             return np.asarray(y, dtype=np.float32), int(sr)
         except (ValueError, RuntimeError) as e:
-            print(f"[_load_audio_samples] soundfile load failed: {e}, trying scipy")
+            logger.warning("[_load_audio_samples] soundfile load failed: %s, trying scipy", e)
 
     sr, y = scipy_wavfile.read(audio_path)
     if y.ndim > 1:
@@ -236,46 +218,42 @@ def analyze_prosody_recording(audio_path: str) -> dict[str, Any]:
     """Analyze a recording for Prosody Lab visualization."""
 
     recording_id = uuid.uuid4().hex
-    temp_dir = Path(tempfile.mkdtemp(prefix="prosody-lab-"))
-    normalized_path = temp_dir / f"{recording_id}.wav"
+    pitch_y, pitch_sr = _load_audio_samples(audio_path, 22050)
+    if pitch_y.size == 0:
+        raise ValueError("Audio file is empty")
 
-    try:
-        y, sr = _normalize_audio_file(audio_path, normalized_path)
-        pitch_y, pitch_sr = _load_audio_samples(str(normalized_path), 22050)
-        pitch = _compute_pitch_track(pitch_y, pitch_sr)
-        markers = _heuristic_syllable_markers(pitch_y, pitch_sr)
-        pause_spans = _heuristic_pause_spans(pitch_y, pitch_sr)
+    pitch = _compute_pitch_track(pitch_y, pitch_sr)
+    markers = _heuristic_syllable_markers(pitch_y, pitch_sr)
+    pause_spans = _heuristic_pause_spans(pitch_y, pitch_sr)
 
-        syllable_count = max(1, len(markers))
-        pause_count = len(pause_spans)
+    syllable_count = max(1, len(markers))
+    pause_count = len(pause_spans)
 
-        total_duration = len(pitch_y) / pitch_sr if pitch_sr else 0.0
-        pause_duration = sum(segment["duration"] for segment in pause_spans)
-        rhythm_balance = max(
-            0.0, min(1.0, 1.0 - (pause_duration / total_duration if total_duration else 0.0))
-        )
+    total_duration = len(pitch_y) / pitch_sr if pitch_sr else 0.0
+    pause_duration = sum(segment["duration"] for segment in pause_spans)
+    rhythm_balance = max(
+        0.0, min(1.0, 1.0 - (pause_duration / total_duration if total_duration else 0.0))
+    )
 
-        duration_seconds = len(pitch_y) / pitch_sr if pitch_sr else 0.0
-        summary = {
-            "duration_seconds": float(duration_seconds),
-            "syllable_count": int(syllable_count),
-            "pause_count": int(pause_count),
-            "rhythm_balance": float(rhythm_balance),
-            "mean_f0_hz": float(pitch["mean_f0_hz"]),
-            "mean_midi": pitch["mean_midi"],
-            "mean_note": pitch["mean_note"],
-            "speech_rate": None,
-            "articulation_rate": None,
-        }
+    duration_seconds = len(pitch_y) / pitch_sr if pitch_sr else 0.0
+    summary = {
+        "duration_seconds": float(duration_seconds),
+        "syllable_count": int(syllable_count),
+        "pause_count": int(pause_count),
+        "rhythm_balance": float(rhythm_balance),
+        "mean_f0_hz": float(pitch["mean_f0_hz"]),
+        "mean_midi": pitch["mean_midi"],
+        "mean_note": pitch["mean_note"],
+        "speech_rate": None,
+        "articulation_rate": None,
+    }
 
-        return {
-            "recording_id": recording_id,
-            "summary": summary,
-            "pitch_track": pitch["pitch_track"],
-            "syllable_onsets": markers,
-            "pause_spans": pause_spans,
-            "raw_feedback": "",
-            "analysis_source": "heuristic",
-        }
-    finally:
-        shutil.rmtree(temp_dir, ignore_errors=True)
+    return {
+        "recording_id": recording_id,
+        "summary": summary,
+        "pitch_track": pitch["pitch_track"],
+        "syllable_onsets": markers,
+        "pause_spans": pause_spans,
+        "raw_feedback": "",
+        "analysis_source": "heuristic",
+    }

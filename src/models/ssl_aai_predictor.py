@@ -11,7 +11,6 @@ import yaml
 from transformers import AutoFeatureExtractor, AutoModel  # type: ignore[import-untyped]
 
 from src.models.aai_adapter import AAI_TV_ORDER as AAI_TV_ORDER
-from src.models.legacy_aai_predictor import AAIHead, DANNPredictorHead  # noqa: F401
 from src.models.r4_contact import ContactTracker, R4ContactHead, load_contact_head
 from src.models.r4_decoder import R4Decoder, load_r4_decoder
 from src.models.ssl_common import (
@@ -23,11 +22,6 @@ from src.models.ssl_common import (
 
 logger = logging.getLogger(__name__)
 DEFAULT_R4_BUNDLE = Path(__file__).resolve().parents[2] / "external" / "R4 26-11-06"
-
-
-def _get_default_checkpoint_path() -> Path:
-    """Resolve the self-contained R4 successor, never the provenance base path."""
-    return DEFAULT_R4_BUNDLE / "weights" / "r4.pt"
 
 
 class SSLAAIPredictor:
@@ -76,7 +70,6 @@ class SSLAAIPredictor:
         self._contact_head: R4ContactHead | None = None
         self._metadata: dict[str, Any] = {}
         self._loaded = False
-        self._warmed_up = False
         self._lock = RLock()
 
     def load(self, checkpoint_path: str | Path | None = None) -> None:
@@ -105,7 +98,6 @@ class SSLAAIPredictor:
             self._metadata = metadata
             self.checkpoint_path = path
             self._loaded = True
-            self._warmed_up = False
             logger.info("R4 loaded on %s from %s", self.device, path)
 
     def _validate_contract(self) -> None:
@@ -248,27 +240,6 @@ class SSLAAIPredictor:
             ],
         )
 
-    def predict_combined(
-        self, audio_tensor: torch.Tensor, sample_rate: int = 16000
-    ) -> dict[str, Any]:
-        """Compatibility entry point; all nine channels now come from R4."""
-        result = self.predict_with_metadata(audio_tensor, sample_rate)
-        result.update(
-            {
-                "oral": result["tvs"][:, :6],
-                "oral_raw": result["tvs_raw"][:, :6],
-                "suprasegmental": result["tvs"][:, 6:],
-                "clip_fraction": result["metadata"]["clip_fraction"],
-            }
-        )
-        return result
-
-    def warmup(self) -> None:
-        with self._lock:
-            if self._loaded and not self._warmed_up:
-                self.predict(torch.zeros(self.HOP_SAMPLES))
-                self._warmed_up = True
-
     def cleanup(self) -> None:
         with self._lock:
             self._ssl_model = None
@@ -277,5 +248,4 @@ class SSLAAIPredictor:
             self._feature_extractor = None
             self._metadata = {}
             self._loaded = False
-            self._warmed_up = False
             clear_torch_device_cache(self.device)

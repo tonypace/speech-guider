@@ -63,25 +63,6 @@ describe('SvgArticulatoryRenderer', () => {
         expect(() => missing.mount()).not.toThrow();
     });
 
-    it('setPhonemePreset is an alias for setState', () => {
-        renderer.mount();
-        renderer.setPhonemePreset({ lip_aperture: 0.38, glottal_aperture: 0.5 });
-        expect(renderer.state.lip_aperture).toBe(0.38);
-        expect(renderer.state.glottal_aperture).toBe(0.5);
-    });
-
-    it('setParameters is an alias for setState', () => {
-        renderer.mount();
-        renderer.setParameters({ lip_aperture: 0.63 });
-        expect(renderer.state.lip_aperture).toBe(0.63);
-    });
-
-    it('updateFromSchema is an alias for setState', () => {
-        renderer.mount();
-        renderer.updateFromSchema({ glottal_aperture: 0.75 });
-        expect(renderer.state.glottal_aperture).toBe(0.75);
-    });
-
     it('setState merges with existing state', () => {
         renderer.mount();
         renderer.setState({ lip_aperture: 0.2 });
@@ -243,9 +224,9 @@ describe('SvgArticulatoryRenderer', () => {
     it('clamps tongue degree to normalized range only', async () => {
         const mod = await import('../../static/js/svg_articulatory_renderer.js');
         const r = new mod.SvgArticulatoryRenderer(document.body);
-        expect(r._normalizeDegree(1.4, 40)).toBeCloseTo(1, 4);
-        expect(r._normalizeDegree(0.5, 40)).toBeCloseTo(0.5, 4);
-        expect(r._normalizeDegree(0.7, 40)).toBeCloseTo(0.7, 4);
+        expect(r._normalizeDegree(1.4)).toBeCloseTo(1, 4);
+        expect(r._normalizeDegree(0.5)).toBeCloseTo(0.5, 4);
+        expect(r._normalizeDegree(0.7)).toBeCloseTo(0.7, 4);
     });
 
     it('clips oral voicing at effective tongue closure anchors', async () => {

@@ -47,6 +47,7 @@ node_modules/
 # IDEs
 .vscode/
 .idea/
+.opencode/
 *.swp
 *.swo
 *~

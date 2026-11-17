@@ -1,20 +1,23 @@
 """Utility functions for handling audio file uploads."""
 
 import asyncio
-import io
+import logging
 import os
 import subprocess
 import tempfile
 from pathlib import Path
 from typing import BinaryIO
 
-import numpy as np
 import soundfile as sf
 import torch
 from fastapi import UploadFile
 
 from app.services.concurrency import await_owned
+from src.audio.processor import resample_audio, to_mono_float32
 from src.services.desktop_assets import asset_override
+
+logger = logging.getLogger(__name__)
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 
 
 class AudioConversionError(Exception):
@@ -23,21 +26,28 @@ class AudioConversionError(Exception):
     pass
 
 
-async def save_upload_to_temp(upload_file: UploadFile, target_format: str = "wav") -> str:
+async def save_upload_to_temp(upload_file: UploadFile) -> str:
     """
     Save an uploaded file to a temporary location, converting to WAV if needed.
 
     Args:
         upload_file: FastAPI UploadFile object
-        target_format: Target format (default: wav for scipy compatibility)
 
     Returns:
-        Path to the temporary file
+        Path to the temporary WAV file
 
     Raises:
-        AudioConversionError: If conversion to WAV fails and original format is unusable
+        AudioConversionError: If upload exceeds MAX_UPLOAD_BYTES or conversion to WAV fails
     """
-    contents = await upload_file.read()
+    if upload_file.size is not None and upload_file.size > MAX_UPLOAD_BYTES:
+        raise AudioConversionError(
+            f"Uploaded audio exceeds maximum size of {MAX_UPLOAD_BYTES} bytes."
+        )
+    contents = await upload_file.read(MAX_UPLOAD_BYTES + 1)
+    if len(contents) > MAX_UPLOAD_BYTES:
+        raise AudioConversionError(
+            f"Uploaded audio exceeds maximum size of {MAX_UPLOAD_BYTES} bytes."
+        )
     task = asyncio.create_task(
         asyncio.to_thread(_save_contents_to_temp, contents, upload_file.filename or "audio.wav")
     )
@@ -53,25 +63,19 @@ def _save_contents_to_temp(contents: bytes, original_filename: str) -> str:
         tmp_file.write(contents)
         tmp_path = tmp_file.name
 
-    print(f"[audio] Saved upload: {tmp_path} ({len(contents)} bytes, format: {suffix})")
+    logger.debug("Saved upload: %s (%d bytes, format: %s)", tmp_path, len(contents), suffix)
 
     # Convert to WAV if not already WAV
     if suffix not in (".wav", ".wave"):
         try:
             wav_path = _convert_to_wav(tmp_path)
-            print(f"[audio] Converted {tmp_path} -> {wav_path}")
-            # Clean up original temp file
-            cleanup_temp_file(tmp_path)
+            logger.debug("Converted %s -> %s", tmp_path, wav_path)
             return wav_path
         except AudioConversionError as e:
-            print(f"[audio] Conversion failed: {e}")
-            # If conversion fails, try to use original file (may fail later if incompatible)
-            # But for non-WAV formats, we should raise the error
-            if suffix not in (".mp3", ".ogg", ".webm", ".m4a", ".flac"):
-                # For non-audio formats, cleanup and raise
-                cleanup_temp_file(tmp_path)
-                raise AudioConversionError(f"Could not convert {suffix} file to WAV: {e}") from e
-            print(f"[audio] Trying to read original {suffix} file anyway")
+            logger.warning("Audio conversion failed for %s: %s", tmp_path, e)
+            raise AudioConversionError(f"Could not convert {suffix} file to WAV: {e}") from e
+        finally:
+            cleanup_temp_file(tmp_path)
 
     return tmp_path
 
@@ -145,31 +149,12 @@ def cleanup_temp_file(filepath: str) -> None:
             os.remove(filepath)
     except OSError as e:
         # Log but don't fail - cleanup is best effort
-        print(f"[audio] Failed to cleanup temp file {filepath}: {e}")
-
-
-async def upload_to_bytesio(upload_file: UploadFile) -> io.BytesIO:
-    """
-    Convert UploadFile to BytesIO for in-memory processing.
-
-    Args:
-        upload_file: FastAPI UploadFile object
-
-    Returns:
-        BytesIO buffer containing file contents
-    """
-    contents = await upload_file.read()
-    return io.BytesIO(contents)
+        logger.warning("Failed to cleanup temp file %s: %s", filepath, e)
 
 
 def load_audio_tensor(source: str | BinaryIO, target_rate: int) -> tuple[torch.Tensor, int]:
     """Decode audio into the mono float tensor shared by both SSL paths."""
     audio_data, sample_rate = sf.read(source, dtype="float32")
-    if audio_data.ndim > 1:
-        audio_data = np.mean(audio_data, axis=1)
-    if sample_rate != target_rate:
-        from scipy import signal
-
-        num_samples = int(len(audio_data) * target_rate / sample_rate)
-        audio_data = signal.resample(audio_data, num_samples)
-    return torch.from_numpy(audio_data).float(), target_rate
+    mono_audio = to_mono_float32(audio_data)
+    resampled = resample_audio(mono_audio, int(sample_rate), target_rate)
+    return torch.from_numpy(resampled).float(), target_rate

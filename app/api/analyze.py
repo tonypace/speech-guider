@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from typing import Any
 
 import torch
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
@@ -12,6 +13,14 @@ from app.api.sse import create_job_id, send_progress_update
 from app.services.concurrency import run_blocking, run_with_semaphore
 from app.services.jobs import claim_job, finish_job
 from app.utils.audio import cleanup_temp_file, load_audio_tensor, save_upload_to_temp
+from src.audio import processor
+from src.models.aai_adapter import (
+    AAIConversionMetadata,
+    aai_to_canonical_state,
+    aai_to_canonical_states_batch,
+    decode_aai_row,
+    representative_aai_pose,
+)
 from src.models.ssl_common import (
     DEFAULT_SSL_FEATURE_CONFIG,
     clear_torch_device_cache,
@@ -36,7 +45,7 @@ def _ssl_aai_to_animation_state(
     sample_rate: int,
     return_trajectory: bool = False,
     contact_enabled: bool = False,
-) -> dict | tuple[dict, list[dict] | None, dict] | None:
+) -> dict[str, float] | tuple[dict[str, float], list[dict[str, float]], dict[str, Any]]:
     """Convert audio to animation state via SSL AAI predictor.
 
     Uses the same frozen R4 decoder and display normalization as reference audio.
@@ -48,22 +57,18 @@ def _ssl_aai_to_animation_state(
 
     Returns:
         Canonical animation state dict, or (state, frames, meta) tuple if
-        return_trajectory=True, or None if predictor unavailable/failed.
+        return_trajectory=True.
     """
-
-    from src.models.aai_adapter import (
-        AAIConversionMetadata,
-        aai_to_canonical_state,
-        aai_to_canonical_states_batch,
-        decode_aai_row,
-        representative_aai_pose,
-    )
-
     try:
         predictor = get_ssl_predictor()
     except (FileNotFoundError, RuntimeError) as e:
         logger.exception("SSL predictor could not be loaded")
         raise SSLAnalysisError(f"SSL predictor could not be loaded: {e}") from e
+
+    global _ssl_device
+    device = getattr(predictor, "device", None)
+    if isinstance(device, str) and device:
+        _ssl_device = device
 
     metadata = AAIConversionMetadata(normalization="speaker_z_normalized")
     try:
@@ -71,7 +76,7 @@ def _ssl_aai_to_animation_state(
             audio_tensor, sample_rate, contact_enabled=contact_enabled
         )
         tvs_array = prediction["tvs"].numpy()
-        ssl_meta = prediction["metadata"]
+        ssl_meta: dict[str, Any] = prediction["metadata"]
 
         # Get representative pose from trajectory
         if len(tvs_array) == 1:
@@ -104,7 +109,7 @@ def try_primary_ssl_analysis(
     sample_rate: int,
     return_trajectory: bool = False,
     contact_enabled: bool = False,
-) -> tuple[dict | None, list[dict] | None, dict]:
+) -> tuple[dict[str, float] | None, list[dict[str, float]] | None, dict[str, Any]]:
     """Run the SSL AAI analysis path.
 
     Returns:
@@ -113,7 +118,6 @@ def try_primary_ssl_analysis(
         - ssl_trajectory: list of canonical frame dicts or None (if return_trajectory=True)
         - ssl_meta: integration metadata (decoder, device, layers, display clipping)
     """
-
     logger.debug("[try_primary_ssl_analysis] Attempting SSL AAI path...")
 
     try:
@@ -127,17 +131,11 @@ def try_primary_ssl_analysis(
         logger.warning(f"[try_primary_ssl_analysis] SSL AAI path failed: {e}")
         raise
 
-    if result is not None:
-        logger.debug("[try_primary_ssl_analysis] SSL AAI path succeeded")
-        if return_trajectory and isinstance(result, tuple):
-            animation_state, ssl_trajectory, ssl_meta = result
-            return animation_state, ssl_trajectory, ssl_meta
-        if isinstance(result, dict):
-            return result, None, {}
-
-    # If we reach here, SSL AAI path failed
-    logger.debug("[try_primary_ssl_analysis] SSL AAI path failed")
-    return None, None, {}
+    logger.debug("[try_primary_ssl_analysis] SSL AAI path succeeded")
+    if isinstance(result, tuple):
+        animation_state, ssl_trajectory, ssl_meta = result
+        return animation_state, ssl_trajectory, ssl_meta
+    return result, None, {}
 
 
 def _load_and_preprocess_audio(audio_path: str) -> tuple[torch.Tensor, int]:
@@ -157,7 +155,7 @@ def _load_and_preprocess_audio(audio_path: str) -> tuple[torch.Tensor, int]:
 
 async def _run_analysis_pipeline(
     audio_path: str, target_text: str, job_id: str, contact_enabled: bool = False
-) -> dict:
+) -> dict[str, Any]:
     """Run the full analysis pipeline.
 
     Args:
@@ -175,9 +173,7 @@ async def _run_analysis_pipeline(
     # Step 1: Load audio
     await send_progress_update(job_id, 0.1, "Loading audio file...", "load_audio")
 
-    from src.audio.processor import AudioContext, ProsodyAnalyzer
-
-    audio_context = await run_blocking(AudioContext, audio_path)
+    audio_context = await run_blocking(processor.AudioContext, audio_path)
 
     # Step 2: Analyze pronunciation
     await send_progress_update(job_id, 0.3, "Analyzing pronunciation...", "pronunciation")
@@ -185,10 +181,10 @@ async def _run_analysis_pipeline(
     # Load audio in thread to avoid blocking
     audio_tensor, sample_rate = await run_blocking(_load_and_preprocess_audio, audio_path)
 
-    ssl_animation_state = None
-    ssl_trajectory = None
-    ssl_meta: dict = {}
-    ssl_error = None
+    ssl_animation_state: dict[str, float] | None = None
+    ssl_trajectory: list[dict[str, float]] | None = None
+    ssl_meta: dict[str, Any] = {}
+    ssl_error: str | None = None
 
     # Run SSL AAI analysis in thread to avoid blocking
     try:
@@ -196,8 +192,6 @@ async def _run_analysis_pipeline(
             try_primary_ssl_analysis, audio_tensor, sample_rate, True, contact_enabled
         )
         if ssl_animation_state is not None:
-            global _ssl_device
-            _ssl_device = get_ssl_predictor().device
             logger.debug(
                 "[analyze] SSL AAI analysis succeeded, animation state and trajectory generated"
             )
@@ -210,15 +204,16 @@ async def _run_analysis_pipeline(
     except Exception as e:
         ssl_error = f"Unexpected SSL analysis error: {e}"
         logger.exception("Unexpected SSL analysis error for job %s", job_id)
-
-    # Clear device cache after SSL inference to free VRAM
-    if _ssl_device:
-        await run_blocking(clear_torch_device_cache, _ssl_device)
+    finally:
+        meta_device = ssl_meta.get("device")
+        device = meta_device if isinstance(meta_device, str) and meta_device else _ssl_device
+        if device:
+            await run_blocking(clear_torch_device_cache, device)
 
     # Step 3: Extract prosody metrics
     await send_progress_update(job_id, 0.6, "Extracting prosody metrics...", "prosody")
 
-    prosody_analyzer = ProsodyAnalyzer(audio_context)
+    prosody_analyzer = processor.ProsodyAnalyzer(audio_context)
 
     # Run prosody analysis without phoneme alignment (alignment requires phoneme model)
     logger.debug("[analyze] Running prosody analysis without alignment timestamps")
@@ -251,7 +246,7 @@ async def _run_analysis_pipeline(
         feedback += "<br>Contact enhancement unavailable. Using baseline R4."
 
     # Serialize trajectory if available
-    serialized_trajectory = None
+    serialized_trajectory: dict[str, Any] | None = None
     if ssl_trajectory:
         serialized_trajectory = {
             "frame_rate": DEFAULT_SSL_FEATURE_CONFIG.frame_rate,
@@ -259,7 +254,7 @@ async def _run_analysis_pipeline(
             "frames": ssl_trajectory,
         }
 
-    result = {
+    result: dict[str, Any] = {
         "feedback": feedback,
         "prosody": serialize_prosody(prosody_metrics) if prosody_metrics else None,
         "ssl_animation_state": ssl_animation_state,
@@ -281,12 +276,12 @@ async def _run_analysis_pipeline(
     return result
 
 
-def _get_pitch_range_label(range_semitones: float) -> str:
+def _get_pitch_range_label() -> str:
     """Return a student-friendly pitch range label."""
     return "measured pitch range"
 
 
-def _get_pitch_range_coaching(range_semitones: float) -> str:
+def _get_pitch_range_coaching() -> str:
     """Avoid quality judgments without a speaker or task reference."""
     return "Observed F0 spread; no target reference available"
 
@@ -301,16 +296,16 @@ def _get_mean_pitch_label(mean_f0_hz: float) -> str:
         return "high voice"
 
 
-def _get_mean_pitch_coaching(mean_f0_hz: float) -> str:
+def _get_mean_pitch_coaching() -> str:
     """Return coaching text for mean pitch."""
     return "Mean voiced F0; does not establish mood or speaking quality"
 
 
-def _get_npvi_label(npvi: float | None) -> tuple[str, str]:
-    """Return (label, color) for nPVI. Color is 'red', 'amber', or 'green'."""
+def _get_npvi_label(npvi: float | None) -> str:
+    """Return a neutral duration-variability label for nPVI."""
     if npvi is None:
-        return "unavailable", "gray"
-    return "duration variability", "gray"
+        return "unavailable"
+    return "duration variability"
 
 
 def _get_npvi_coaching(npvi: float | None) -> str:
@@ -321,16 +316,11 @@ def _get_npvi_coaching(npvi: float | None) -> str:
 
 
 def _build_npvi_bar_html(npvi: float | None) -> str:
-    """Build an inline colored nPVI bar HTML."""
-    label, color = _get_npvi_label(npvi)
+    """Build an inline neutral nPVI bar HTML."""
+    label = _get_npvi_label(npvi)
     coaching = _get_npvi_coaching(npvi)
-    color_map = {
-        "red": "#ef4444",
-        "amber": "#f59e0b",
-        "green": "#22c55e",
-    }
-    bar_color = color_map.get(color, "#9ca3af")
-    bar_html = (
+    bar_color = "#9ca3af"
+    return (
         f'<div style="display:flex;align-items:center;gap:8px;margin-top:4px;">'
         f'<div style="flex:1;height:8px;background:#e5e7eb;border-radius:4px;overflow:hidden;">'
         f'<div style="width:100%;height:100%;background:{bar_color};border-radius:4px;"></div>'
@@ -338,10 +328,9 @@ def _build_npvi_bar_html(npvi: float | None) -> str:
         f'<span style="font-size:12px;color:{bar_color};font-weight:600;">{label} — {coaching}</span>'
         f"</div>"
     )
-    return bar_html
 
 
-def _voice_quality_payload(vq) -> dict | None:
+def _voice_quality_payload(vq: processor.VoiceQuality | None) -> dict[str, float] | None:
     """Serialize voice quality to dict if any metric is non-zero."""
     if vq is None:
         return None
@@ -354,16 +343,16 @@ def _voice_quality_payload(vq) -> dict | None:
     return payload if any(payload.values()) else None
 
 
-def serialize_prosody(prosody):
+def serialize_prosody(prosody: processor.ProsodyMetrics | None) -> dict[str, Any]:
     """Convert ProsodyMetrics to dict."""
     pitch = prosody.pitch if prosody else None
     rhythm = prosody.rhythm if prosody else None
     stress = prosody.stress if prosody else None
     vq = prosody.voice_quality if prosody else None
 
-    pitch_mean = pitch.mean_f0 if pitch else 0
-    pitch_range = pitch.f0_range if pitch else 0
-    pitch_var = pitch.std_f0 if pitch else 0
+    pitch_mean = pitch.mean_f0 if pitch else 0.0
+    pitch_range = pitch.f0_range if pitch else 0.0
+    pitch_var = pitch.std_f0 if pitch else 0.0
     npvi = rhythm.npvi if rhythm else None
 
     return {
@@ -375,23 +364,23 @@ def serialize_prosody(prosody):
         "rhythm_interval_type": "vowel_duration",
         "stress_pattern": stress.primary_stress_word if stress else None,
         "pitch_range_semitones": pitch.range_semitones if pitch else 0.0,
-        "pitch_range_label": _get_pitch_range_label(pitch.range_semitones if pitch else 0.0),
-        "pitch_range_coaching": _get_pitch_range_coaching(pitch.range_semitones if pitch else 0.0),
+        "pitch_range_label": _get_pitch_range_label(),
+        "pitch_range_coaching": _get_pitch_range_coaching(),
         "mean_pitch_label": _get_mean_pitch_label(pitch_mean),
-        "mean_pitch_coaching": _get_mean_pitch_coaching(pitch_mean),
-        "npvi_label": _get_npvi_label(npvi)[0],
-        "npvi_color": _get_npvi_label(npvi)[1],
+        "mean_pitch_coaching": _get_mean_pitch_coaching(),
+        "npvi_label": _get_npvi_label(npvi),
+        "npvi_color": "gray",
         "npvi_coaching": _get_npvi_coaching(npvi),
         "npvi_bar_html": _build_npvi_bar_html(npvi),
         "voice_quality": _voice_quality_payload(vq),
     }
 
 
-def _generate_comprehensive_feedback(prosody_metrics):
+def _generate_comprehensive_feedback(prosody_metrics: processor.ProsodyMetrics | None) -> str:
     """Generate comprehensive feedback text."""
     logger.debug(f"[feedback] prosody_metrics: {prosody_metrics}")
 
-    sections = []
+    sections: list[str] = []
 
     # Pronunciation summary
     # NOTE: Phoneme-level error detection requires a phoneme CTC model.
@@ -404,15 +393,15 @@ def _generate_comprehensive_feedback(prosody_metrics):
         if prosody_metrics.pitch:
             f0_range = prosody_metrics.pitch.f0_range
             f0_mean = prosody_metrics.pitch.mean_f0
-            range_label = _get_pitch_range_label(prosody_metrics.pitch.range_semitones)
-            range_coaching = _get_pitch_range_coaching(prosody_metrics.pitch.range_semitones)
+            range_label = _get_pitch_range_label()
+            range_coaching = _get_pitch_range_coaching()
             pitch_label = _get_mean_pitch_label(f0_mean)
-            pitch_coaching = _get_mean_pitch_coaching(f0_mean)
+            pitch_coaching = _get_mean_pitch_coaching()
             sections.append(f"- Pitch range: {range_label} — {range_coaching} ({f0_range:.1f} Hz)")
             sections.append(f"- Mean pitch: {pitch_label} — {pitch_coaching} ({f0_mean:.1f} Hz)")
         if prosody_metrics.rhythm:
             npvi = prosody_metrics.rhythm.npvi
-            npvi_label, npvi_color = _get_npvi_label(npvi)
+            npvi_label = _get_npvi_label(npvi)
             npvi_coaching = _get_npvi_coaching(npvi)
             sections.append(
                 "- Rhythm: nPVI unavailable" if npvi is None else f"- Rhythm (nPVI {npvi:.2f})"
@@ -431,7 +420,7 @@ async def analyze_audio(
     audio: UploadFile = File(..., description="Audio file to analyze"),
     target_text: str = Form(..., description="Target sentence to practice"),
     job_id: str | None = Form(default=None, description="Optional reserved analysis job ID"),
-):
+) -> JSONResponse:
     """
     Main analysis endpoint - performs articulatory and prosody analysis.
 

@@ -98,6 +98,45 @@ class TestSaveUploadToTemp:
                 await save_upload_to_temp(upload)
 
     @pytest.mark.asyncio
+    async def test_conversion_failure_for_audio_format_cleans_up_and_raises(self):
+        """Non-WAV audio format conversion failure should clean up temp file and raise error."""
+        import io
+
+        from fastapi import UploadFile
+
+        from app.utils.audio import AudioConversionError, cleanup_temp_file, save_upload_to_temp
+
+        upload = UploadFile(filename="test.mp3", file=io.BytesIO(b"not valid mp3"))
+
+        with (
+            patch(
+                "app.utils.audio._convert_to_wav",
+                side_effect=AudioConversionError("Cannot convert MP3"),
+            ),
+            patch("app.utils.audio.cleanup_temp_file", wraps=cleanup_temp_file) as mock_cleanup,
+        ):
+            with pytest.raises(AudioConversionError, match="Could not convert .mp3"):
+                await save_upload_to_temp(upload)
+            mock_cleanup.assert_called_once()
+            cleaned_path = Path(mock_cleanup.call_args.args[0])
+            assert not cleaned_path.exists()
+
+    @pytest.mark.asyncio
+    async def test_oversized_upload_raises_error(self):
+        """Uploads exceeding MAX_UPLOAD_BYTES should raise AudioConversionError."""
+        import io
+
+        from fastapi import UploadFile
+
+        from app.utils import audio as audio_utils
+
+        upload = UploadFile(filename="large.wav", file=io.BytesIO(b"1234567890"))
+
+        with patch.object(audio_utils, "MAX_UPLOAD_BYTES", 5):
+            with pytest.raises(audio_utils.AudioConversionError, match="maximum size"):
+                await audio_utils.save_upload_to_temp(upload)
+
+    @pytest.mark.asyncio
     async def test_wav_file_skips_conversion(self, tmp_path):
         """WAV files should not trigger conversion."""
         import io
@@ -146,22 +185,25 @@ class TestCleanupTempFile:
         cleanup_temp_file(str(test_file))
         assert not test_file.exists()
 
-    def test_cleanup_permission_error_logs(self, capsys, tmp_path):
-        """Cleanup permission error should log but not raise."""
+    def test_cleanup_permission_error_logs(self, caplog, tmp_path):
+        """Cleanup permission error should log a warning but not raise."""
+        import logging
+
         from app.utils.audio import cleanup_temp_file
 
         test_file = tmp_path / "test.wav"
         test_file.write_text("test")
 
-        with patch("os.remove") as mock_remove:
+        with patch("os.remove") as mock_remove, caplog.at_level(logging.WARNING):
             mock_remove.side_effect = PermissionError("Access denied")
 
             # Should not raise
             cleanup_temp_file(str(test_file))
 
-            # Check log output
-            captured = capsys.readouterr()
-            assert "Failed to cleanup" in captured.out or captured.err
+        assert any(
+            record.levelno == logging.WARNING and "Failed to cleanup" in record.message
+            for record in caplog.records
+        )
 
 
 class TestAudioConversionError:

@@ -11,34 +11,10 @@ import torch
 def test_predictor_module_imports():
     """SSL AAI predictor module should import without errors."""
 
-    from src.models.ssl_aai_predictor import AAIHead, SSLAAIPredictor
+    from src.models.ssl_aai_predictor import AAI_TV_ORDER, SSLAAIPredictor
 
     assert SSLAAIPredictor is not None
-    assert AAIHead is not None
-
-
-def test_aai_head_shape():
-    """AAIHead should produce correct output shape."""
-
-    from src.models.ssl_aai_predictor import AAIHead
-
-    head = AAIHead()
-    # Simulate SSL features: (batch=1, time=10, hidden=768)
-    features = torch.randn(1, 10, 768)
-    output = head(features)
-
-    assert output.shape == (1, 10, 9), f"Expected (1, 10, 9), got {output.shape}"
-
-
-def test_predictor_default_checkpoint_path():
-    """Predictor should have correct default checkpoint path."""
-
-    from src.models.ssl_aai_predictor import _get_default_checkpoint_path
-
-    path = _get_default_checkpoint_path()
-    expected_suffix = Path("external/R4 26-11-06/weights/r4.pt")
-    assert path.is_absolute()
-    assert expected_suffix.parts == path.parts[-4:]
+    assert len(AAI_TV_ORDER) == 9
 
 
 def test_predictor_initialization():
@@ -48,7 +24,9 @@ def test_predictor_initialization():
 
     predictor = SSLAAIPredictor()
 
-    assert predictor.checkpoint_path.name == "r4.pt"
+    expected_suffix = Path("external/R4 26-11-06/weights/r4.pt")
+    assert predictor.checkpoint_path.is_absolute()
+    assert predictor.checkpoint_path.parts[-4:] == expected_suffix.parts
     assert predictor.device in ["cpu", "cuda", "mps"]
     assert not predictor._loaded
 

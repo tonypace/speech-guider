@@ -1,4 +1,4 @@
-// Mock for Web Audio API - MediaRecorder and AudioContext
+// Mock for Web Audio API - MediaRecorder, AudioContext, and MediaStream
 import { vi } from 'vitest';
 
 export class MockMediaRecorder {
@@ -59,6 +59,9 @@ export class MockAudioContext {
                     array[i] = 128;
                 }
             }),
+            getFloatTimeDomainData: vi.fn((array) => {
+                array.fill(0);
+            }),
             connect: vi.fn(),
             disconnect: vi.fn(),
         };
@@ -113,43 +116,4 @@ export class MockMediaStream {
             this.tracks.splice(index, 1);
         }
     }
-}
-
-export class MockMediaStreamTrack {
-    constructor(kind = 'audio') {
-        this.kind = kind;
-        this.enabled = true;
-        this.muted = false;
-        this.readyState = 'live';
-        this.id = 'mock-track-' + Math.random().toString(36).substr(2, 9);
-        this.onmute = null;
-        this.onunmute = null;
-        this.onended = null;
-    }
-
-    stop() {
-        this.readyState = 'ended';
-        if (this.onended) this.onended();
-    }
-}
-
-// Setup global mocks
-export function setupWebAudioMocks() {
-    global.MediaRecorder = MockMediaRecorder;
-    global.AudioContext = MockAudioContext;
-    global.MediaStream = MockMediaStream;
-    global.MediaStreamTrack = MockMediaStreamTrack;
-  
-    // Mock navigator.mediaDevices
-    Object.defineProperty(global.navigator, 'mediaDevices', {
-        writable: true,
-        value: {
-            getUserMedia: vi.fn().mockResolvedValue(new MockMediaStream([
-                new MockMediaStreamTrack('audio')
-            ])),
-            enumerateDevices: vi.fn().mockResolvedValue([
-                { kind: 'audioinput', deviceId: 'default', label: 'Default Microphone' }
-            ]),
-        },
-    });
 }

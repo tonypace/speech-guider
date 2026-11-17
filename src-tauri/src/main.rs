@@ -132,8 +132,6 @@ fn install_tray(app: &App, port: Arc<AtomicU16>) -> tauri::Result<()> {
         None::<&str>,
     )?;
     let comparison = MenuItem::with_id(app, "comparison", "Comparison Lab", true, None::<&str>)?;
-    let animation =
-        MenuItem::with_id(app, "animation", "Explore Mouth Shapes", true, None::<&str>)?;
     let first_separator = PredefinedMenuItem::separator(app)?;
     let second_separator = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
@@ -144,7 +142,6 @@ fn install_tray(app: &App, port: Arc<AtomicU16>) -> tauri::Result<()> {
             &first_separator,
             &pronunciation,
             &comparison,
-            &animation,
             &second_separator,
             &quit,
         ],
@@ -162,7 +159,6 @@ fn install_tray(app: &App, port: Arc<AtomicU16>) -> tauri::Result<()> {
                 "open" => None,
                 "pronunciation" => Some("pronunciation"),
                 "comparison" => Some("comparison"),
-                "animation" => Some("animation"),
                 _ => return,
             };
             if let Some(window) = app.get_webview_window("main") {

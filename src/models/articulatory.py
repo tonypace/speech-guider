@@ -4,12 +4,15 @@ Maps phoneme features (place, manner, voicing) to visual parameters for
 vocal tract animation. Provides technical descriptions and friendly tooltips.
 """
 
+import logging
 from dataclasses import dataclass
 from typing import Mapping, Optional
 
 import pyclts
 
-from src.models.articulatory_calibration import clamp_unit
+from src.models.articulatory_calibration import CANONICAL_ARTICULATORY_FIELDS, clamp_unit
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -487,7 +490,6 @@ class ArticulatoryMapper:
     def __init__(self) -> None:
         """Initialize articulatory mapper with pyclts."""
         self._bipa = None
-        self._feature_definitions = self._build_feature_definitions()
         self._tooltip_definitions = self._build_tooltip_definitions()
 
     def _get_bipa(self) -> pyclts.TranscriptionSystem:
@@ -499,19 +501,6 @@ class ArticulatoryMapper:
         if self._bipa is None:
             self._bipa = pyclts.TranscriptionSystem("bipa")  # type: ignore[call-arg, assignment]
         return self._bipa
-
-    def _build_feature_definitions(self) -> dict[str, str]:
-        """Build dictionary of technical feature definitions.
-
-        Returns:
-            Dictionary mapping feature keys to technical names
-        """
-        return {
-            "place": "Place",
-            "manner": "Manner",
-            "voicing": "Voicing",
-            "rounding": "Lip Shape",
-        }
 
     def _build_tooltip_definitions(self) -> dict[str, str]:
         """Build dictionary of friendly tooltip explanations.
@@ -786,7 +775,7 @@ class ArticulatoryMapper:
         """Get SVG animation parameters for a phoneme.
 
         Tries templates first (consonant/vowel tables), then CLTS feature
-        mapping, then preset fallback, then defaults.
+        mapping, then defaults.
 
         Args:
             ipa_symbol: IPA phoneme string (e.g., 'i', 'æ', 'k')
@@ -794,7 +783,7 @@ class ArticulatoryMapper:
         Returns:
             Dictionary with SVG articulatory parameters.
         """
-        print(f"[ArticulatoryMapper.get_animation_params] Called with: {ipa_symbol}")
+        logger.debug("[ArticulatoryMapper.get_animation_params] Called with: %s", ipa_symbol)
 
         clean_ipa = ipa_symbol.strip().strip("/")
 
@@ -802,113 +791,34 @@ class ArticulatoryMapper:
         if template:
             state = self._template_to_svg_state(template)
             result = svg_state_to_dict(state)
-            print(
-                f"[ArticulatoryMapper.get_animation_params] Template hit for '{clean_ipa}': {result}"
+            logger.debug(
+                "[ArticulatoryMapper.get_animation_params] Template hit for '%s': %s",
+                clean_ipa,
+                result,
             )
             return result
 
         description = self.parse_phoneme(ipa_symbol)
-        print(f"[ArticulatoryMapper.get_animation_params] Parsed description: {description}")
+        logger.debug(
+            "[ArticulatoryMapper.get_animation_params] Parsed description: %s", description
+        )
 
         if description.features:
             svg_state = self.map_to_svg_state(description)
-            print(f"[ArticulatoryMapper.get_animation_params] Articulatory state: {svg_state}")
+            logger.debug(
+                "[ArticulatoryMapper.get_animation_params] Articulatory state: %s", svg_state
+            )
 
             result = normalize_svg_state(svg_state)
-            print(f"[ArticulatoryMapper.get_animation_params] Returning pyclts result: {result}")
+            logger.debug(
+                "[ArticulatoryMapper.get_animation_params] Returning pyclts result: %s", result
+            )
             return result
 
-        print("[ArticulatoryMapper.get_animation_params] pyclts failed, trying preset fallback")
-        try:
-            from app.services.state import load_presets
-
-            presets = load_presets()
-            if clean_ipa in presets:
-                preset = presets[clean_ipa]
-                if "params" in preset:
-                    print(
-                        f"[ArticulatoryMapper.get_animation_params] Found preset fallback: {preset}"
-                    )
-                    params = preset["params"]
-                    return normalize_svg_state(params)
-                else:
-                    print(
-                        f"[ArticulatoryMapper.get_animation_params] Preset has no params: {preset}"
-                    )
-            else:
-                print(
-                    f"[ArticulatoryMapper.get_animation_params] Phoneme {clean_ipa} not in presets"
-                )
-        except Exception as e:
-            print(f"[ArticulatoryMapper.get_animation_params] Preset fallback failed: {e}")
-
-        print("[ArticulatoryMapper.get_animation_params] All fallbacks failed, returning defaults")
+        logger.debug(
+            "[ArticulatoryMapper.get_animation_params] All fallbacks failed, returning defaults"
+        )
         return svg_state_to_dict(default_articulatory_state())
-
-    def calculate_delta(
-        self,
-        target_params: ArticulatoryParameters,
-        predicted_params: ArticulatoryParameters,
-    ) -> tuple[str, Optional[str]]:
-        """Calculate the delta between target and predicted parameters.
-
-        Determines which anatomical zone has the largest difference for highlighting.
-
-        Args:
-            target_params: Correct articulatory parameters
-            predicted_params: Incorrect articulatory parameters
-
-        Returns:
-            Tuple of (zone_name, highlight_zone) where highlight_zone is
-            the zone to highlight with amber aura
-        """
-        # Calculate differences for each parameter
-        tongue_index_delta = abs(target_params.tongueIndex - predicted_params.tongueIndex)
-        tongue_diameter_delta = abs(target_params.tongueDiameter - predicted_params.tongueDiameter)
-        tongue_curl_delta = abs(target_params.tongueCurl - predicted_params.tongueCurl)
-        tongue_root_delta = abs(target_params.tongueRoot - predicted_params.tongueRoot)
-        lip_rounding_delta = abs(target_params.lipRounding - predicted_params.lipRounding)
-        lip_closure_delta = abs(target_params.lipClosure - predicted_params.lipClosure)
-        nasality_delta = abs(target_params.nasality - predicted_params.nasality)
-        voicing_delta = abs(target_params.voicing - predicted_params.voicing)
-        aspiration_delta = abs(target_params.aspiration - predicted_params.aspiration)
-
-        # Determine which zone has the largest delta
-        deltas = {
-            "tongueIndex": tongue_index_delta,
-            "tongueDiameter": tongue_diameter_delta,
-            "tongueCurl": tongue_curl_delta,
-            "tongueRoot": tongue_root_delta,
-            "lipRounding": lip_rounding_delta,
-            "lipClosure": lip_closure_delta,
-            "nasality": nasality_delta,
-            "voicing": voicing_delta,
-            "aspiration": aspiration_delta,
-        }
-
-        max_delta = max(deltas.values())
-        max_zone_key = max(deltas, key=lambda k: deltas[k])
-
-        # Map to anatomical zones for highlighting
-        if max_delta < 0.1:
-            # No significant difference
-            return ("No major difference", None)
-
-        zone_mapping = {
-            "lipRounding": "lips",
-            "lipClosure": "lips",
-            "nasality": "velum",
-            "voicing": "glottis",
-            "aspiration": "glottis",
-            "tongueCurl": "tongue_tip",
-            "tongueRoot": "tongue_root",
-            "tongueIndex": "tongue_body",
-            "tongueDiameter": "tongue_body",
-        }
-
-        highlight_zone = zone_mapping.get(max_zone_key, None)
-
-        return (f"Largest difference: {max_zone_key}", highlight_zone)
 
 
 def svg_state_to_dict(state: ArticulatoryState) -> dict[str, float]:
@@ -927,48 +837,29 @@ def svg_state_to_dict(state: ArticulatoryState) -> dict[str, float]:
     }
 
 
-def _normalize_tongue_degree(value: float, legacy_rest_distance: float) -> float:
+def _normalize_tongue_degree(value: float) -> float:
     """Normalize tongue constriction degree to the 0..1 SVG contract."""
-
-    del legacy_rest_distance
     return clamp_unit(value)
 
 
-def _normalize_scalar(value: float, legacy_max: float) -> float:
+def _normalize_scalar(value: float) -> float:
     """Normalize scalar articulatory controls to the 0..1 SVG contract."""
-
-    del legacy_max
     return clamp_unit(value)
 
 
 def normalize_svg_state(params: Mapping[str, float | int]) -> dict[str, float]:
     """Normalize dictionaries into the SVG articulatory schema."""
-
-    svg_keys = {
-        "lip_aperture",
-        "lip_protrusion",
-        "tongue_tip_constriction_location",
-        "tongue_tip_constriction_degree",
-        "lateral_tongue_drop",
-        "velic_aperture",
-        "tongue_body_constriction_location",
-        "tongue_body_constriction_degree",
-        "glottal_aperture",
-    }
-
-    if any(key in params for key in svg_keys):
+    if any(key in params for key in CANONICAL_ARTICULATORY_FIELDS):
         defaults = svg_state_to_dict(default_articulatory_state())
         return {
             "lip_aperture": float(
                 _normalize_scalar(
                     float(params.get("lip_aperture", defaults["lip_aperture"])),
-                    40.0,
                 )
             ),
             "lip_protrusion": float(
                 _normalize_scalar(
                     float(params.get("lip_protrusion", defaults["lip_protrusion"])),
-                    14.0,
                 )
             ),
             "tongue_tip_constriction_location": float(
@@ -985,7 +876,6 @@ def normalize_svg_state(params: Mapping[str, float | int]) -> dict[str, float]:
                             defaults["tongue_tip_constriction_degree"],
                         )
                     ),
-                    40.0,
                 )
             ),
             "lateral_tongue_drop": float(
@@ -994,7 +884,6 @@ def normalize_svg_state(params: Mapping[str, float | int]) -> dict[str, float]:
             "velic_aperture": float(
                 _normalize_scalar(
                     float(params.get("velic_aperture", defaults["velic_aperture"])),
-                    40.0,
                 )
             ),
             "tongue_body_constriction_location": float(
@@ -1011,7 +900,6 @@ def normalize_svg_state(params: Mapping[str, float | int]) -> dict[str, float]:
                             defaults["tongue_body_constriction_degree"],
                         )
                     ),
-                    30.0,
                 )
             ),
             "glottal_aperture": float(
@@ -1084,34 +972,3 @@ def legacy_to_svg_state(params: dict[str, float] | ArticulatoryParameters) -> di
         "tongue_body_constriction_degree": tongue_degree,
         "glottal_aperture": glottal_aperture,
     }
-
-
-def format_with_html_tooltips(description: PhonemeDescription) -> str:
-    """Format phoneme description with HTML tooltips for display.
-
-    Args:
-        description: Phoneme description with features and tooltips
-
-    Returns:
-        HTML string with tooltip spans
-    """
-    html_parts = []
-
-    for feature, value in description.features.items():
-        if value in ["", "unknown"]:
-            continue
-
-        # Get tooltip for this value
-        tooltip = description.tooltips.get(feature, "")
-
-        # Create HTML span with tooltip
-        if tooltip:
-            html_parts.append(
-                f'<span class="tooltip" title="{tooltip}" data-feature="{feature}" data-value="{value}">{value.capitalize()}</span>'
-            )
-        else:
-            html_parts.append(f"<span>{value.capitalize()}</span>")
-
-        html_parts.append(" ")
-
-    return "".join(html_parts).strip()

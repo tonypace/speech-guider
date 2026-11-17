@@ -50,7 +50,7 @@ def test_desktop_resolves_installed_models_and_shows_missing_requirements(
     assert OmniVoiceTTSProvider().tts_path == str(other)
 
 
-def test_desktop_persists_history_and_presets_across_webview_origins(
+def test_desktop_persists_history_and_settings_across_webview_origins(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("SPEECH_GUIDER_DESKTOP", "1")
@@ -69,6 +69,12 @@ def test_desktop_persists_history_and_presets_across_webview_origins(
         "syllable_onsets": [0.2],
         "created_at": "2026-11-06T00:00:00Z",
     }
+    saved_settings = {
+        "contact_enabled": False,
+        "microphone_enabled": True,
+        "microphone_device_id": "mic-1",
+        "microphone_label": "USB Mic",
+    }
     with TestClient(app, base_url="http://127.0.0.1:49100") as first:
         assert (
             first.put("/api/desktop-history", json={"recordings": [record] * 4}).status_code == 422
@@ -79,18 +85,15 @@ def test_desktop_persists_history_and_presets_across_webview_origins(
             ).status_code
             == 204
         )
-        assert (
-            first.post(
-                "/api/presets", json={"phoneme": "i", "params": {"lip_aperture": 0.41}}
-            ).status_code
-            == 200
-        )
+        assert first.put("/api/settings", json=saved_settings).status_code == 200
     with TestClient(app, base_url="http://127.0.0.1:49101") as second:
         page = second.get("/").text
         assert "window.__SPEECH_GUIDER_DESKTOP__ = true" in page
         assert '"student_id": "saved-sample"' in page
+        assert '"microphone_device_id": "mic-1"' in page
+        assert '"microphone_label": "USB Mic"' in page
+        assert '"contact_enabled": false' in page
         assert "desktop-asset-setup" in page
-        assert second.get("/api/presets").json()["phonemes"]["i"]["params"]["lip_aperture"] == 0.41
     monkeypatch.delenv("SPEECH_GUIDER_DESKTOP")
     with TestClient(app) as browser:
         assert browser.put("/api/desktop-history", json={}).status_code == 404

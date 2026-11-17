@@ -4,6 +4,7 @@ Implements rhythm (nPVI), stress patterns, pitch extraction,
 and voice quality metrics (jitter, shimmer, CPPS, spectral tilt).
 """
 
+import logging
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -12,6 +13,23 @@ from typing import Optional, cast
 import numpy as np
 import parselmouth
 from parselmouth import Pitch
+from scipy import signal
+
+logger = logging.getLogger(__name__)
+
+
+def to_mono_float32(audio_data: np.ndarray) -> np.ndarray:
+    """Convert multi-channel `(samples, channels)` audio to mono float32."""
+    mono = np.mean(audio_data, axis=1) if audio_data.ndim > 1 else audio_data
+    return np.asarray(mono, dtype=np.float32)
+
+
+def resample_audio(audio_data: np.ndarray, orig_sr: int, target_sr: int) -> np.ndarray:
+    """Resample audio to target sample rate using Fourier method."""
+    if orig_sr == target_sr or len(audio_data) == 0:
+        return audio_data
+    num_samples = max(1, int(len(audio_data) * target_sr / orig_sr))
+    return cast(np.ndarray, signal.resample(audio_data, num_samples))
 
 
 @dataclass
@@ -271,6 +289,7 @@ class ProsodyAnalyzer:
                 peaks.append(float(cepstrum_mag[pk] - baseline))
             return float(np.mean(peaks)) if peaks else 0.0
         except Exception:
+            logger.debug("CPPS computation failed", exc_info=True)
             return 0.0
 
     def _compute_spectral_tilt(self, sound: parselmouth.Sound) -> float:
@@ -287,6 +306,7 @@ class ProsodyAnalyzer:
             log_m = np.log(spectrum[lo:hi] + 1e-10)
             return float(np.polyfit(log_f, log_m, 1)[0])
         except Exception:
+            logger.debug("Spectral tilt computation failed", exc_info=True)
             return 0.0
 
     def analyze_voice_quality(self) -> VoiceQuality:

@@ -17,11 +17,12 @@ import tempfile
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional, cast
+from typing import Any, Optional
 
 import numpy as np
 import soundfile as sf
 
+from src.audio.processor import resample_audio, to_mono_float32
 from src.services.desktop_assets import asset_override
 
 
@@ -60,20 +61,13 @@ def file_identity(path: str | Path) -> tuple[str, int, int]:
 
 
 def _to_mono(audio_data: np.ndarray) -> np.ndarray:
-    """Convert stereo to mono by averaging channels."""
-    if len(audio_data.shape) > 1:
-        return cast(np.ndarray, np.mean(audio_data, axis=1))
-    return audio_data
+    """Convert stereo to mono float32 by averaging channels."""
+    return to_mono_float32(audio_data)
 
 
 def _resample_audio(audio_data: np.ndarray, orig_rate: int, target_rate: int) -> np.ndarray:
     """Resample audio to target sample rate."""
-    if orig_rate == target_rate:
-        return audio_data
-    from scipy import signal
-
-    num_samples = int(len(audio_data) * target_rate / orig_rate)
-    return cast(np.ndarray, signal.resample(audio_data, num_samples))
+    return resample_audio(audio_data, orig_rate, target_rate)
 
 
 def _compress_ogg(audio_data: np.ndarray, sample_rate: int) -> bytes:
@@ -186,10 +180,7 @@ class OmniVoiceTTSProvider(TTSProvider):
         except subprocess.TimeoutExpired:
             raise RuntimeError("omnivoice-tts timed out after 120s")
         finally:
-            try:
-                Path(wav_path).unlink(missing_ok=True)
-            except Exception:
-                pass
+            Path(wav_path).unlink(missing_ok=True)
 
 
 class TTSProviderFactory:
@@ -200,11 +191,7 @@ class TTSProviderFactory:
     }
 
     @classmethod
-    def create(cls, provider_name: str = "omnivoice", **kwargs) -> TTSProvider:
+    def create(cls, provider_name: str = "omnivoice", **kwargs: Any) -> TTSProvider:
         if provider_name not in cls._providers:
             raise ValueError(f"Unknown TTS provider: {provider_name}")
         return cls._providers[provider_name](**kwargs)
-
-    @classmethod
-    def register_provider(cls, name: str, provider_class: type[TTSProvider]) -> None:
-        cls._providers[name] = provider_class

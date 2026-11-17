@@ -134,7 +134,7 @@ function wrapIPATooltip(phoneme) {
 }
 
 // ES Module exports
-export { IPATooltips, wrapIPATooltip };
+export { IPATooltips, wrapIPATooltip, escapeHtml };
 
 // Maintain backward compatibility with window globals
 if (typeof window !== 'undefined') {
