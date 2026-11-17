@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Speech Rhythm Studio — Dysfluency vs. Native VocAlign Inspector &amp; Live Flow Guide</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+</head>
+<body class="bg-[var(--background)] text-[var(--foreground)] antialiased p-4 md:p-6 space-y-5">
+
+  <!-- ===================================================================== -->
+  <!-- TOP HEADER: SPEECH VIBES, GOAL SWITCHER & NO-MIC AUDIO AUDITION       -->
+  <!-- ===================================================================== -->
+  <div class="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-5 shadow-sm space-y-4">
+    <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 border-b border-[var(--border)] pb-4">
+      <div>
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+            Dysfluency vs. Native Prosody Suite
+          </span>
+          <h1 class="text-xl font-extrabold tracking-tight">
+            Speech Rhythm Studio: VocAlign Dysfluency Inspector &amp; Live Flow Trainer
+          </h1>
+        </div>
+        <p class="text-xs text-[var(--muted-foreground)] mt-1">
+          Compare <strong>Native Prosody vs. Dysfluent &amp; L2 Speech</strong> across 4 discourse vibes (<em>Presentation, Discussion, Argument, Storytelling</em>) — with full synthesized speech audition &amp; virtual speaker bots (no microphone required).
+        </p>
+      </div>
+
+      <!-- Primary Goal Switcher -->
+      <div class="flex items-center gap-1.5 bg-[var(--background)] p-1.5 rounded-xl border border-[var(--border)] self-start">
+        <button id="main-tab-post" onclick="AppController.setMainView('post')" class="px-3.5 py-2 rounded-lg text-xs font-bold transition-all bg-indigo-600 text-white shadow-sm">
+          Goal 1: VocAlign Dysfluency Inspector
+        </button>
+        <button id="main-tab-live" onclick="AppController.setMainView('live')" class="px-3.5 py-2 rounded-lg text-xs font-bold transition-all text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
+          Goal 2: Live Guide + Virtual Speaker Bots
+        </button>
+        <button id="main-tab-both" onclick="AppController.setMainView('both')" class="px-3 py-2 rounded-lg text-xs font-bold transition-all text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
+          Split View (Both)
+        </button>
+      </div>
+    </div>
+
+    <!-- 4 Speech Register "Vibes" & Global Audio Audition Bar -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-center">
+      <!-- 4 Discourse Vibes Selector (7 cols) -->
+      <div class="lg:col-span-7 space-y-1.5">
+        <div class="flex items-center justify-between text-xs">
+          <span class="font-bold uppercase tracking-wider text-[var(--muted-foreground)]">Select Speech Register / Vibe (4 Discourse Styles):</span>
+          <span id="phrase-focus-label" class="font-mono text-indigo-400 text-xs"></span>
+        </div>
+        <div id="phrase-btn-group" class="grid grid-cols-1 sm:grid-cols-2 gap-2"></div>
+      </div>
+
+      <!-- Quick Audio Audition & Speaking Rate Controls (5 cols) -->
+      <div class="lg:col-span-5 bg-[var(--background)] border border-[var(--border)] rounded-xl p-3.5 space-y-3">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <span class="text-xs font-bold uppercase tracking-wider text-cyan-400">🔊 Instant Speech Audition (No Mic Needed):</span>
+          <div class="flex items-center gap-2 text-xs">
+            <span class="text-[var(--muted-foreground)]">Base Cadence:</span>
+            <input id="global-bpm-slider" type="range" min="72" max="112" value="88" oninput="AppController.setBPM(this.value)" class="w-20 accent-indigo-500 cursor-pointer" />
+            <span id="global-bpm-val" class="font-mono font-bold text-indigo-400">88</span>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2 pt-1 border-t border-[var(--border)]">
+          <button onclick="AppController.auditionNative()" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 transition flex items-center gap-1.5">
+            <span>🔊</span> <span>Hear Native Reference</span>
+          </button>
+          <button onclick="AppController.auditionDysfluent()" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 transition flex items-center gap-1.5">
+            <span>🔊</span> <span>Hear Active Dysfluent / Learner Take</span>
+          </button>
+          <button id="btn-play-loop" onclick="AppController.toggleLoop()" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow transition flex items-center gap-1.5 ml-auto">
+            <span id="loop-btn-icon">▶</span>
+            <span id="loop-btn-text">Run Goal 2 Live Loop</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- SECTION 1: GOAL 1 — POST-UTTERANCE VOCALIGN DYSFLUENCY INSPECTOR      -->
+  <!-- ===================================================================== -->
+  <div id="section-goal1" class="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-5 shadow-sm space-y-4">
+    <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 border-b border-[var(--border)] pb-4">
+      <div>
+        <div class="flex items-center gap-2">
+          <span class="px-2 py-0.5 rounded text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">GOAL 1</span>
+          <h2 class="text-base font-bold">VocAlign Elastic Tether &amp; Dysfluency vs. Native Inspector</h2>
+        </div>
+        <p class="text-xs text-[var(--muted-foreground)] mt-0.5">
+          High-contrast visual diffs exposing <strong>mid-foot hesitation blocks (<code>⚡ 450ms Block</code>)</strong>, <strong>prolonged function words (<code>"theeee..."</code>)</strong>, <strong>initial stutter repetitions (<code>[p-][p-]</code>)</strong>, <strong>choppy L2 schwa bloat</strong>, and <strong>cluttered pause crashes</strong>.
+        </p>
+      </div>
+
+      <!-- High-Contrast Dysfluent / Learner Profile Selector -->
+      <div class="flex flex-wrap items-center gap-2">
+        <span class="text-xs font-bold text-amber-300">Compare Native Against:</span>
+        <select id="goal1-profile-select" onchange="AppController.setGoal1Profile(this.value)" class="bg-[var(--background)] border border-indigo-500/50 rounded-lg px-3 py-1.5 text-xs font-bold text-[var(--foreground)]">
+          <option value="dysfluent_hesitation">1. ⚡ Dysfluent: Mid-Foot Hesitation Block (+450ms) &amp; Prolongation ("theeee...")</option>
+          <option value="dysfluent_stutter">2. 🔁 Dysfluent: Initial Stutter Repetition ([c-][c-] / [p-][p-]) &amp; Late P-Center</option>
+          <option value="syllable_timed_choppy">3. 🤖 L2 Choppy Word-by-Word (2.2× Bloated Schwas + Glottal Gaps @ 0.78× Rate)</option>
+          <option value="cluttered_runon">4. ✂️ Dysfluent Cluttering: Over-Rushed Run-On (Obliterated Pause + Clipped Vowel)</option>
+          <option value="native_expressive">5. ✨ 2nd Native Speaker: Expressive Rubato (Compare Raw 0% vs. DTW 100%!)</option>
+          <option value="live_recorded">6. 🎤 Captured Run from Goal 2 (Virtual Bot or Keyboard Hold)</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Mode Switcher (Flagship VocAlign + 2 Complementary Views) & DTW Normalization Bar -->
+    <div class="grid grid-cols-1 xl:grid-cols-12 gap-4 items-center bg-[var(--background)] border border-[var(--border)] rounded-xl p-3">
+      <!-- 3 Streamlined High-Contrast Views (7 cols) -->
+      <div class="xl:col-span-7 flex flex-wrap items-center gap-1.5" id="goal1-mode-buttons">
+        <button data-g1-mode="vocalign_tether" onclick="AppController.setGoal1Mode('vocalign_tether')" class="px-3.5 py-1.5 rounded-lg text-xs font-bold border bg-indigo-600 text-white border-indigo-400 shadow-sm">
+          ★ 1. VocAlign Elastic Tethers &amp; Dysfluency Callouts (Primary)
+        </button>
+        <button data-g1-mode="prosogram_overlay" onclick="AppController.setGoal1Mode('prosogram_overlay')" class="px-3 py-1.5 rounded-lg text-xs font-bold border bg-slate-900/70 text-slate-300 border-slate-700 hover:text-white">
+          2. Melodics + Prosogram Pitch/Duration Diff
+        </button>
+        <button data-g1-mode="foot_budget_strips" onclick="AppController.setGoal1Mode('foot_budget_strips')" class="px-3 py-1.5 rounded-lg text-xs font-bold border bg-slate-900/70 text-slate-300 border-slate-700 hover:text-white">
+          3. Polak 100% Foot Budget Strips + Rhythm Simplex
+        </button>
+      </div>
+
+      <!-- Interactive DTW Tempo Normalization Slider (5 cols) -->
+      <div class="xl:col-span-5 flex flex-wrap items-center justify-between gap-2 bg-slate-900/90 border border-slate-800 rounded-lg px-3 py-2">
+        <div class="text-xs">
+          <span class="font-bold text-cyan-300">Time Alignment:</span>
+          <span id="norm-factor-label" class="font-mono font-bold text-emerald-400 ml-1">100% (DTW Foot-Normalized)</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <button onclick="AppController.setNormFactor(0)" class="px-2 py-0.5 rounded text-xs font-mono bg-rose-500/20 text-rose-300 border border-rose-500/30 hover:bg-rose-500/30" title="Raw Clock Time: Shows cumulative drift across the sentence">
+            Raw Clock (0%)
+          </button>
+          <input id="norm-factor-slider" type="range" min="0" max="100" value="100" oninput="AppController.setNormFactor(this.value / 100)" class="w-24 accent-emerald-400 cursor-pointer" />
+          <button onclick="AppController.setNormFactor(1)" class="px-2 py-0.5 rounded text-xs font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/30" title="DTW Tempo-Normalized: Isolates local dysfluency & foot errors">
+            DTW (100%)
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Active Goal 1 Mode Subtitle -->
+    <div id="goal1-mode-subtitle" class="text-xs text-[var(--muted-foreground)] px-1"></div>
+
+    <!-- Goal 1 SVG Stage -->
+    <div class="rounded-xl border border-slate-800 bg-slate-950 overflow-x-auto shadow-inner p-2">
+      <svg id="goal1-svg" class="w-full block" style="min-width: 820px; height: 390px;" viewBox="0 0 960 390"></svg>
+    </div>
+
+    <!-- Goal 1 Actionable Coaching Cards -->
+    <div id="goal1-coaching" class="grid grid-cols-1 md:grid-cols-3 gap-3"></div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- SECTION 2: GOAL 2 — LIVE FLOW MATRIX & TAIKO + VIRTUAL SPEAKER BOTS   -->
+  <!-- ===================================================================== -->
+  <div id="section-goal2" class="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-5 shadow-sm space-y-4 hidden">
+    <div class="flex flex-wrap items-center justify-between gap-2">
+      <div>
+        <div class="flex items-center gap-2">
+          <span class="px-2 py-0.5 rounded text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">GOAL 2</span>
+          <h2 class="text-base font-bold">Real-Time Guided Speech Performance (Prosodic Flow Matrix &amp; Taiko Conveyor)</h2>
+        </div>
+        <p class="text-xs text-[var(--muted-foreground)] mt-0.5">
+          <strong>No microphone required:</strong> Use the <strong>Bar 2 Virtual Speaker Simulator</strong> below to watch &amp; hear how a <em>Fluent Speaker</em>, a <em>Dysfluent Hesitation Speaker</em>, or an <em>L2 Choppy Speaker</em> performs on the live display—or hold <code>Spacebar</code> to control syllable onset &amp; duration yourself!
+        </p>
+      </div>
+
+      <button onclick="AppController.inspectLiveInGoal1()" class="px-3.5 py-1.5 rounded-lg text-xs font-bold bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/40 transition">
+        🔍 Send Bar 2 Performance to Goal 1 VocAlign Inspector &rarr;
+      </button>
+    </div>
+
+    <!-- Mount Container for Goal2LiveTrainer -->
+    <div id="goal2-mount"></div>
+  </div>
+
+  <!-- Load Modular Suite Scripts -->
+  <script src="./js/data_and_audio.js"></script>
+  <script src="./js/goal2_live_modes.js"></script>
+  <script src="./js/goal1_post_modes.js"></script>
+
+  <!-- Unified Controller -->
+  <script>
+    const AppController = {
+      mainView: 'post', // Start on Goal 1 VocAlign Dysfluency Inspector so user sees the stark diffs immediately
+      phraseIdx: 0,
+      goal1Mode: 'vocalign_tether',
+      goal1Profile: 'dysfluent_hesitation',
+      normFactor: 1.0,
+
+      init() {
+        const core = window.SpeechRhythmCore;
+        this.renderPhraseButtons();
+
+        // Initialize Goal 2 Live Trainer (focused on Flow Matrix & Taiko + Virtual Speaker Bots)
+        if (window.Goal2LiveTrainer) {
+          window.Goal2LiveTrainer.init('#goal2-mount', {
+            mode: 'flow_matrix',
+            phrase: core.PHRASES[this.phraseIdx],
+            bpm: core.audioEngine ? core.audioEngine.bpm : 88
+          });
+        }
+
+        // Initial Goal 1 Render
+        this.refreshGoal1();
+      },
+
+      renderPhraseButtons() {
+        const core = window.SpeechRhythmCore;
+        const container = document.getElementById('phrase-btn-group');
+        const phrases = core.PHRASES;
+        container.innerHTML = phrases
+          .map((p, idx) => {
+            const active = idx === this.phraseIdx;
+            return `
+              <button
+                onclick="AppController.selectPhrase(${idx})"
+                class="text-left px-3 py-2 rounded-xl text-xs transition-all border ${
+                  active
+                    ? 'bg-indigo-600/25 border-indigo-400 text-white font-bold shadow-sm'
+                    : 'bg-[var(--background)] border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+                }"
+              >
+                <div class="font-bold text-indigo-300 truncate">${p.category || ('Vibe ' + (idx + 1))}</div>
+                <div class="truncate mt-0.5 text-[var(--foreground)]">"${p.title}"</div>
+              </button>
+            `;
+          })
+          .join('');
+        const cur = phrases[this.phraseIdx];
+        document.getElementById('phrase-focus-label').textContent = cur ? (cur.vibeDescription || cur.focus || '') : '';
+      },
+
+      selectPhrase(idx) {
+        const core = window.SpeechRhythmCore;
+        this.phraseIdx = idx;
+        core.currentPhraseIndex = idx;
+        const phrase = core.PHRASES[idx];
+        this.renderPhraseButtons();
+
+        if (core.audioEngine) {
+          core.audioEngine.setPhrase(phrase);
+        }
+        if (window.Goal2LiveTrainer) {
+          window.Goal2LiveTrainer.setPhrase(phrase);
+        }
+        this.refreshGoal1();
+      },
+
+      setMainView(view) {
+        this.mainView = view;
+        const sec2 = document.getElementById('section-goal2');
+        const sec1 = document.getElementById('section-goal1');
+        const tabLive = document.getElementById('main-tab-live');
+        const tabPost = document.getElementById('main-tab-post');
+        const tabBoth = document.getElementById('main-tab-both');
+
+        const activeCls = 'px-3.5 py-2 rounded-lg text-xs font-bold transition-all bg-indigo-600 text-white shadow-sm';
+        const idleCls = 'px-3.5 py-2 rounded-lg text-xs font-bold transition-all text-[var(--muted-foreground)] hover:text-[var(--foreground)]';
+
+        tabPost.className = view === 'post' ? activeCls : idleCls;
+        tabLive.className = view === 'live' ? activeCls : idleCls;
+        tabBoth.className = view === 'both' ? activeCls : idleCls;
+
+        if (view === 'live') {
+          sec2.classList.remove('hidden');
+          sec1.classList.add('hidden');
+          if (window.Goal2LiveTrainer) window.Goal2LiveTrainer.renderFrame();
+        } else if (view === 'post') {
+          sec2.classList.add('hidden');
+          sec1.classList.remove('hidden');
+          this.refreshGoal1();
+        } else {
+          sec2.classList.remove('hidden');
+          sec1.classList.remove('hidden');
+          if (window.Goal2LiveTrainer) window.Goal2LiveTrainer.renderFrame();
+          this.refreshGoal1();
+        }
+      },
+
+      auditionNative() {
+        if (window.Goal1PostDiagnostics && typeof window.Goal1PostDiagnostics.auditionNative === 'function') {
+          window.Goal1PostDiagnostics.auditionNative();
+          return;
+        }
+        const core = window.SpeechRhythmCore;
+        if (core && typeof core.playUtterance === 'function') {
+          core.playUtterance(this.phraseIdx, 'native');
+        }
+      },
+
+      auditionDysfluent() {
+        if (window.Goal1PostDiagnostics && typeof window.Goal1PostDiagnostics.auditionLearner === 'function') {
+          window.Goal1PostDiagnostics.auditionLearner();
+          return;
+        }
+        const core = window.SpeechRhythmCore;
+        if (core && typeof core.playUtterance === 'function') {
+          core.playUtterance(this.phraseIdx, this.goal1Profile);
+        }
+      },
+
+      toggleLoop() {
+        if (!window.Goal2LiveTrainer) return;
+        if (this.mainView === 'post') {
+          this.setMainView('live');
+        }
+        const btnText = document.getElementById('loop-btn-text');
+        const btnIcon = document.getElementById('loop-btn-icon');
+        const btn = document.getElementById('btn-play-loop');
+
+        if (window.Goal2LiveTrainer.isPlaying) {
+          window.Goal2LiveTrainer.stopLoop();
+          btnText.textContent = 'Run Goal 2 Live Loop';
+          btnIcon.textContent = '▶';
+          btn.className = 'px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow transition flex items-center gap-1.5 ml-auto';
+        } else {
+          window.Goal2LiveTrainer.startLoop();
+          btnText.textContent = 'Stop Goal 2 Loop';
+          btnIcon.textContent = '■';
+          btn.className = 'px-3 py-1.5 rounded-lg text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white shadow transition flex items-center gap-1.5 ml-auto';
+        }
+      },
+
+      setBPM(val) {
+        const bpm = parseInt(val, 10);
+        document.getElementById('global-bpm-val').textContent = bpm;
+        const core = window.SpeechRhythmCore;
+        if (core && core.audioEngine) {
+          core.audioEngine.setBPM(bpm);
+        }
+        if (window.Goal2LiveTrainer) {
+          window.Goal2LiveTrainer.bpm = bpm;
+        }
+      },
+
+      inspectLiveInGoal1() {
+        if (window.Goal2LiveTrainer && window.Goal2LiveTrainer.isPlaying) {
+          this.toggleLoop();
+        }
+        document.getElementById('goal1-profile-select').value = 'live_recorded';
+        this.goal1Profile = 'live_recorded';
+        this.setMainView('post');
+      },
+
+      setGoal1Mode(modeKey) {
+        this.goal1Mode = modeKey;
+        document.querySelectorAll('#goal1-mode-buttons [data-g1-mode]').forEach((btn) => {
+          const m = btn.getAttribute('data-g1-mode');
+          if (m === modeKey) {
+            btn.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold border bg-indigo-600 text-white border-indigo-400 shadow-sm';
+          } else {
+            btn.className = 'px-3 py-1.5 rounded-lg text-xs font-bold border bg-slate-900/70 text-slate-300 border-slate-700 hover:text-white';
+          }
+        });
+        this.refreshGoal1();
+      },
+
+      setGoal1Profile(profileKey) {
+        this.goal1Profile = profileKey;
+        this.refreshGoal1();
+      },
+
+      setNormFactor(val) {
+        this.normFactor = Math.max(0, Math.min(1, parseFloat(val)));
+        document.getElementById('norm-factor-slider').value = Math.round(this.normFactor * 100);
+        const pct = Math.round(this.normFactor * 100);
+        const lbl = document.getElementById('norm-factor-label');
+        if (pct === 0) {
+          lbl.textContent = '0% (Raw Clock — Cumulative Drift)';
+          lbl.className = 'font-mono font-bold text-rose-400 ml-1';
+        } else if (pct === 100) {
+          lbl.textContent = '100% (DTW Foot-Normalized)';
+          lbl.className = 'font-mono font-bold text-emerald-400 ml-1';
+        } else {
+          lbl.textContent = `${pct}% DTW Blend`;
+          lbl.className = 'font-mono font-bold text-amber-300 ml-1';
+        }
+        this.refreshGoal1();
+      },
+
+      refreshGoal1() {
+        if (!window.Goal1PostDiagnostics || !window.SpeechRhythmCore) return;
+        const phrase = window.SpeechRhythmCore.PHRASES[this.phraseIdx];
+        const meta = window.Goal1PostDiagnostics.MODES[this.goal1Mode];
+        if (meta) {
+          document.getElementById('goal1-mode-subtitle').textContent = meta.subtitle;
+        }
+        window.Goal1PostDiagnostics.render('goal1-svg', {
+          mode: this.goal1Mode,
+          phrase: phrase,
+          profileKey: this.goal1Profile,
+          normFactor: this.normFactor,
+          coachingContainer: 'goal1-coaching'
+        });
+      }
+    };
+
+    window.addEventListener('DOMContentLoaded', () => AppController.init());
+  </script>
+</body>
+</html>
