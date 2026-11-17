@@ -19,6 +19,7 @@ PROJECT.md records product goals, and AGENTS.md defines contributor rules.
 | [Articulatory API](articulatory-animation-api.md) | Canonical nine-variable renderer contract |
 | [R4 integration](r4-model-integration.md) | Model assets, configuration, and supplied terms |
 | [Workspace archive](workspace-archive.md) | Historical assets and restoration |
+| [Speech rhythm research](../research/speech-rhythm/README.md) | Exploratory rhythm display survey, interactive UI prototypes, and Prosody Lab integration roadmap |
 
 OpenSpec specifications describe capabilities and proposed work; they are not a
 substitute for the implemented architecture. Keep operational instructions here
