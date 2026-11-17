@@ -1,49 +1,34 @@
 """Integration test for prosody analysis in the application."""
 
-import tempfile
+from collections.abc import Callable
 from pathlib import Path
 
-import numpy as np
-import scipy.io.wavfile as wavfile
+import pytest
 import torch
 
 from src.audio import AudioContext, ProsodyAnalyzer
 from src.models.alignment import ForcedAligner
 
 
-def test_prosody_extraction_from_audio():
+def test_prosody_extraction_from_audio(dummy_wav_factory: Callable[..., Path]) -> None:
     """Test prosody metrics can be extracted from real audio."""
-    sample_rate = 16_000
-    duration = 2.0
-    num_samples = int(sample_rate * duration)
-    t = np.linspace(0, duration, num_samples)
+    wav_path = dummy_wav_factory(duration=2.0, frequency=200.0, modulated=True)
 
-    carrier_freq = 200.0 + 100.0 * np.sin(2 * np.pi * 3.0 * t)
-    waveform = np.sin(2 * np.pi * carrier_freq * t)
-    waveform = (waveform * 32767.0).astype(np.int16)
+    audio_context = AudioContext(str(wav_path))
+    prosody_analyzer = ProsodyAnalyzer(audio_context)
 
-    temp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-    wavfile.write(temp_file.name, sample_rate, waveform)
-    temp_file.close()
+    prosody = prosody_analyzer.analyze_complete(vowel_timestamps=[], word_timestamps=[])
 
-    try:
-        audio_context = AudioContext(temp_file.name)
-        prosody_analyzer = ProsodyAnalyzer(audio_context)
-
-        prosody = prosody_analyzer.analyze_complete(vowel_timestamps=[], word_timestamps=[])
-
-        assert prosody is not None
-        assert hasattr(prosody, "pitch")
-        assert hasattr(prosody, "rhythm")
-        assert hasattr(prosody, "stress")
-        assert prosody.pitch is not None
-        assert prosody.pitch.f0_range >= 0.0
-        assert len(prosody.pitch.f0_values) > 0
-    finally:
-        Path(temp_file.name).unlink()
+    assert prosody is not None
+    assert hasattr(prosody, "pitch")
+    assert hasattr(prosody, "rhythm")
+    assert hasattr(prosody, "stress")
+    assert prosody.pitch is not None
+    assert prosody.pitch.f0_range >= 0.0
+    assert len(prosody.pitch.f0_values) > 0
 
 
-def test_forced_aligner_placeholder():
+def test_forced_aligner_placeholder() -> None:
     """Test forced aligner returns placeholder results without crashing."""
     audio_tensor = torch.linspace(0.0, 2.0, int(16_000 * 2.0))
     waveform = torch.sin(2 * torch.pi * 440 * audio_tensor).float()
@@ -56,6 +41,4 @@ def test_forced_aligner_placeholder():
 
 
 if __name__ == "__main__":
-    test_prosody_extraction_from_audio()
-    test_forced_aligner_placeholder()
-    print("\n✅ All integration tests passed!")
+    pytest.main([__file__, "-v"])

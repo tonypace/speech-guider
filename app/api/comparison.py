@@ -14,7 +14,7 @@ from app.api.settings import load_settings
 from app.services.concurrency import run_inference
 from app.utils.audio import load_audio_tensor
 from src.audio.reference_tts import ReferenceAudio, TTSProviderFactory
-from src.models.aai_adapter import AAIConversionMetadata, aai_to_canonical_states_batch
+from src.models.aai_adapter import r4_trajectory_to_canonical_frames
 from src.models.ssl_common import DEFAULT_SSL_FEATURE_CONFIG, clear_torch_device_cache
 from src.services.comparison_cache import ComparisonCache, ReferenceAsset, get_comparison_cache
 from src.services.model_cache import get_ssl_cache_identity, get_ssl_predictor
@@ -114,10 +114,7 @@ def _generate_reference_asset(
         if isinstance(dev, str):
             clear_torch_device_cache(dev)
 
-    frames = aai_to_canonical_states_batch(
-        trajectory.numpy(),
-        AAIConversionMetadata(normalization="speaker_z_normalized"),
-    )
+    frames = r4_trajectory_to_canonical_frames(trajectory.numpy())
 
     asset = cache.put(
         text=text,

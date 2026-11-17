@@ -74,3 +74,11 @@ This document is the permanent **ledger of implemented features and completed wo
 - **Touched files:** `tests/e2e/real/analysis.spec.js`
 - **Summary:** Added `test.describe.configure({ mode: 'serial' })` to `Analysis — Real Backend Smoke` so real `POST /api/analyze` uploads run sequentially against the single-slot inference gate instead of colliding with HTTP 503 under `fullyParallel: true`.
 - **Verification:** `npm run lint:js` passed; user confirmed `npm run test:e2e:real` passed.
+
+### 2026-11-17 — Single-load analysis audio, shared R4 trajectory framing, test WAV deduplication & mocked E2E verification
+- **Touched files:** `src/audio/processor.py`, `src/models/aai_adapter.py`, `app/api/analyze.py`, `app/api/comparison.py`, `tests/test_analyze_failure_modes.py`, `tests/test_integration_prosody.py`, `tests/test_ssl_aai_predictor.py`
+- **Summary:**
+  - Averaged multi-channel Praat `Sound.values` in `AudioContext.get_downsampled_tensor()` (`src/audio/processor.py`) and updated `_load_and_preprocess_audio` / `_run_analysis_pipeline` (`app/api/analyze.py`) to extract the 16 kHz mono SSL tensor directly from the already-loaded `AudioContext`, eliminating the second WAV disk read.
+  - Exported shared `SPEAKER_Z_METADATA` and `r4_trajectory_to_canonical_frames` in `src/models/aai_adapter.py` and adopted them in both `app/api/analyze.py` and `app/api/comparison.py`.
+  - Migrated remaining inline WAV generators in `tests/test_analyze_failure_modes.py`, `tests/test_integration_prosody.py`, and `tests/test_ssl_aai_predictor.py` to `tests/conftest.py` (`dummy_wav_factory`), plus added `test_load_and_preprocess_audio_reuses_audio_context`.
+- **Verification:** `npm run test:e2e:mocked` passed (10 passed in 8.8s across `analysis.spec.js`, `offlineAssets.spec.js`, and `prosodyLab.spec.js`) and `npm run check` passed.

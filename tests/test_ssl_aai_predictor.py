@@ -1,6 +1,6 @@
 """Tests for SSL AAI predictor module."""
 
-import tempfile
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
@@ -68,7 +68,7 @@ def test_predictor_loads_checkpoint():
     not Path(Path(__file__).resolve().parents[1] / "external/R4 26-11-06/weights/r4.pt").exists(),
     reason="Checkpoint not available",
 )
-def test_predictor_produces_valid_output():
+def test_predictor_produces_valid_output(dummy_wav_factory: Callable[..., Path]) -> None:
     """Predictor should produce valid (T, 9) output from audio."""
 
     import scipy.io.wavfile
@@ -78,19 +78,11 @@ def test_predictor_produces_valid_output():
     predictor = SSLAAIPredictor()
     predictor.load()
 
-    # Create a dummy 16kHz audio file
-    duration = 1.0  # 1 second
-    sample_rate = 16000
-    t = np.linspace(0, duration, int(sample_rate * duration))
-    audio = np.sin(2 * np.pi * 440 * t).astype(np.float32)  # 440Hz sine wave
-
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-        scipy.io.wavfile.write(f.name, sample_rate, (audio * 32767).astype(np.int16))
-        wav_path = f.name
+    wav_path = dummy_wav_factory(duration=1.0, frequency=440.0)
 
     try:
         # Load and predict
-        sample_rate_loaded, audio_data = scipy.io.wavfile.read(wav_path)
+        sample_rate_loaded, audio_data = scipy.io.wavfile.read(str(wav_path))
         if audio_data.dtype == np.int16:
             audio_data = audio_data.astype(np.float32) / 32768.0
 
@@ -112,7 +104,6 @@ def test_predictor_produces_valid_output():
 
     finally:
         predictor.cleanup()
-        Path(wav_path).unlink(missing_ok=True)
 
 
 def test_predictor_adapter_integration():

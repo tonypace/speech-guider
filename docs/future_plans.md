@@ -20,11 +20,10 @@ The initial codebase cleanup stack (`P0.1`–`P4.3`) was completed and logged in
 
 ## Priority 1 — Release & live-environment validation
 
-### Desktop distribution, E2E, and hardware validation
+### Desktop distribution and hardware validation
 - **References:** [Desktop release](desktop-release.md), [Release contracts](release-contracts.md), [Stabilization repair evidence](stabilization-2026-11-07.md)
 - **Scope:**
-  - Run `npm run test:e2e:mocked` in a non-sandboxed environment supporting loopback server binding (verifying updated `offlineAssets.spec.js` and `prosodyLab.spec.js`; `npm run test:e2e:real` passed per user run after `serial` fix).
-  - Complete macOS `.pkg` distribution signing, notarization, clean-machine install, WebView microphone/playback verification, and physical clicker verification.
+  - Complete macOS `.pkg` distribution signing, notarization, clean-machine install, WebView microphone/playback verification, and physical clicker verification (`npm run test:e2e:mocked` and `npm run test:e2e:real` already passed).
 
 ---
 
@@ -41,13 +40,3 @@ The initial codebase cleanup stack (`P0.1`–`P4.3`) was completed and logged in
 ### Forced alignment, phoneme error detection, and LLM feedback synthesis
 - **Files:** `src/models/alignment.py`, `src/llm/__init__.py`, `app/api/analyze.py`
 - **Scope:** Replace the `ForcedAligner` scaffold with a real phoneme CTC / forced-alignment model so `/api/analyze` supplies real vowel/word timestamps (enabling live nPVI and word stress), phoneme errors, and optional `src/llm/` feedback synthesis.
-
----
-
-## Priority 3 — Minor deferred technical cleanup
-
-### Remaining single-load analysis and test fixture deduplication
-- **Files:** `app/api/analyze.py`, `app/api/comparison.py`, `tests/test_analyze_failure_modes.py`, `tests/test_integration_prosody.py`, `tests/test_ssl_aai_predictor.py`
-- **Scope:**
-  - Unify `AudioContext` + `_load_and_preprocess_audio` in `app/api/analyze.py` into a single disk read once `tests/test_inference_ownership.py` and `tests/test_analyze_failure_modes.py` mock contracts are updated together.
-  - Consolidate shared SSL trajectory framing across `analyze.py` and `comparison.py` (`AnimationFrame` vs `CANONICAL_ARTICULATORY_FIELDS`) and migrate the remaining inline WAV generators in `test_analyze_failure_modes.py`, `test_integration_prosody.py`, and `test_ssl_aai_predictor.py` to `tests/conftest.py`.

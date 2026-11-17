@@ -1,13 +1,15 @@
 """Regression tests for analysis endpoint failure modes and exception handling."""
 
-from unittest.mock import patch
+from collections.abc import Callable
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 
-import numpy as np
 import pytest
 import torch
 from fastapi.testclient import TestClient
 
 from app.main import app
+from src.audio.processor import AudioContext
 
 client = TestClient(app)
 
@@ -15,7 +17,7 @@ client = TestClient(app)
 class TestAnalyzeEndpointFailureModes:
     """Tests for analyze_audio endpoint failure handling."""
 
-    def test_missing_target_text_raises_400(self):
+    def test_missing_target_text_raises_400(self) -> None:
         """Missing target text should return 400 Bad Request."""
         response = client.post(
             "/api/analyze",
@@ -25,7 +27,7 @@ class TestAnalyzeEndpointFailureModes:
         assert response.status_code == 400
         assert "target sentence" in response.json()["detail"].lower()
 
-    def test_missing_audio_file_raises_422(self):
+    def test_missing_audio_file_raises_422(self) -> None:
         """Missing audio file should return 422 Unprocessable Entity."""
         response = client.post(
             "/api/analyze",
@@ -36,19 +38,13 @@ class TestAnalyzeEndpointFailureModes:
         assert response.status_code == 422
 
     @patch("app.api.analyze._load_and_preprocess_audio")
-    def test_audio_load_failure_returns_500(self, mock_load, tmp_path):
+    def test_audio_load_failure_returns_500(
+        self, mock_load: MagicMock, dummy_wav_factory: Callable[..., Path]
+    ) -> None:
         """Audio load failure should return 500 with proper error details."""
         mock_load.side_effect = ValueError("Invalid audio format")
 
-        # Create a valid test audio file
-        import scipy.io.wavfile as wavfile
-
-        sample_rate = 16000
-        duration = 0.5
-        t = np.linspace(0, duration, int(sample_rate * duration))
-        waveform = np.sin(2 * np.pi * 440 * t)
-        wav_path = tmp_path / "test.wav"
-        wavfile.write(str(wav_path), sample_rate, (waveform * 32767).astype(np.int16))
+        wav_path = dummy_wav_factory(duration=0.5, frequency=440.0)
 
         with open(wav_path, "rb") as f:
             response = client.post(
@@ -63,6 +59,23 @@ class TestAnalyzeEndpointFailureModes:
         assert "error" in data
         assert "traceback" not in data
         assert "Invalid audio format" not in data["error"]
+
+    def test_load_and_preprocess_audio_reuses_audio_context(
+        self, dummy_wav_factory: Callable[..., Path]
+    ) -> None:
+        """Passing an AudioContext must not reopen the audio file on disk."""
+        from app.api.analyze import _load_and_preprocess_audio
+
+        wav_path = dummy_wav_factory(duration=0.5, sample_rate=24000, frequency=440.0)
+        context = AudioContext(str(wav_path))
+
+        with patch("app.api.analyze.load_audio_tensor") as mock_disk_load:
+            tensor, sample_rate = _load_and_preprocess_audio(context)
+
+        mock_disk_load.assert_not_called()
+        assert sample_rate == 16000
+        assert tensor.dtype == torch.float32
+        assert tensor.shape == (8000,)
 
     @patch("app.api.analyze.get_ssl_predictor")
     def test_ssl_predictor_unavailable_returns_error(self, mock_get_predictor):

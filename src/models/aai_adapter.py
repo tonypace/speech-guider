@@ -445,6 +445,14 @@ def aai_to_canonical_states_batch(
         return frames
 
 
+SPEAKER_Z_METADATA = AAIConversionMetadata(normalization="speaker_z_normalized")
+
+
+def r4_trajectory_to_canonical_frames(tvs_array: np.ndarray) -> list[dict[str, float]]:
+    """Convert an R4 speaker-Z trajectory array (T, 9) into canonical renderer frames."""
+    return aai_to_canonical_states_batch(tvs_array, SPEAKER_Z_METADATA)
+
+
 def parse_aai_animation_payload(
     payload: Mapping[str, object],
     fallback_state: Mapping[str, float] | None = None,

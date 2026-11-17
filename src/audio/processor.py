@@ -131,17 +131,19 @@ class AudioContext:
         self.total_duration = self.praat_sound.total_duration
 
     def get_downsampled_tensor(self) -> np.ndarray:
-        """Get downsampled audio as numpy array for ML models.
+        """Get downsampled mono audio as numpy array for ML models.
 
         Returns:
             Audio waveform as float32 numpy array at target sample rate
         """
-        if self.original_sample_rate == self.target_sample_rate:
-            samples = self.praat_sound.values[0]
-        else:
-            samples = self.praat_sound.resample(self.target_sample_rate).values[0]
-
-        return cast(np.ndarray, samples.astype(np.float32))
+        sound = (
+            self.praat_sound
+            if self.original_sample_rate == self.target_sample_rate
+            else self.praat_sound.resample(self.target_sample_rate)
+        )
+        values = sound.values
+        samples = np.mean(values, axis=0) if values.shape[0] > 1 else values[0]
+        return cast(np.ndarray, np.asarray(samples, dtype=np.float32))
 
 
 class ProsodyAnalyzer:

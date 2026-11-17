@@ -15,10 +15,10 @@ from app.services.jobs import claim_job, finish_job
 from app.utils.audio import cleanup_temp_file, load_audio_tensor, save_upload_to_temp
 from src.audio import processor
 from src.models.aai_adapter import (
-    AAIConversionMetadata,
+    SPEAKER_Z_METADATA,
     aai_to_canonical_state,
-    aai_to_canonical_states_batch,
     decode_aai_row,
+    r4_trajectory_to_canonical_frames,
     representative_aai_pose,
 )
 from src.models.ssl_common import (
@@ -70,7 +70,7 @@ def _ssl_aai_to_animation_state(
     if isinstance(device, str) and device:
         _ssl_device = device
 
-    metadata = AAIConversionMetadata(normalization="speaker_z_normalized")
+    metadata = SPEAKER_Z_METADATA
     try:
         prediction = predictor.predict_with_metadata(
             audio_tensor, sample_rate, contact_enabled=contact_enabled
@@ -93,7 +93,7 @@ def _ssl_aai_to_animation_state(
         logger.debug("[_ssl_aai_to_animation_state] Generated animation state via SSL AAI path")
 
         if return_trajectory:
-            frames = aai_to_canonical_states_batch(tvs_array, metadata)
+            frames = r4_trajectory_to_canonical_frames(tvs_array)
             logger.debug(f"[_ssl_aai_to_animation_state] Generated {len(frames)} trajectory frames")
             return animation_state, frames, ssl_meta
 
@@ -138,19 +138,16 @@ def try_primary_ssl_analysis(
     return result, None, {}
 
 
-def _load_and_preprocess_audio(audio_path: str) -> tuple[torch.Tensor, int]:
-    """Load and preprocess audio file for analysis.
-
-    Args:
-        audio_path: Path to audio file
-
-    Returns:
-        Tuple of (audio_tensor, sample_rate)
-
-    Raises:
-        ValueError: If audio cannot be loaded or processed
-    """
-    return load_audio_tensor(audio_path, DEFAULT_SSL_FEATURE_CONFIG.sample_rate)
+def _load_and_preprocess_audio(
+    audio_source: str | processor.AudioContext,
+) -> tuple[torch.Tensor, int]:
+    """Load and preprocess audio for SSL analysis, reusing an existing AudioContext."""
+    if isinstance(audio_source, processor.AudioContext):
+        return (
+            torch.from_numpy(audio_source.get_downsampled_tensor()).float(),
+            audio_source.target_sample_rate,
+        )
+    return load_audio_tensor(audio_source, DEFAULT_SSL_FEATURE_CONFIG.sample_rate)
 
 
 async def _run_analysis_pipeline(
@@ -178,8 +175,8 @@ async def _run_analysis_pipeline(
     # Step 2: Analyze pronunciation
     await send_progress_update(job_id, 0.3, "Analyzing pronunciation...", "pronunciation")
 
-    # Load audio in thread to avoid blocking
-    audio_tensor, sample_rate = await run_blocking(_load_and_preprocess_audio, audio_path)
+    # Extract downsampled mono SSL tensor from the already-loaded AudioContext
+    audio_tensor, sample_rate = await run_blocking(_load_and_preprocess_audio, audio_context)
 
     ssl_animation_state: dict[str, float] | None = None
     ssl_trajectory: list[dict[str, float]] | None = None
