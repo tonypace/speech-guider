@@ -23,6 +23,22 @@ class ProsodyLabPauseSpan(BaseModel):
     duration: float
 
 
+class ProsodyLabSyllableDetail(BaseModel):
+    """Acoustic syllable event with P-center, pre-beat consonant onset, duration, and prominence."""
+
+    index: int
+    nucleus_time: float
+    p_center_time: float
+    consonant_onset_time: float
+    pre_duration: float
+    vowel_duration: float
+    prominence: float
+    is_stressed: bool
+    f0_hz: float | None = None
+    pitch_st: float = 0.0
+    pitch_slope: float = 0.0
+
+
 class ProsodyLabSummary(BaseModel):
     """Prosody Lab summary metrics."""
 
@@ -35,6 +51,7 @@ class ProsodyLabSummary(BaseModel):
     mean_note: str | None = None
     speech_rate: float | None = None
     articulation_rate: float | None = None
+    npvi: float | None = None
 
 
 class ProsodyLabAnalysisResponse(BaseModel):
@@ -44,6 +61,8 @@ class ProsodyLabAnalysisResponse(BaseModel):
     summary: ProsodyLabSummary
     pitch_track: list[ProsodyLabPitchPoint]
     syllable_onsets: list[float]
+    syllable_p_centers: list[float] = Field(default_factory=list)
+    syllable_details: list[ProsodyLabSyllableDetail] = Field(default_factory=list)
     pause_spans: list[ProsodyLabPauseSpan] = Field(default_factory=list)
     raw_feedback: str = ""
     analysis_source: str = "heuristic"

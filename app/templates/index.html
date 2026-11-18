@@ -39,7 +39,7 @@
                     class="tab-btn tab-btn-active px-6 py-3 font-medium text-blue-600 border-b-2 border-blue-600 -mb-px">
                 Analysis
             </button>
-            <button hidden id="tab-btn-prosody"
+            <button id="tab-btn-prosody"
                     onclick="switchTab('prosody')"
                     class="tab-btn px-6 py-3 font-medium text-gray-500 hover:text-gray-700">
                 Prosody Lab
@@ -273,6 +273,71 @@
                             </div>
                         </div>
                     </div>
+                </div>
+
+                <!-- Speech Rhythm Diagnostics (Goal 1 Winner: VocAlign Elastic Tethers & Beat Bins) -->
+                <div class="mt-8 bg-white border border-gray-200 rounded-lg p-5 shadow-sm">
+                    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+                        <div>
+                            <h3 class="text-lg font-semibold text-gray-800">Goal 1: Post-Utterance Timing Diagnostics (VocAlign Elastic Tethers &amp; Beat Bins)</h3>
+                            <p class="text-xs text-gray-500">Compares Native/Teacher P-centers (♦), pre-beat consonant lead-ins, and Polak 100% foot budgets against Student or simulated dysfluency profiles.</p>
+                        </div>
+                        <div class="flex flex-wrap items-center gap-3">
+                            <label class="text-xs text-gray-600 flex items-center gap-1.5">
+                                Phrase:
+                                <select id="prosody-phrase-select" class="text-xs border border-gray-300 rounded px-2 py-1 text-gray-700">
+                                    <option value="prepared">1. Prepared Presentation</option>
+                                    <option value="spontaneous">2. Spontaneous Discussion</option>
+                                    <option value="contrastive">3. Contrastive Argument</option>
+                                    <option value="narrative">4. Expressive Storytelling</option>
+                                </select>
+                            </label>
+                            <label class="text-xs text-gray-600 flex items-center gap-1.5">
+                                Profile:
+                                <select id="prosody-profile-select" class="text-xs border border-gray-300 rounded px-2 py-1 text-gray-700">
+                                    <option value="dysfluent_hesitation">Hesitation Block + Prolongation</option>
+                                    <option value="syllable_timed_choppy">L2 Syllable-Timed Choppy</option>
+                                    <option value="dysfluent_stutter">Onset Stutter + Cluster Lag</option>
+                                    <option value="cluttered_runon">Cluttered Run-On + Clipped</option>
+                                    <option value="native_expressive">Native Expressive Reference</option>
+                                </select>
+                            </label>
+                            <label class="text-xs text-gray-600 flex items-center gap-1.5">
+                                DTW Norm:
+                                <input type="range" id="prosody-dtw-slider" min="0" max="1" step="0.05" value="1" class="w-24 h-1.5 bg-gray-200 rounded-lg cursor-pointer">
+                                <span id="prosody-dtw-label" class="font-mono text-xs text-gray-700">100%</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div id="prosody-tether-stage" class="w-full overflow-x-auto"></div>
+                </div>
+
+                <!-- Guided Speech Entrainment (Goal 2 Winner: Stationary 16-Slot Prosodic Flow Matrix) -->
+                <div class="mt-6 bg-white border border-gray-200 rounded-lg p-5 shadow-sm">
+                    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+                        <div>
+                            <h3 class="text-lg font-semibold text-gray-800">Goal 2: Live Guided Speech Performance (16-Slot Prosodic Flow Matrix)</h3>
+                            <p class="text-xs text-gray-500">Stationary 2-Bar Call-and-Response entrainment loop with Stress-Foot Pillars, Pause Gates (||), Anacrusis Ramps, Pre-Beat Consonant Runways, and Variable-Gravity Bouncing Ball.</p>
+                        </div>
+                        <div class="flex flex-wrap items-center gap-3">
+                            <label class="text-xs text-gray-600 flex items-center gap-1.5">
+                                Bar 2 Performer:
+                                <select id="prosody-performer-select" class="text-xs border border-gray-300 rounded px-2 py-1 text-gray-700">
+                                    <option value="bot_native">Simulate: Native Fluent</option>
+                                    <option value="bot_dysfluent">Simulate: Dysfluent Block</option>
+                                    <option value="bot_choppy">Simulate: L2 Syllable-Timed</option>
+                                    <option value="recorded_take">Latest Recorded Take</option>
+                                </select>
+                            </label>
+                            <button type="button" id="prosody-flow-play-btn" class="rounded bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 transition">
+                                ▶ Start 2-Bar Loop
+                            </button>
+                            <button type="button" id="prosody-flow-bar2-btn" class="rounded border border-emerald-600 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 transition">
+                                Preview Bar 2 Response
+                            </button>
+                        </div>
+                    </div>
+                    <div id="prosody-flow-stage" class="w-full overflow-x-auto"></div>
                 </div>
             </section>
         </div><!-- End tab-panel-prosody -->

@@ -24,9 +24,11 @@ test.describe('Prosody Lab — Mocked UI Flow', () => {
         // recorder container should exist (may or may not be visible depending on HTTPS)
         await expect(page.locator('#recorder')).toBeAttached();
 
-        // prosody lab panel — check for the chart container (rendered by JS)
+        // prosody lab panel — check for the chart container and Goal 1 / Goal 2 SVG stages
         const prosodyPanel = page.locator('#tab-panel-prosody');
         await expect(prosodyPanel).toBeVisible();
+        await expect(page.locator('#prosody-tether-stage svg')).toBeVisible();
+        await expect(page.locator('#prosody-flow-stage svg')).toBeVisible();
     });
 
     test('switching from analysis to prosody hides analysis panel', async ({ page }) => {

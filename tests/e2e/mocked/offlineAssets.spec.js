@@ -36,11 +36,13 @@ test('all tabs, styling and real plots work without external requests', async ({
     });
     await expect(page.getByText('Try another recording.')).toHaveCSS('color', 'rgb(185, 28, 28)');
 
-    await expect(page.locator('#tab-btn-prosody')).toBeHidden();
+    await expect(page.locator('#tab-btn-prosody')).toBeVisible();
     await switchToTab(page, 'prosody');
     await expect(page.locator('#tab-panel-prosody')).toBeVisible();
     await expect(page.locator('#tab-panel-analysis')).toBeHidden();
     await expect(page.locator('#prosody-current-plot .main-svg').first()).toBeVisible();
+    await expect(page.locator('#prosody-tether-stage svg')).toBeVisible();
+    await expect(page.locator('#prosody-flow-stage svg')).toBeVisible();
     expect(await page.evaluate(() => window.Plotly.version)).toBe('2.32.0');
 
     await switchToTab(page, 'comparison');

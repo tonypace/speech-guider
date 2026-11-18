@@ -1,4 +1,4 @@
-"""Prosody Lab analysis helpers using scipy/numpy heuristics."""
+"""Prosody Lab analysis helpers using hybrid acoustic P-center & Parselmouth prosody."""
 
 from __future__ import annotations
 
@@ -7,8 +7,10 @@ import uuid
 from typing import Any, cast
 
 import numpy as np
+import parselmouth
 from scipy.io import wavfile as scipy_wavfile
-from scipy.signal import find_peaks, resample_poly
+from scipy.ndimage import gaussian_filter1d
+from scipy.signal import butter, find_peaks, resample_poly, sosfiltfilt
 
 try:
     import soundfile as sf
@@ -46,7 +48,7 @@ def _framed_energy(y: np.ndarray, frame_length: int = 2048, hop_length: int = 25
 
 
 def _heuristic_syllable_markers(y: np.ndarray, sr: int) -> list[float]:
-    """Estimate syllable nuclei from energy peaks."""
+    """Estimate syllable nuclei from raw energy peaks (legacy baseline)."""
     if y.size == 0:
         return []
 
@@ -104,6 +106,386 @@ def _heuristic_pause_spans(y: np.ndarray, sr: int) -> list[dict[str, float]]:
                 }
             )
     return spans
+
+
+def _bandpass_filter(
+    y: np.ndarray, sr: int, low_hz: float, high_hz: float, order: int = 4
+) -> np.ndarray:
+    """Apply zero-phase Butterworth bandpass filter."""
+    nyq = 0.5 * sr
+    lo = max(20.0 / nyq, min(0.96, low_hz / nyq))
+    hi = max(lo + 0.01, min(0.99, high_hz / nyq))
+    sos = butter(order, [lo, hi], btype="bandpass", output="sos")
+    return cast(np.ndarray, sosfiltfilt(sos, y.astype(np.float64)))
+
+
+def _compute_rms_db_envelope(
+    y: np.ndarray,
+    sr: int,
+    hop_sec: float = 0.005,
+    win_sec: float = 0.025,
+    smooth_sigma: float = 1.5,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Compute smoothed RMS envelope in dB at fixed time step."""
+    hop = max(1, int(round(hop_sec * sr)))
+    win = max(hop, int(round(win_sec * sr)))
+    if win % 2 == 1:
+        win += 1
+    padded = np.pad(y.astype(np.float64), (win // 2, win // 2), mode="constant")
+    if len(padded) < win:
+        return np.array([0.0]), np.array([-100.0])
+    window = np.hanning(win)
+    window_norm = np.sum(window**2) / win
+    frames = np.lib.stride_tricks.sliding_window_view(padded, win)[::hop]
+    power = np.mean((frames * window) ** 2, axis=1) / max(window_norm, 1e-12)
+    db = 10.0 * np.log10(np.maximum(power, 1e-12))
+    if smooth_sigma > 0 and len(db) > 3:
+        db = gaussian_filter1d(db, sigma=smooth_sigma)
+    times = np.arange(len(db), dtype=np.float64) * (hop / sr)
+    return times, db
+
+
+def _normalize_prominences(raw_scores: list[float]) -> list[float]:
+    """Normalize prominence scores into [0.15, 1.0]."""
+    if not raw_scores:
+        return []
+    arr = np.asarray(raw_scores, dtype=np.float64)
+    lo = float(np.min(arr))
+    hi = float(np.max(arr))
+    if hi - lo < 1e-6:
+        return [0.65 for _ in raw_scores]
+    normed = 0.15 + 0.85 * ((arr - lo) / (hi - lo))
+    return [round(float(x), 4) for x in normed]
+
+
+def _compute_vocalic_npvi(durations: list[float]) -> float | None:
+    """Compute normalized Pairwise Variability Index (nPVI) over vocalic durations."""
+    valid = [float(d) for d in durations if d > 0.0]
+    if len(valid) < 2:
+        return None
+    diffs: list[float] = []
+    for idx in range(len(valid) - 1):
+        d1, d2 = valid[idx], valid[idx + 1]
+        mean_d = 0.5 * (d1 + d2)
+        if mean_d > 0.0:
+            diffs.append(abs(d1 - d2) / mean_d)
+    if not diffs:
+        return None
+    return round(float(100.0 * sum(diffs) / len(diffs)), 2)
+
+
+def detect_syllables_and_pcenters(
+    y: np.ndarray,
+    sr: int,
+    sound: parselmouth.Sound | None = None,
+) -> dict[str, Any]:
+    """Detect syllable nuclei, perceptual centers (V_onset), consonant onsets, and durations.
+
+    Implements the benchmarked `hybrid_acoustic_pcenter` detector combining:
+    - Vocalic bandpass energy (200-3200 Hz) vs. high-frequency sibilant/burst energy (3500-7800 Hz)
+    - Dual voicing gate (Praat autocorrelation F0 OR low-frequency voice bar 80-850 Hz)
+    - 4-subband vocalic timbre flux + adaptive dip pruning (sensitive to 40-55ms schwas,
+      immune to 4.5 Hz prolonged-vowel vibrato/tremor)
+    - Šturm & Volín (2016) / Cummins & Port (1998) steepest-rise P-center and pre-beat
+      consonant onset tracking.
+    """
+    if y.size == 0 or len(y) < max(64, int(0.06 * sr)):
+        return {
+            "nuclei_times": [],
+            "p_center_times": [],
+            "consonant_onset_times": [],
+            "vowel_durations": [],
+            "prominences": [],
+            "syllable_details": [],
+        }
+
+    if sound is None:
+        sound = parselmouth.Sound(y.astype(np.float64), sampling_frequency=float(sr))
+
+    hop_sec = 0.005
+    win_sec = 0.026
+
+    y_voc = _bandpass_filter(y, sr, 200.0, min(3200.0, 0.47 * sr), order=4)
+    y_lf = _bandpass_filter(y, sr, 80.0, min(850.0, 0.45 * sr), order=3)
+
+    times, voc_db = _compute_rms_db_envelope(
+        y_voc, sr, hop_sec=hop_sec, win_sec=win_sec, smooth_sigma=1.5
+    )
+    _, lf_db = _compute_rms_db_envelope(
+        y_lf, sr, hop_sec=hop_sec, win_sec=win_sec, smooth_sigma=1.5
+    )
+    _, full_db = _compute_rms_db_envelope(y, sr, hop_sec=hop_sec, win_sec=0.016, smooth_sigma=1.0)
+
+    if 0.5 * sr > 3700.0:
+        y_sib = _bandpass_filter(y, sr, 3500.0, min(7800.0, 0.48 * sr), order=4)
+        _, sib_db = _compute_rms_db_envelope(
+            y_sib, sr, hop_sec=hop_sec, win_sec=0.018, smooth_sigma=1.2
+        )
+    else:
+        sib_db = voc_db - 20.0
+
+    subbands = [(200.0, 600.0), (600.0, 1200.0), (1200.0, 2200.0), (2200.0, 3400.0)]
+    b_list: list[np.ndarray] = []
+    for lo_b, hi_b in subbands:
+        yb = _bandpass_filter(y, sr, lo_b, min(hi_b, 0.47 * sr), order=3)
+        _, b_db = _compute_rms_db_envelope(
+            yb, sr, hop_sec=hop_sec, win_sec=win_sec, smooth_sigma=1.5
+        )
+        b_list.append(b_db)
+    b_matrix = np.stack(b_list, axis=1)
+    b_norm = b_matrix - np.mean(b_matrix, axis=1, keepdims=True)
+
+    n_frames = len(times)
+    if n_frames < 5:
+        return {
+            "nuclei_times": [],
+            "p_center_times": [],
+            "consonant_onset_times": [],
+            "vowel_durations": [],
+            "prominences": [],
+            "syllable_details": [],
+        }
+
+    pitch = sound.to_pitch_ac(
+        time_step=0.008,
+        pitch_floor=65.0,
+        max_number_of_candidates=15,
+        very_accurate=False,
+        silence_threshold=0.02,
+        voicing_threshold=0.33,
+        octave_cost=0.01,
+        octave_jump_cost=0.35,
+        voiced_unvoiced_cost=0.14,
+        pitch_ceiling=500.0,
+    )
+    f0_track = np.array([pitch.get_value_at_time(float(t)) for t in times], dtype=np.float64)
+    q98_voc = float(np.percentile(voc_db, 98))
+    silence_thresh_db = q98_voc - 19.5
+    noise_floor_db = float(np.percentile(full_db, 10))
+
+    has_f0 = np.isfinite(f0_track) & (f0_track > 0.0)
+    has_voice_bar = (lf_db >= q98_voc - 14.0) & (sib_db <= voc_db - 5.0) & (lf_db >= sib_db + 6.0)
+    voiced_mask = has_f0 | has_voice_bar
+
+    raw_peaks, _ = find_peaks(
+        voc_db,
+        height=silence_thresh_db,
+        distance=12,
+        prominence=0.45,
+    )
+
+    cands: list[int] = []
+    for pk in raw_peaks:
+        pk_i = int(pk)
+        if not np.any(voiced_mask[max(0, pk_i - 3) : min(n_frames, pk_i + 4)]):
+            continue
+        if sib_db[pk_i] > voc_db[pk_i] + 1.0:
+            continue
+        cands.append(pk_i)
+
+    filtered_cands: list[int] = []
+    for i, pk_i in enumerate(cands):
+        if voc_db[pk_i] < q98_voc - 14.5:
+            prev_dom = (
+                i > 0
+                and (times[pk_i] - times[cands[i - 1]]) < 0.145
+                and (voc_db[cands[i - 1]] - voc_db[pk_i]) > 11.5
+            )
+            next_dom = (
+                i + 1 < len(cands)
+                and (times[cands[i + 1]] - times[pk_i]) < 0.145
+                and (voc_db[cands[i + 1]] - voc_db[pk_i]) > 11.5
+            )
+            if prev_dom or next_dom:
+                continue
+        filtered_cands.append(pk_i)
+
+    validated_peaks: list[int] = []
+    if filtered_cands:
+        curr_pk = filtered_cands[0]
+        for next_pk in filtered_cands[1:]:
+            val_idx = curr_pk + int(np.argmin(voc_db[curr_pk : next_pk + 1]))
+            dip = min(
+                float(voc_db[curr_pk] - voc_db[val_idx]),
+                float(voc_db[next_pk] - voc_db[val_idx]),
+            )
+            dt = float(times[next_pk] - times[curr_pk])
+            v_rat = float(np.mean(voiced_mask[curr_pk : next_pk + 1]))
+            timbre_shift = float(
+                np.linalg.norm(b_norm[next_pk] - b_norm[curr_pk])
+                + np.linalg.norm(b_norm[val_idx] - 0.5 * (b_norm[curr_pk] + b_norm[next_pk]))
+            )
+
+            if v_rat >= 0.90 and timbre_shift < 10.5:
+                req_dip = 6.20
+            elif dt < 0.095:
+                req_dip = 3.20
+            elif min(float(voc_db[curr_pk]), float(voc_db[next_pk])) < q98_voc - 12.5:
+                req_dip = 3.00
+            elif v_rat < 0.85 or timbre_shift >= 12.0:
+                req_dip = 1.38
+            else:
+                req_dip = 2.15
+
+            if dip >= req_dip:
+                validated_peaks.append(curr_pk)
+                curr_pk = next_pk
+            else:
+                if voc_db[next_pk] > voc_db[curr_pk]:
+                    curr_pk = next_pk
+        validated_peaks.append(curr_pk)
+
+    # Fallback for steady pure-tone synthetic fixtures that have no internal dip
+    if not validated_peaks and np.any(voiced_mask):
+        voiced_idx = np.where(voiced_mask)[0]
+        best_idx = int(voiced_idx[np.argmax(voc_db[voiced_idx])])
+        if voc_db[best_idx] >= silence_thresh_db - 6.0:
+            validated_peaks.append(best_idx)
+
+    nuclei: list[float] = []
+    p_centers: list[float] = []
+    c_onsets: list[float] = []
+    durations: list[float] = []
+    raw_proms: list[float] = []
+    syllable_f0s: list[float | None] = []
+    syllable_pitch_sts: list[float] = []
+    syllable_slopes: list[float] = []
+
+    voiced_f0_all = f0_track[has_f0]
+    mean_f0 = float(np.median(voiced_f0_all)) if len(voiced_f0_all) else 130.0
+
+    for idx_pos, pk in enumerate(validated_peaks):
+        t_pk = float(times[pk])
+        nuclei.append(round(t_pk, 4))
+
+        prev_limit = validated_peaks[idx_pos - 1] if idx_pos > 0 else 0
+        back_start = max(prev_limit, pk - int(round(0.160 / hop_sec)))
+        if pk > back_start:
+            valley_rel = int(np.argmin(voc_db[back_start : pk + 1]))
+            valley_idx = back_start + valley_rel
+        else:
+            valley_idx = pk
+
+        if pk > valley_idx:
+            rise_seg = voc_db[valley_idx : pk + 1]
+            deriv = np.diff(rise_seg)
+            valid_rise = np.where(
+                rise_seg[:-1] >= max(silence_thresh_db - 2.0, float(voc_db[pk] - 16.0))
+            )[0]
+            if len(valid_rise) > 0:
+                steep_rel = int(valid_rise[np.argmax(deriv[valid_rise])])
+                p_idx = valley_idx + steep_rel
+            else:
+                p_idx = valley_idx + int(np.argmax(deriv))
+        else:
+            p_idx = pk
+
+        p_t = float(times[p_idx])
+        p_centers.append(round(p_t, 4))
+
+        c_search_start = max(
+            prev_limit + 1 if idx_pos > 0 else 0, p_idx - int(round(0.130 / hop_sec))
+        )
+        c_idx = p_idx
+        if p_idx > c_search_start:
+            cons_threshold = max(noise_floor_db + 8.0, voc_db[pk] - 24.0)
+            for scan_i in range(p_idx - 1, c_search_start - 1, -1):
+                if full_db[scan_i] >= cons_threshold or sib_db[scan_i] >= cons_threshold - 2.0:
+                    c_idx = scan_i
+                else:
+                    break
+        c_t = float(times[min(p_idx, c_idx)])
+        c_onsets.append(round(c_t, 4))
+
+        next_limit = (
+            validated_peaks[idx_pos + 1] if idx_pos + 1 < len(validated_peaks) else n_frames - 1
+        )
+        fwd_end = min(next_limit, pk + int(round(0.280 / hop_sec)))
+        if fwd_end > pk:
+            fall_seg = voc_db[pk : fwd_end + 1]
+            drop_thresh = max(silence_thresh_db, float(voc_db[pk] - 6.5))
+            below = np.where(fall_seg <= drop_thresh)[0]
+            if len(below) > 0:
+                end_idx = pk + int(below[0])
+            else:
+                end_idx = pk + int(np.argmin(fall_seg))
+        else:
+            end_idx = pk
+
+        v_dur = max(0.035, float(times[end_idx] - p_t))
+        durations.append(round(v_dur, 4))
+
+        win_f0 = f0_track[max(0, p_idx) : min(n_frames, end_idx + 1)]
+        win_f0_v = win_f0[np.isfinite(win_f0) & (win_f0 > 0)]
+        if len(win_f0_v) == 0:
+            near_f0 = f0_track[max(0, pk - 3) : min(n_frames, pk + 4)]
+            win_f0_v = near_f0[np.isfinite(near_f0) & (near_f0 > 0)]
+
+        if len(win_f0_v) > 0 and mean_f0 > 0:
+            med_f0 = float(np.median(win_f0_v))
+            pitch_st = float(12.0 * np.log2(med_f0 / mean_f0))
+            st_above_mean = max(0.0, float(12.0 * np.log2(np.max(win_f0_v) / mean_f0)))
+            if len(win_f0_v) >= 2:
+                pitch_slope = float(12.0 * np.log2(win_f0_v[-1] / win_f0_v[0]))
+            else:
+                pitch_slope = 0.0
+            syllable_f0s.append(round(med_f0, 2))
+        else:
+            pitch_st = 0.0
+            st_above_mean = 0.0
+            pitch_slope = 0.0
+            syllable_f0s.append(None)
+
+        syllable_pitch_sts.append(round(pitch_st, 2))
+        syllable_slopes.append(round(pitch_slope, 2))
+
+        int_score = max(0.0, float(voc_db[pk] - silence_thresh_db)) / 22.0
+        dur_score = min(1.0, v_dur / 0.22)
+        f0_score = min(1.0, st_above_mean / 6.0)
+        raw_proms.append(0.45 * int_score + 0.35 * dur_score + 0.20 * f0_score)
+
+    prominences = _normalize_prominences(raw_proms)
+    med_prom = float(np.median(prominences)) if prominences else 0.55
+
+    details: list[dict[str, Any]] = []
+    for idx in range(len(nuclei)):
+        prom = prominences[idx]
+        is_stressed = bool(
+            prom >= max(0.56, med_prom)
+            or (
+                idx > 0
+                and idx + 1 < len(prominences)
+                and prom >= prominences[idx - 1]
+                and prom >= prominences[idx + 1]
+            )
+            or len(nuclei) == 1
+        )
+        p_t = p_centers[idx]
+        c_t = c_onsets[idx]
+        details.append(
+            {
+                "index": idx,
+                "nucleus_time": nuclei[idx],
+                "p_center_time": p_t,
+                "consonant_onset_time": c_t,
+                "pre_duration": round(max(0.0, p_t - c_t), 4),
+                "vowel_duration": durations[idx],
+                "prominence": prom,
+                "is_stressed": is_stressed,
+                "f0_hz": syllable_f0s[idx],
+                "pitch_st": syllable_pitch_sts[idx],
+                "pitch_slope": syllable_slopes[idx],
+            }
+        )
+
+    return {
+        "nuclei_times": nuclei,
+        "p_center_times": p_centers,
+        "consonant_onset_times": c_onsets,
+        "vowel_durations": durations,
+        "prominences": prominences,
+        "syllable_details": details,
+    }
 
 
 def _compute_pitch_track(y: np.ndarray, sr: int) -> dict[str, Any]:
@@ -223,7 +605,12 @@ def analyze_prosody_recording(audio_path: str) -> dict[str, Any]:
         raise ValueError("Audio file is empty")
 
     pitch = _compute_pitch_track(pitch_y, pitch_sr)
-    markers = _heuristic_syllable_markers(pitch_y, pitch_sr)
+    syllable_data = detect_syllables_and_pcenters(pitch_y, pitch_sr)
+    markers = syllable_data["nuclei_times"]
+    if not markers:
+        markers = _heuristic_syllable_markers(pitch_y, pitch_sr)
+    p_centers = syllable_data["p_center_times"] or markers
+    syllable_details = syllable_data["syllable_details"]
     pause_spans = _heuristic_pause_spans(pitch_y, pitch_sr)
 
     syllable_count = max(1, len(markers))
@@ -231,9 +618,18 @@ def analyze_prosody_recording(audio_path: str) -> dict[str, Any]:
 
     total_duration = len(pitch_y) / pitch_sr if pitch_sr else 0.0
     pause_duration = sum(segment["duration"] for segment in pause_spans)
+    speaking_duration = max(0.05, total_duration - pause_duration)
     rhythm_balance = max(
         0.0, min(1.0, 1.0 - (pause_duration / total_duration if total_duration else 0.0))
     )
+
+    speech_rate = (
+        round(float(syllable_count / total_duration), 2) if total_duration > 0.05 else None
+    )
+    articulation_rate = (
+        round(float(syllable_count / speaking_duration), 2) if total_duration > 0.05 else None
+    )
+    npvi = _compute_vocalic_npvi(syllable_data["vowel_durations"])
 
     duration_seconds = len(pitch_y) / pitch_sr if pitch_sr else 0.0
     summary = {
@@ -244,8 +640,9 @@ def analyze_prosody_recording(audio_path: str) -> dict[str, Any]:
         "mean_f0_hz": float(pitch["mean_f0_hz"]),
         "mean_midi": pitch["mean_midi"],
         "mean_note": pitch["mean_note"],
-        "speech_rate": None,
-        "articulation_rate": None,
+        "speech_rate": speech_rate,
+        "articulation_rate": articulation_rate,
+        "npvi": npvi,
     }
 
     return {
@@ -253,6 +650,8 @@ def analyze_prosody_recording(audio_path: str) -> dict[str, Any]:
         "summary": summary,
         "pitch_track": pitch["pitch_track"],
         "syllable_onsets": markers,
+        "syllable_p_centers": p_centers,
+        "syllable_details": syllable_details,
         "pause_spans": pause_spans,
         "raw_feedback": "",
         "analysis_source": "heuristic",

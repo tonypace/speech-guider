@@ -3,6 +3,7 @@ import { listen, releaseCapture } from './capture_resources.js';
 import { microphoneError, openMicrophone } from './microphone.js';
 import { convertAudioToWav, encodePcmWav } from './audio_conversion.js';
 import { escapeHtml } from './ipa_tooltips.js';
+import { renderVocAlignTetherDiagnosticSVG, renderFlowMatrixTrainerSVG } from './prosody_rhythm_views.js';
 
 function midiToNoteName(midi) {
     if (midi === null || midi === undefined || Number.isNaN(midi)) {
@@ -74,7 +75,24 @@ function chunkIntoBars(pitchTrack, barDuration) {
     return bars;
 }
 
-function classifySyllableStress(syllableOnsets) {
+function classifySyllableStress(syllableOnsets, syllableDetails = null) {
+    if (Array.isArray(syllableDetails) && syllableDetails.length > 0) {
+        const stressed = [];
+        const unstressed = [];
+        syllableDetails.forEach((detail) => {
+            const t = Number(detail.p_center_time ?? detail.nucleus_time ?? 0);
+            if (detail.is_stressed) {
+                stressed.push(t);
+            } else {
+                unstressed.push(t);
+            }
+        });
+        if (stressed.length === 0 && syllableDetails.length > 0) {
+            stressed.push(Number(syllableDetails[0].p_center_time ?? syllableDetails[0].nucleus_time ?? 0));
+        }
+        return { stressed, unstressed };
+    }
+
     if (!syllableOnsets || syllableOnsets.length === 0) return { stressed: [], unstressed: [] };
     const n = STRESS_EVERY_N_SYLLABLES;
     const stressed = [];
@@ -162,14 +180,17 @@ function buildBarTrace(bar, quantizedMidi, localTimes, textValues, anchorTimes, 
 function buildMusicalScoreChart(record, options = {}) {
     const { locked = false, beatsPerBar = 4, zoomLevel = 1.0 } = options;
     const pitchTrack = record?.pitch_track || [];
-    const syllableOnsets = record?.syllable_onsets || [];
+    const syllableOnsets = (Array.isArray(record?.syllable_p_centers) && record.syllable_p_centers.length > 0)
+        ? record.syllable_p_centers
+        : (record?.syllable_onsets || []);
+    const syllableDetails = record?.syllable_details || null;
     const barDuration = BAR_DURATION_SECONDS / zoomLevel;
     const bars = chunkIntoBars(pitchTrack, barDuration);
 
     if (bars.length === 0) {
         return { traces: [], layout: {}, frames: [] };
     }
-    const { stressed, unstressed } = classifySyllableStress(syllableOnsets);
+    const { stressed, unstressed } = classifySyllableStress(syllableOnsets, syllableDetails);
     const graceTimes = assignGraceNotesBetween(unstressed, stressed);
     const allMidi = pitchTrack.map((p) => p.midi).filter((m) => m !== null && !Number.isNaN(m));
     const globalMinMidi = allMidi.length ? Math.floor(Math.min(...allMidi)) - 1 : 36;
@@ -258,6 +279,15 @@ class ProsodyLabRecorder {
         this.locked = false;
         this.beatsPerBar = 4;
         this.zoomLevel = 1.0;
+        this.phraseId = 'prepared';
+        this.profileKey = 'dysfluent_hesitation';
+        this.dtwNormFactor = 1.0;
+        this.performer = 'bot_native';
+        this.flowPlaying = false;
+        this.flowStartMs = 0;
+        this.flowBeat = 0.0;
+        this.flowResponseBar = false;
+        this.flowAnimationId = null;
         this.stream = null;
         this.visualizerSource = null;
         this.eventListeners = [];
@@ -270,6 +300,7 @@ class ProsodyLabRecorder {
 
         this.initElements();
         this.bindEvents();
+        this.renderRhythmViews(this.loadHistory());
     }
 
     initElements() {
@@ -286,6 +317,15 @@ class ProsodyLabRecorder {
         this.studentLabelEl = document.getElementById('prosody-student-label');
         this.teacherPlotEl = document.getElementById('prosody-teacher-plot');
         this.studentPlotEl = document.getElementById('prosody-student-plot');
+        this.tetherStageEl = document.getElementById('prosody-tether-stage');
+        this.flowStageEl = document.getElementById('prosody-flow-stage');
+        this.phraseSelectEl = document.getElementById('prosody-phrase-select');
+        this.profileSelectEl = document.getElementById('prosody-profile-select');
+        this.dtwSliderEl = document.getElementById('prosody-dtw-slider');
+        this.dtwLabelEl = document.getElementById('prosody-dtw-label');
+        this.performerSelectEl = document.getElementById('prosody-performer-select');
+        this.flowPlayBtnEl = document.getElementById('prosody-flow-play-btn');
+        this.flowBar2BtnEl = document.getElementById('prosody-flow-bar2-btn');
 
         if (this.waveformCanvas) {
             this.canvas = this.waveformCanvas;
@@ -330,6 +370,46 @@ class ProsodyLabRecorder {
             listen(this, this.recordBtn, 'touchend', (event) => {
                 event.preventDefault();
                 this.stopRecording();
+            });
+        }
+
+        if (this.phraseSelectEl) {
+            listen(this, this.phraseSelectEl, 'change', () => {
+                this.phraseId = this.phraseSelectEl.value || 'prepared';
+                this.renderRhythmViews(this.loadHistory());
+            });
+        }
+        if (this.profileSelectEl) {
+            listen(this, this.profileSelectEl, 'change', () => {
+                this.profileKey = this.profileSelectEl.value || 'dysfluent_hesitation';
+                this.renderRhythmViews(this.loadHistory());
+            });
+        }
+        if (this.dtwSliderEl) {
+            listen(this, this.dtwSliderEl, 'input', () => {
+                this.dtwNormFactor = parseFloat(this.dtwSliderEl.value);
+                if (this.dtwLabelEl) {
+                    this.dtwLabelEl.textContent = `${Math.round(this.dtwNormFactor * 100)}%`;
+                }
+                this.renderRhythmViews(this.loadHistory());
+            });
+        }
+        if (this.performerSelectEl) {
+            listen(this, this.performerSelectEl, 'change', () => {
+                this.performer = this.performerSelectEl.value || 'bot_native';
+                this.renderRhythmViews(this.loadHistory());
+            });
+        }
+        if (this.flowPlayBtnEl) {
+            listen(this, this.flowPlayBtnEl, 'click', () => {
+                this.toggleFlowLoop();
+            });
+        }
+        if (this.flowBar2BtnEl) {
+            listen(this, this.flowBar2BtnEl, 'click', () => {
+                this.flowResponseBar = true;
+                this.flowBeat = 2.0;
+                this.renderFlowMatrixStage(this.loadHistory());
             });
         }
     }
@@ -380,6 +460,7 @@ class ProsodyLabRecorder {
         this.isStartingRecording = false;
         this.cancelOnStop = true;
         this.isRecording = false;
+        this.stopFlowLoop();
         clearInterval(this.timerInterval);
         clearTimeout(this.recordingTimeout);
         if (this.animationId) cancelAnimationFrame(this.animationId);
@@ -580,6 +661,7 @@ class ProsodyLabRecorder {
         }
         this.renderHistory(history);
         this.renderComparison(history);
+        this.renderRhythmViews(history);
     }
 
     renderCurrent(record) {
@@ -595,7 +677,7 @@ class ProsodyLabRecorder {
                 ['Rhythm balance', formatMetricValue(summary.rhythm_balance)],
                 ['Mean note', summary.mean_note],
                 ['Mean F0', formatMetricValue(summary.mean_f0_hz, ' Hz')],
-                ['Rate', formatMetricValue(summary.speech_rate)],
+                ['Rate', formatMetricValue(summary.speech_rate, ' syll/s')],
             ]
                 .map(([label, value]) => `
           <div class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
@@ -614,9 +696,10 @@ class ProsodyLabRecorder {
 
         const summary = record.summary || {};
         this.feedbackEl.innerHTML = `
-      <p><strong>Syllables:</strong> ${escapeHtml(summary.syllable_count ?? '—')} estimated nuclei</p>
+      <p><strong>Syllables:</strong> ${escapeHtml(summary.syllable_count ?? '—')} acoustic P-center nuclei</p>
       <p><strong>Pauses:</strong> ${escapeHtml(summary.pause_count ?? '—')} detected spans</p>
       <p><strong>Rhythm balance:</strong> ${escapeHtml(formatMetricValue(summary.rhythm_balance))}</p>
+      <p><strong>Speaking rate:</strong> ${escapeHtml(formatMetricValue(summary.speech_rate, ' syll/s'))} (Articulation: ${escapeHtml(formatMetricValue(summary.articulation_rate, ' syll/s'))})</p>
       <p><strong>Mean speaking note:</strong> ${escapeHtml(summary.mean_note ?? '—')} (${escapeHtml(formatMetricValue(summary.mean_f0_hz, ' Hz'))})</p>
     `;
     }
@@ -683,6 +766,72 @@ class ProsodyLabRecorder {
 
         this.renderPlot(this.teacherPlotEl, teacherRecord);
         this.renderPlot(this.studentPlotEl, studentRecord);
+    }
+
+    renderRhythmViews(history = []) {
+        const teacherRecord = history.find((item) => item.recording_id === this.getTeacherId()) || history[1] || null;
+        const studentRecord = history.find((item) => item.recording_id === this.getStudentId()) || history[0] || null;
+
+        if (this.tetherStageEl) {
+            this.tetherStageEl.innerHTML = renderVocAlignTetherDiagnosticSVG({
+                phraseId: this.phraseId,
+                profileKey: this.profileKey,
+                normFactor: this.dtwNormFactor,
+                teacherRecord,
+                studentRecord,
+            });
+        }
+        this.renderFlowMatrixStage(history);
+    }
+
+    renderFlowMatrixStage(history = []) {
+        if (!this.flowStageEl) return;
+        const studentRecord = history.find((item) => item.recording_id === this.getStudentId()) || history[0] || null;
+        this.flowStageEl.innerHTML = renderFlowMatrixTrainerSVG({
+            phraseId: this.phraseId,
+            beat: this.flowBeat,
+            isResponseBar: this.flowResponseBar,
+            performer: this.performer,
+            liveRecord: studentRecord,
+        });
+    }
+
+    toggleFlowLoop() {
+        if (this.flowPlaying) {
+            this.stopFlowLoop();
+        } else {
+            this.startFlowLoop();
+        }
+    }
+
+    startFlowLoop() {
+        if (this.flowPlaying || this.destroyed) return;
+        this.flowPlaying = true;
+        this.flowStartMs = performance.now();
+        if (this.flowPlayBtnEl) {
+            this.flowPlayBtnEl.textContent = '■ Stop 2-Bar Loop';
+        }
+        const step = (now) => {
+            if (!this.flowPlaying || this.destroyed) return;
+            const beatDurMs = (60 / 88) * 1000;
+            const elapsedBeats = ((now - this.flowStartMs) / beatDurMs) % 8.0;
+            this.flowResponseBar = elapsedBeats >= 4.0;
+            this.flowBeat = elapsedBeats % 4.0;
+            this.renderFlowMatrixStage(this.loadHistory());
+            this.flowAnimationId = requestAnimationFrame(step);
+        };
+        this.flowAnimationId = requestAnimationFrame(step);
+    }
+
+    stopFlowLoop() {
+        this.flowPlaying = false;
+        if (this.flowAnimationId) {
+            cancelAnimationFrame(this.flowAnimationId);
+            this.flowAnimationId = null;
+        }
+        if (this.flowPlayBtnEl) {
+            this.flowPlayBtnEl.textContent = '▶ Start 2-Bar Loop';
+        }
     }
 
     renderPlot(targetElement, record) {

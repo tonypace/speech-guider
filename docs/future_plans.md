@@ -29,11 +29,6 @@ The initial codebase cleanup stack (`P0.1`–`P4.3`) was completed and logged in
 
 ## Priority 2 — Planned features & domain research
 
-### Prosody Lab feature implementation
-- **References:** [Speech Rhythm exploratory research & prototypes](../research/speech-rhythm/README.md)
-- **Context:** `#tab-btn-prosody` remains `hidden` in `app/templates/index.html` pending a dedicated feature pass.
-- **Scope:** Un-hide Prosody Lab when ready, build the measurement timeline and event diagnostics, replace unvalidated FFT/energy heuristics in `src/audio/prosody_lab.py` with validated syllable/timing and speech-rate metrics, and define sliding-window nPVI semantics.
-
 ### Acoustic validation for voice quality and coaching thresholds
 - **References:** [Release contracts](release-contracts.md)
 - **Scope:** Validate heuristic CPPS, spectral tilt, jitter/shimmer, and pitch coaching thresholds against a versioned Praat reference script suite and licensed recorded speech before surfacing clinical/diagnostic claims.

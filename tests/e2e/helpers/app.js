@@ -20,7 +20,7 @@ async function openHome(page) {
  * @param {'analysis' | 'animation' | 'prosody' | 'comparison'} tabName
  */
 async function switchToTab(page, tabName) {
-    if (tabName === 'prosody' || tabName === 'animation') {
+    if (tabName === 'animation') {
         await page.evaluate(name => window.switchTab(name), tabName);
     } else {
         await page.locator(`#tab-btn-${tabName}`).click();
