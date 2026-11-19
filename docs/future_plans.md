@@ -29,6 +29,10 @@ The initial codebase cleanup stack (`P0.1`–`P4.3`) was completed and logged in
 
 ## Priority 2 — Planned features & domain research
 
+### Prosody Lab Audio Mode evaluation after student testing
+- **Files:** `app/templates/index.html`, `static/js/prosody_lab.js`, `static/js/prosody_rhythm_views.js`
+- **Scope:** Prompt user after student testing to decide between `Synth + Beats` (`synth_beats`) and `Real Voice / TTS Only` (`real_tts`) on `#prosody-audio-mode-select`, then lock in the winning audio mode.
+
 ### Acoustic validation for voice quality and coaching thresholds
 - **References:** [Release contracts](release-contracts.md)
 - **Scope:** Validate heuristic CPPS, spectral tilt, jitter/shimmer, and pitch coaching thresholds against a versioned Praat reference script suite and licensed recorded speech before surfacing clinical/diagnostic claims.

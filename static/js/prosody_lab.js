@@ -3,7 +3,14 @@ import { listen, releaseCapture } from './capture_resources.js';
 import { microphoneError, openMicrophone } from './microphone.js';
 import { convertAudioToWav, encodePcmWav } from './audio_conversion.js';
 import { escapeHtml } from './ipa_tooltips.js';
-import { renderVocAlignTetherDiagnosticSVG, renderFlowMatrixTrainerSVG } from './prosody_rhythm_views.js';
+import {
+    getPhraseById,
+    setCustomPhrase,
+    alignRecordPairToTetherItems,
+    renderVocAlignTetherDiagnosticSVG,
+    renderFlowMatrixTrainerSVG,
+    ProsodyAudioPlayer,
+} from './prosody_rhythm_views.js';
 
 function midiToNoteName(midi) {
     if (midi === null || midi === undefined || Number.isNaN(midi)) {
@@ -48,7 +55,9 @@ function snapToGrid(value, gridStep) {
 function buildNoteTicks(minMidi, maxMidi) {
     const tickVals = [];
     const tickText = [];
-    for (let midi = Math.floor(minMidi); midi <= Math.ceil(maxMidi); midi += 1) {
+    const span = Math.max(1, Math.ceil(maxMidi) - Math.floor(minMidi));
+    const step = Math.max(2, Math.ceil(span / 5));
+    for (let midi = Math.floor(minMidi); midi <= Math.ceil(maxMidi); midi += step) {
         tickVals.push(midi);
         tickText.push(midiToNoteName(midi));
     }
@@ -223,8 +232,14 @@ function buildMusicalScoreChart(record, options = {}) {
         traces.push(...barTraces);
     });
     const axesDict = {};
+    const gap = bars.length > 1 ? Math.min(0.08, 0.25 / bars.length) : 0;
+    const bandHeight = (1 - gap * (bars.length - 1)) / bars.length;
     bars.forEach((bar, idx) => {
         const row = idx + 1;
+        const yAxisKey = row === 1 ? 'y' : `y${row}`;
+        const xAxisKey = row === 1 ? 'x' : `x${row}`;
+        const top = Math.min(1, 1 - idx * (bandHeight + gap));
+        const bottom = Math.max(0, top - bandHeight);
         axesDict[`yaxis${row}`] = {
             title: idx === 0 ? 'Note' : '',
             range: [globalMinMidi, globalMaxMidi],
@@ -234,14 +249,16 @@ function buildMusicalScoreChart(record, options = {}) {
             gridcolor: '#d1d5db',
             zeroline: false,
             showgrid: true,
-            domain: [1 - row / bars.length, 1 - (row - 1) / bars.length],
+            domain: [bottom, top],
+            anchor: xAxisKey,
         };
         axesDict[`xaxis${row}`] = {
             title: idx === bars.length - 1 ? 'Time (s)' : '',
             zeroline: false,
             gridcolor: '#e5e7eb',
-            showticklabels: true,
+            showticklabels: idx === bars.length - 1,
             ticksuffix: 's',
+            anchor: yAxisKey,
         };
     });
     axesDict.xaxis = { ...axesDict.xaxis1 };
@@ -282,12 +299,18 @@ class ProsodyLabRecorder {
         this.phraseId = 'prepared';
         this.profileKey = 'dysfluent_hesitation';
         this.dtwNormFactor = 1.0;
+        this.activeRhythmTab = 'review';
+        this.audioMode = 'synth_beats';
         this.performer = 'bot_native';
         this.flowPlaying = false;
         this.flowStartMs = 0;
         this.flowBeat = 0.0;
         this.flowResponseBar = false;
         this.flowAnimationId = null;
+        this.playheadRafId = null;
+        this.audioPlayer = new ProsodyAudioPlayer();
+        this.latestRecordedBlobUrl = null;
+        this.referenceTtsCache = {};
         this.stream = null;
         this.visualizerSource = null;
         this.eventListeners = [];
@@ -319,13 +342,22 @@ class ProsodyLabRecorder {
         this.studentPlotEl = document.getElementById('prosody-student-plot');
         this.tetherStageEl = document.getElementById('prosody-tether-stage');
         this.flowStageEl = document.getElementById('prosody-flow-stage');
+        this.reviewTabBtnEl = document.getElementById('prosody-view-tab-review');
+        this.liveTabBtnEl = document.getElementById('prosody-view-tab-live');
+        this.reviewPanelEl = document.getElementById('prosody-panel-review');
+        this.livePanelEl = document.getElementById('prosody-panel-live');
         this.phraseSelectEl = document.getElementById('prosody-phrase-select');
+        this.audioModeSelectEl = document.getElementById('prosody-audio-mode-select');
+        this.customTextEl = document.getElementById('prosody-custom-text');
+        this.customGenerateBtnEl = document.getElementById('prosody-custom-generate-btn');
         this.profileSelectEl = document.getElementById('prosody-profile-select');
-        this.dtwSliderEl = document.getElementById('prosody-dtw-slider');
-        this.dtwLabelEl = document.getElementById('prosody-dtw-label');
+        this.playRefBtnEl = document.getElementById('prosody-play-ref-btn');
+        this.playLearnerBtnEl = document.getElementById('prosody-play-learner-btn');
+        this.stopAudioBtnEl = document.getElementById('prosody-stop-audio-btn');
         this.performerSelectEl = document.getElementById('prosody-performer-select');
         this.flowPlayBtnEl = document.getElementById('prosody-flow-play-btn');
         this.flowBar2BtnEl = document.getElementById('prosody-flow-bar2-btn');
+        this.sendToReviewBtnEl = document.getElementById('prosody-send-to-review-btn');
 
         if (this.waveformCanvas) {
             this.canvas = this.waveformCanvas;
@@ -373,10 +405,34 @@ class ProsodyLabRecorder {
             });
         }
 
+        if (this.reviewTabBtnEl) {
+            listen(this, this.reviewTabBtnEl, 'click', () => {
+                this.setRhythmTab('review');
+            });
+        }
+        if (this.liveTabBtnEl) {
+            listen(this, this.liveTabBtnEl, 'click', () => {
+                this.setRhythmTab('live');
+            });
+        }
         if (this.phraseSelectEl) {
             listen(this, this.phraseSelectEl, 'change', () => {
                 this.phraseId = this.phraseSelectEl.value || 'prepared';
+                const phrase = getPhraseById(this.phraseId);
+                if (this.customTextEl && this.phraseId !== 'custom') {
+                    this.customTextEl.value = phrase.title.replace(/\.\.\./g, ',').replace(/-/g, '');
+                }
                 this.renderRhythmViews(this.loadHistory());
+            });
+        }
+        if (this.audioModeSelectEl) {
+            listen(this, this.audioModeSelectEl, 'change', () => {
+                this.audioMode = this.audioModeSelectEl.value || 'synth_beats';
+            });
+        }
+        if (this.customGenerateBtnEl) {
+            listen(this, this.customGenerateBtnEl, 'click', () => {
+                void this.generateCustomSentenceReference();
             });
         }
         if (this.profileSelectEl) {
@@ -385,13 +441,19 @@ class ProsodyLabRecorder {
                 this.renderRhythmViews(this.loadHistory());
             });
         }
-        if (this.dtwSliderEl) {
-            listen(this, this.dtwSliderEl, 'input', () => {
-                this.dtwNormFactor = parseFloat(this.dtwSliderEl.value);
-                if (this.dtwLabelEl) {
-                    this.dtwLabelEl.textContent = `${Math.round(this.dtwNormFactor * 100)}%`;
-                }
-                this.renderRhythmViews(this.loadHistory());
+        if (this.playRefBtnEl) {
+            listen(this, this.playRefBtnEl, 'click', () => {
+                void this.auditionTimingTrack('reference');
+            });
+        }
+        if (this.playLearnerBtnEl) {
+            listen(this, this.playLearnerBtnEl, 'click', () => {
+                void this.auditionTimingTrack('learner');
+            });
+        }
+        if (this.stopAudioBtnEl) {
+            listen(this, this.stopAudioBtnEl, 'click', () => {
+                this.stopAllAudio();
             });
         }
         if (this.performerSelectEl) {
@@ -410,6 +472,24 @@ class ProsodyLabRecorder {
                 this.flowResponseBar = true;
                 this.flowBeat = 2.0;
                 this.renderFlowMatrixStage(this.loadHistory());
+            });
+        }
+        if (this.sendToReviewBtnEl) {
+            listen(this, this.sendToReviewBtnEl, 'click', () => {
+                if (this.performer === 'bot_native') {
+                    this.profileKey = 'native_expressive';
+                } else if (this.performer === 'bot_choppy') {
+                    this.profileKey = 'syllable_timed_choppy';
+                } else if (this.performer === 'bot_dysfluent') {
+                    this.profileKey = 'dysfluent_hesitation';
+                } else {
+                    this.profileKey = 'recorded_take';
+                }
+                if (this.profileSelectEl) {
+                    this.profileSelectEl.value = this.profileKey;
+                }
+                this.setRhythmTab('review');
+                this.renderRhythmViews(this.loadHistory());
             });
         }
     }
@@ -460,7 +540,12 @@ class ProsodyLabRecorder {
         this.isStartingRecording = false;
         this.cancelOnStop = true;
         this.isRecording = false;
+        this.stopAllAudio();
         this.stopFlowLoop();
+        if (this.latestRecordedBlobUrl && typeof URL?.revokeObjectURL === 'function') {
+            URL.revokeObjectURL(this.latestRecordedBlobUrl);
+            this.latestRecordedBlobUrl = null;
+        }
         clearInterval(this.timerInterval);
         clearTimeout(this.recordingTimeout);
         if (this.animationId) cancelAnimationFrame(this.animationId);
@@ -500,12 +585,13 @@ class ProsodyLabRecorder {
     setStatus(message, isError = false) {
         if (!this.statusEl) return;
         this.statusEl.textContent = message;
-        this.statusEl.className = `mt-4 text-sm ${isError ? 'text-red-600' : 'text-gray-600'}`;
+        this.statusEl.className = `text-xs ${isError ? 'text-red-600' : 'text-gray-600'}`;
     }
 
     startRecording() {
         if (this.destroyed || this.isStartingRecording || this.isRecording || !this.mediaRecorder || window.currentTab !== 'prosody') return;
 
+        this.stopAllAudio();
         this.isRecording = true;
         this.audioChunks = [];
         this.startTime = Date.now();
@@ -595,6 +681,13 @@ class ProsodyLabRecorder {
         try {
             const wavBlob = await this.convertToWav(new Blob(this.audioChunks, { type: this.mediaRecorder?.mimeType || this.audioChunks[0]?.type }));
             if (this.destroyed) return;
+            if (this.latestRecordedBlobUrl && typeof URL?.revokeObjectURL === 'function') {
+                URL.revokeObjectURL(this.latestRecordedBlobUrl);
+            }
+            if (typeof URL?.createObjectURL === 'function') {
+                this.latestRecordedBlobUrl = URL.createObjectURL(wavBlob);
+            }
+
             const formData = new FormData();
             formData.append('audio', wavBlob, 'prosody-recording.wav');
 
@@ -605,6 +698,10 @@ class ProsodyLabRecorder {
 
             const result = await response.json();
             if (this.destroyed) return;
+            this.profileKey = 'recorded_take';
+            if (this.profileSelectEl) {
+                this.profileSelectEl.value = 'recorded_take';
+            }
             await this.storeRecord(result);
             this.renderFromStorage(result.recording_id);
             this.setStatus('Analysis complete.');
@@ -615,6 +712,140 @@ class ProsodyLabRecorder {
             if (this.recTimer) {
                 this.recTimer.textContent = '00:00';
             }
+        }
+    }
+
+    async generateCustomSentenceReference() {
+        const rawText = (this.customTextEl?.value || '').trim();
+        if (!rawText) {
+            this.setStatus('Enter a custom sentence first.', true);
+            return;
+        }
+        if (this.customGenerateBtnEl) {
+            this.customGenerateBtnEl.disabled = true;
+            this.customGenerateBtnEl.textContent = 'Generating...';
+        }
+        this.setStatus('Synthesizing reference & P-centers...');
+        try {
+            const response = await fetch('/api/prosody-lab/reference', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ target_text: rawText }),
+            });
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            const data = await response.json();
+            if (this.destroyed) return;
+            setCustomPhrase({
+                ...data.phrase,
+                audioBase64: data.audio_base64,
+                mimeType: data.mime_type || 'audio/wav',
+            });
+            this.referenceTtsCache.custom = {
+                audioBase64: data.audio_base64,
+                mimeType: data.mime_type || 'audio/wav',
+            };
+            this.phraseId = 'custom';
+            if (this.phraseSelectEl) {
+                this.phraseSelectEl.value = 'custom';
+            }
+            this.renderRhythmViews(this.loadHistory());
+            this.setStatus(`Reference ready (${data.phrase?.syllables?.length || 0} syllables).`);
+        } catch (error) {
+            console.error('Custom reference synthesis failed:', error);
+            this.setStatus(`Reference failed: ${error.message}`, true);
+        } finally {
+            if (this.customGenerateBtnEl) {
+                this.customGenerateBtnEl.disabled = false;
+                this.customGenerateBtnEl.textContent = 'Generate Reference (TTS)';
+            }
+        }
+    }
+
+    async auditionTimingTrack(which = 'reference') {
+        this.stopAllAudio();
+        const history = this.loadHistory();
+        const teacherRecord = history.find((item) => item.recording_id === this.getTeacherId()) || history[1] || null;
+        const studentRecord = history.find((item) => item.recording_id === this.getStudentId()) || history[0] || null;
+        const aligned = alignRecordPairToTetherItems(teacherRecord, studentRecord, this.phraseId, this.profileKey);
+        const phrase = aligned.phrase;
+        const bpm = phrase.bpm || 88;
+        const durationMs = Math.round((60 / bpm) * 4.4 * 1000);
+
+        if (this.audioMode === 'real_tts') {
+            if (which === 'learner' && this.latestRecordedBlobUrl) {
+                this.audioPlayer.playBlobUrl(this.latestRecordedBlobUrl);
+            } else if (which === 'reference') {
+                let tts = phrase.audioBase64
+                    ? { audioBase64: phrase.audioBase64, mimeType: phrase.mimeType || 'audio/wav' }
+                    : this.referenceTtsCache[this.phraseId];
+                if (!tts) {
+                    try {
+                        const cleanSentence = phrase.title.replace(/\.\.\./g, ',').replace(/-/g, '');
+                        const resp = await fetch('/api/prosody-lab/reference', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ target_text: cleanSentence }),
+                        });
+                        if (resp.ok) {
+                            const payload = await resp.json();
+                            tts = { audioBase64: payload.audio_base64, mimeType: payload.mime_type || 'audio/wav' };
+                            this.referenceTtsCache[this.phraseId] = tts;
+                        }
+                    } catch {
+                        // Fall back to clean formant voice without beats
+                    }
+                }
+                if (tts?.audioBase64) {
+                    this.audioPlayer.playBase64Audio(tts.audioBase64, tts.mimeType);
+                } else {
+                    this.audioPlayer.playSyllableSequence(aligned.natSyls, bpm, false);
+                }
+            } else {
+                this.audioPlayer.playSyllableSequence(aligned.lrnSyls, bpm, false);
+            }
+        } else {
+            const syls = which === 'reference' ? aligned.natSyls : aligned.lrnSyls;
+            this.audioPlayer.playSyllableSequence(syls, bpm, true);
+        }
+
+        this.startTetherPlayheadSweep(durationMs);
+    }
+
+    startTetherPlayheadSweep(durationMs) {
+        if (this.playheadRafId) {
+            cancelAnimationFrame(this.playheadRafId);
+            this.playheadRafId = null;
+        }
+        const playheadEl = document.getElementById('prosody-tether-playhead');
+        if (!playheadEl) return;
+
+        playheadEl.style.opacity = '1';
+        const startMs = performance.now();
+        const step = (now) => {
+            const frac = Math.min(1, Math.max(0, (now - startMs) / Math.max(400, durationMs)));
+            const x = 48 + frac * (928 - 48);
+            playheadEl.setAttribute('transform', `translate(${x.toFixed(1)}, 0)`);
+            if (frac < 1 && !this.destroyed) {
+                this.playheadRafId = requestAnimationFrame(step);
+            } else {
+                playheadEl.style.opacity = '0';
+                this.playheadRafId = null;
+            }
+        };
+        this.playheadRafId = requestAnimationFrame(step);
+    }
+
+    stopAllAudio() {
+        this.audioPlayer.stop();
+        if (this.playheadRafId) {
+            cancelAnimationFrame(this.playheadRafId);
+            this.playheadRafId = null;
+        }
+        const playheadEl = document.getElementById('prosody-tether-playhead');
+        if (playheadEl) {
+            playheadEl.style.opacity = '0';
         }
     }
 
@@ -680,7 +911,7 @@ class ProsodyLabRecorder {
                 ['Rate', formatMetricValue(summary.speech_rate, ' syll/s')],
             ]
                 .map(([label, value]) => `
-          <div class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+          <div class="rounded-lg border border-gray-200 bg-white px-3 py-2">
             <div class="text-xs uppercase tracking-wide text-gray-500">${escapeHtml(label)}</div>
             <div class="text-sm font-semibold text-gray-800">${escapeHtml(value === undefined || value === null ? '—' : value)}</div>
           </div>`)
@@ -695,7 +926,9 @@ class ProsodyLabRecorder {
         if (!this.feedbackEl) return;
 
         const summary = record.summary || {};
+        const phrase = getPhraseById(this.phraseId);
         this.feedbackEl.innerHTML = `
+      <p><strong>Phrase focus:</strong> ${escapeHtml(phrase.teacherNote || phrase.title)}</p>
       <p><strong>Syllables:</strong> ${escapeHtml(summary.syllable_count ?? '—')} acoustic P-center nuclei</p>
       <p><strong>Pauses:</strong> ${escapeHtml(summary.pause_count ?? '—')} detected spans</p>
       <p><strong>Rhythm balance:</strong> ${escapeHtml(formatMetricValue(summary.rhythm_balance))}</p>
@@ -768,6 +1001,26 @@ class ProsodyLabRecorder {
         this.renderPlot(this.studentPlotEl, studentRecord);
     }
 
+    setRhythmTab(tab) {
+        this.activeRhythmTab = tab === 'live' ? 'live' : 'review';
+        const isReview = this.activeRhythmTab === 'review';
+        if (this.reviewPanelEl) this.reviewPanelEl.classList.toggle('hidden', !isReview);
+        if (this.livePanelEl) this.livePanelEl.classList.toggle('hidden', isReview);
+        if (this.reviewTabBtnEl) {
+            this.reviewTabBtnEl.className = isReview
+                ? 'rounded-md bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-sm'
+                : 'rounded-md bg-gray-100 px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-200';
+        }
+        if (this.liveTabBtnEl) {
+            this.liveTabBtnEl.className = !isReview
+                ? 'rounded-md bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-sm'
+                : 'rounded-md bg-gray-100 px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-200';
+        }
+        if (isReview && this.flowPlaying) {
+            this.stopFlowLoop();
+        }
+    }
+
     renderRhythmViews(history = []) {
         const teacherRecord = history.find((item) => item.recording_id === this.getTeacherId()) || history[1] || null;
         const studentRecord = history.find((item) => item.recording_id === this.getStudentId()) || history[0] || null;
@@ -806,17 +1059,40 @@ class ProsodyLabRecorder {
 
     startFlowLoop() {
         if (this.flowPlaying || this.destroyed) return;
+        this.stopAllAudio();
         this.flowPlaying = true;
         this.flowStartMs = performance.now();
+        this.lastLoopBarIndex = -1;
         if (this.flowPlayBtnEl) {
             this.flowPlayBtnEl.textContent = '■ Stop 2-Bar Loop';
         }
+        const phrase = getPhraseById(this.phraseId);
+        const bpm = phrase.bpm || 88;
+        const beatDurMs = (60 / bpm) * 1000;
+
         const step = (now) => {
             if (!this.flowPlaying || this.destroyed) return;
-            const beatDurMs = (60 / 88) * 1000;
-            const elapsedBeats = ((now - this.flowStartMs) / beatDurMs) % 8.0;
+            const totalBeats = (now - this.flowStartMs) / beatDurMs;
+            const barIdx = Math.floor(totalBeats / 4.0);
+            const elapsedBeats = totalBeats % 8.0;
             this.flowResponseBar = elapsedBeats >= 4.0;
             this.flowBeat = elapsedBeats % 4.0;
+
+            if (barIdx !== this.lastLoopBarIndex) {
+                this.lastLoopBarIndex = barIdx;
+                const includeBeats = this.audioMode === 'synth_beats';
+                if (!this.flowResponseBar) {
+                    this.audioPlayer.playSyllableSequence(phrase.syllables, bpm, includeBeats);
+                } else if (includeBeats) {
+                    for (let b = 0; b < 4; b += 1) {
+                        const ctx = this.audioPlayer._ensureCtx();
+                        if (ctx) {
+                            this.audioPlayer.scheduleBeatClick(b, ctx.currentTime + 0.02 + b * (60 / bpm));
+                        }
+                    }
+                }
+            }
+
             this.renderFlowMatrixStage(this.loadHistory());
             this.flowAnimationId = requestAnimationFrame(step);
         };
@@ -829,6 +1105,7 @@ class ProsodyLabRecorder {
             cancelAnimationFrame(this.flowAnimationId);
             this.flowAnimationId = null;
         }
+        this.audioPlayer.stop();
         if (this.flowPlayBtnEl) {
             this.flowPlayBtnEl.textContent = '▶ Start 2-Bar Loop';
         }

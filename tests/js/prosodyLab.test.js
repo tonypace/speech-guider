@@ -57,11 +57,12 @@ describe('Prosody Lab helpers', () => {
         const presetSvg = renderVocAlignTetherDiagnosticSVG({
             phraseId: 'prepared',
             profileKey: 'dysfluent_hesitation',
-            normFactor: 1.0,
+            normFactor: 0.0,
         });
         expect(presetSvg).toContain('data-prosody-tether-svg="true"');
-        expect(presetSvg).toContain('VOCALIGN ELASTIC TETHERS');
-        expect(presetSvg).toContain('POLAK 100% FOOT-BUDGET STRIP');
+        expect(presetSvg).toContain('REFERENCE');
+        expect(presetSvg).toContain('LEARNER TAKE');
+        expect(presetSvg).not.toContain('DEDICATED MILLISECOND DEVIATION');
 
         const teacherRecord = {
             recording_id: 'teach-1',
@@ -88,11 +89,11 @@ describe('Prosody Lab helpers', () => {
 
         const pairSvg = renderVocAlignTetherDiagnosticSVG({
             phraseId: 'prepared',
-            normFactor: 0.5,
+            normFactor: 0.0,
             teacherRecord,
             studentRecord,
         });
-        expect(pairSvg).toContain('RECORDED_PAIR');
+        expect(pairSvg).toContain('data-source-mode="recorded_pair"');
         expect(computeVocalicNpvi([0.22, 0.07, 0.28])).toBeGreaterThan(40);
     });
 

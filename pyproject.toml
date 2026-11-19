@@ -9,6 +9,7 @@ line-length = 100
 target-version = "py312"
 exclude = [
     "archive",
+    "docs",
     "external",
     "omnivoice-tts",
     "node_modules",
@@ -32,6 +33,7 @@ ignore = ["E501"]
 python_version = "3.12"
 exclude = [
     "archive/",
+    "docs/",
     "external/",
     "omnivoice-tts/",
     "node_modules/",

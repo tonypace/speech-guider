@@ -20,7 +20,8 @@ export default defineConfig([
             'playwright-report/**',
             'test-results/**',
             '.opencode/**',
-            'research/**'
+            'research/**',
+            'docs/**'
         ]
     },
     {

@@ -49,16 +49,17 @@ export function buildStandaloneHtml() {
     }
 
     for (const mod of SCRIPT_MODULES) {
-        const tag = `<script src="${mod.src}"></script>`;
-        if (!html.includes(tag)) {
-            throw new Error(`Expected script tag not found in index.html: ${tag}`);
+        const escapedSrc = mod.src.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const tagRegex = new RegExp(`<script src="${escapedSrc}(?:\\?[^"]*)?"><\\/script>`);
+        if (!tagRegex.test(html)) {
+            throw new Error(`Expected script tag not found in index.html for: ${mod.src}`);
         }
         const source = fs.readFileSync(mod.filePath, 'utf8');
         if (source.toLowerCase().includes('</script>')) {
             throw new Error(`Unsafe </script> sequence found in ${mod.filePath}`);
         }
         // Use a replacer function so `$` sequences inside JS code are never treated as replacement patterns.
-        html = html.replace(tag, () => `<script>\n${source}\n  </script>`);
+        html = html.replace(tagRegex, () => `<script>\n${source}\n  </script>`);
     }
 
     return html;

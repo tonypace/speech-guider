@@ -28,7 +28,10 @@ test.describe('Prosody Lab — Mocked UI Flow', () => {
         const prosodyPanel = page.locator('#tab-panel-prosody');
         await expect(prosodyPanel).toBeVisible();
         await expect(page.locator('#prosody-tether-stage svg')).toBeVisible();
+        await expect(page.locator('#prosody-flow-stage svg')).toBeHidden();
+        await page.locator('#prosody-view-tab-live').click();
         await expect(page.locator('#prosody-flow-stage svg')).toBeVisible();
+        await expect(page.locator('#prosody-tether-stage svg')).toBeHidden();
     });
 
     test('switching from analysis to prosody hides analysis panel', async ({ page }) => {

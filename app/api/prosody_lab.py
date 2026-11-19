@@ -7,10 +7,14 @@ import logging
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 
-from app.models.schemas import ProsodyLabAnalysisResponse
+from app.models.schemas import (
+    ProsodyLabAnalysisResponse,
+    ProsodyLabReferenceRequest,
+    ProsodyLabReferenceResponse,
+)
 from app.services.concurrency import run_inference
 from app.utils.audio import cleanup_temp_file, save_upload_to_temp
-from src.audio.prosody_lab import analyze_prosody_recording
+from src.audio.prosody_lab import analyze_prosody_recording, generate_prosody_reference
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -38,3 +42,22 @@ async def analyze_prosody_lab(
         ) from exc
     finally:
         cleanup_temp_file(temp_path)
+
+
+@router.post("/api/prosody-lab/reference", response_model=ProsodyLabReferenceResponse)
+async def create_prosody_lab_reference(
+    request: ProsodyLabReferenceRequest,
+) -> JSONResponse:
+    """Synthesize a custom reference utterance and build a beat-mapped prosody phrase."""
+
+    try:
+        result = await run_inference(generate_prosody_reference, request.target_text)
+        payload = ProsodyLabReferenceResponse(**result).model_dump(mode="json")
+        return JSONResponse(content=payload)
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Prosody reference generation failed")
+        raise HTTPException(status_code=500, detail="Prosody reference generation failed.") from exc

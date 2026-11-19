@@ -991,52 +991,36 @@
   //    VocAlign Pro Elastic Tethers, Dysfluency Callouts & Deviation Diff Strip
   // --------------------------------------------------------------------------
   function renderVocAlignTetherSVG(data) {
-    const { phrase, items, normFactor, globalRate } = data;
+    const { phrase, items } = data;
     const maxBeat = getMaxBeat(phrase, items);
     const beatToX = makeBeatToX(maxBeat, 56, 934);
     const spanW = 934 - 56;
 
-    const svgH = 440;
+    const svgH = 340;
     let svg = buildSharedSvgDefs();
     svg += `<rect x="0" y="0" width="960" height="${svgH}" rx="10" fill="#070d19" />`;
-    svg += renderTopDiagnosticHeaderSVG(data);
 
-    // Track Vertical Layout:
-    // 1) Native Reference Track: y = 44..134 (h = 90)
-    // 2) Upper Elastic Tether Zone: y = 134..206 (h = 72)
-    // 3) Dedicated Deviation & Energy Diff Strip: y = 206..256 (h = 50)
-    // 4) Lower Elastic Tether Zone: y = 256..304 (h = 48)
-    // 5) Dysfluent / Learner Utterance Track: y = 304..408 (h = 104)
-    const natTrackY = 44;
-    const natTrackH = 90;
-    const gutterY = 134;
-    const diffStripY = 204;
-    const diffStripH = 48;
-    const lrnTrackY = 298;
-    const lrnTrackH = 108;
+    const natTrackY = 16;
+    const natTrackH = 86;
+    const gutterY = 102;
+    const lrnTrackY = 206;
+    const lrnTrackH = 104;
     const gutterH = lrnTrackY - gutterY;
 
     svg += `
-      <!-- 1. Native Reference Track Box -->
+      <!-- 1. Reference Track -->
       <rect x="16" y="${natTrackY}" width="928" height="${natTrackH}" rx="8" fill="rgba(15, 23, 42, 0.90)" stroke="rgba(56, 189, 248, 0.35)" stroke-width="1.3" />
-      <text x="28" y="${natTrackY + 16}" fill="#38bdf8" font-size="11" font-weight="800" letter-spacing="0.4">
-        NATIVE REFERENCE TRACK — Target P-Centers (♦), Pre-Beat Consonant Runways (///str), Crisp Schwa Ghosts &amp; Danielsen Beat Bins
+      <text x="28" y="${natTrackY + 18}" fill="#38bdf8" font-size="11" font-weight="800" letter-spacing="0.4">
+        REFERENCE
       </text>
 
-      <!-- 2. Alignment Tether Gutter & Dedicated Deviation Strip -->
+      <!-- 2. Elastic Tether Gutter (No middle deviation strip) -->
       <rect x="16" y="${gutterY}" width="928" height="${gutterH}" fill="rgba(2, 6, 23, 0.78)" />
-      <rect x="16" y="${diffStripY}" width="928" height="${diffStripH}" fill="rgba(15, 23, 42, 0.94)" stroke="rgba(148, 163, 184, 0.28)" stroke-width="1" />
-      <text x="26" y="${gutterY + 14}" fill="#94a3b8" font-size="10" font-weight="800">
-        VOCALIGN ELASTIC TETHER GUTTER — ⚡ Red Tear = Mid-Foot Block | / \\ Amber Funnel = +140% Bloated Schwa | [c-][c-] Purple = Stutter Lag | |✂ Orange = Clipped/Rushed
-      </text>
-      <text x="26" y="${diffStripY + 13}" fill="#38bdf8" font-size="9.5" font-weight="800" letter-spacing="0.5">
-        DEDICATED MILLISECOND DEVIATION &amp; ENERGY DIFF STRIP (Explicit Timing Offset + Duration Ratio on Every Syllable):
-      </text>
 
-      <!-- 3. Learner / Dysfluent Track Box -->
+      <!-- 3. Learner Track -->
       <rect x="16" y="${lrnTrackY}" width="928" height="${lrnTrackH}" rx="8" fill="rgba(15, 23, 42, 0.90)" stroke="rgba(244, 63, 94, 0.32)" stroke-width="1.3" />
-      <text x="28" y="${lrnTrackY + 16}" fill="#f8fafc" font-size="11" font-weight="800" letter-spacing="0.4">
-        DYSFLUENT / LEARNER UTTERANCE TRACK (${normFactor >= 0.85 ? 'DTW Foot-Normalized to 1.0× Frame' : normFactor <= 0.15 ? `Raw Unnormalized Clock @ ${globalRate.toFixed(2)}× Rate` : `DTW Normalization ${(normFactor * 100).toFixed(0)}%`})
+      <text x="28" y="${lrnTrackY + 18}" fill="#f8fafc" font-size="11" font-weight="800" letter-spacing="0.4">
+        LEARNER TAKE
       </text>
     `;
 
@@ -1051,35 +1035,37 @@
           stroke-dasharray="${isIntBeat ? '4 3' : ''}" />
       `;
       if (isIntBeat) {
-        svg += `<text x="${gx}" y="${lrnTrackY + lrnTrackH + 15}" text-anchor="middle" fill="#818cf8" font-size="10.5" font-family="monospace" font-weight="800">Beat ${Math.round(b)}.0</text>`;
+        svg += `<text x="${gx}" y="${lrnTrackY + lrnTrackH + 16}" text-anchor="middle" fill="#818cf8" font-size="10.5" font-family="monospace" font-weight="800">Beat ${Math.round(b)}</text>`;
       }
     }
 
-    // Danielsen Shaded Beat Bins (Gaussian Tolerance Windows) around Stressed Native P-Centers
+    // Shaded Beat Bins around Stressed Native P-Centers
     items.forEach(s => {
       if (!s.isGhost) {
         const nx = beatToX(s.beat);
         const binHalfW = Math.max(19, (0.095 / maxBeat) * spanW);
         svg += `
           <rect x="${nx - binHalfW}" y="${natTrackY + 22}" width="${binHalfW * 2}" height="${natTrackH + gutterH + lrnTrackH - 26}" fill="url(#g1-beatbin-grad)" />
-          <polygon points="${nx - binHalfW * 0.65},${natTrackY + 22} ${nx + binHalfW * 0.65},${natTrackY + 22} ${nx + binHalfW},${natTrackY + 35} ${nx - binHalfW},${natTrackY + 35}" fill="rgba(16, 185, 129, 0.28)" />
-          <line x1="${nx}" y1="${natTrackY + 22}" x2="${nx}" y2="${lrnTrackY + lrnTrackH - 6}" stroke="#10b981" stroke-width="1.3" stroke-opacity="0.55" stroke-dasharray="3 2" />
-          <text x="${nx}" y="${natTrackY + 32}" text-anchor="middle" fill="#34d399" font-size="8.5" font-weight="800">BEAT BIN</text>
+          <line x1="${nx}" y1="${natTrackY + 22}" x2="${nx}" y2="${lrnTrackY + lrnTrackH - 6}" stroke="#10b981" stroke-width="1.2" stroke-opacity="0.5" stroke-dasharray="3 2" />
         `;
       }
     });
 
-    // Render Each Syllable: Native Capsule, Elastic Tether Ribbon, Deviation Strip Badge, and Learner Callout
+    // Render Each Syllable: Reference Capsule, Clean Elastic Tether Ribbon, and Learner Capsule
+    let minLearnerX = 28;
+    let prevLearnerRightX = 28;
     items.forEach((s, idx) => {
       const nx = beatToX(s.beat);
       const nw = Math.max(24, (s.dur / maxBeat) * spanW);
-      const nPreW = s.natPreBeats > 0 ? Math.max(14, (s.natPreBeats / maxBeat) * spanW) : 0;
+      const showPre = !s.isGhost && (s.pre || '').length >= 2 && s.natPreBeats > 0;
+      const nPreW = showPre ? Math.max(16, (s.natPreBeats / maxBeat) * spanW) : 0;
 
-      const lx = beatToX(s.learnerBeat);
+      const lPreW = showPre ? nPreW : 0;
+      const rawLx = beatToX(s.learnerBeat);
+      const lx = Math.max(rawLx, minLearnerX + lPreW + (s.hasBlockBefore ? 44 : 0));
       const lw = Math.max(24, (s.learnerDur / maxBeat) * spanW);
-      const lPreW = s.natPreBeats > 0 ? nPreW : 0;
+      minLearnerX = lx + lw + 4;
 
-      // Determine high-contrast colors & tether styling
       let strokeColor = '#10b981';
       let ribbonFill = 'rgba(16, 185, 129, 0.20)';
       let capsuleFill = 'rgba(16, 185, 129, 0.25)';
@@ -1100,135 +1086,59 @@
         strokeColor = '#fb923c';
         ribbonFill = 'rgba(249, 115, 22, 0.28)';
         capsuleFill = 'rgba(249, 115, 22, 0.32)';
-      } else if (s.status === 'late') {
+      } else if (s.status === 'late' || Math.abs(s.apparentMs) > 65) {
         strokeColor = '#c084fc';
         ribbonFill = 'rgba(192, 132, 252, 0.24)';
         capsuleFill = 'rgba(192, 132, 252, 0.28)';
-      } else if (s.errorType === 'expressive_rubato') {
-        strokeColor = '#34d399';
-        ribbonFill = 'rgba(16, 185, 129, 0.22)';
-        capsuleFill = 'rgba(16, 185, 129, 0.28)';
       }
 
-      const natTop = s.isGhost ? natTrackY + 46 : natTrackY + 36;
+      const natTop = s.isGhost ? natTrackY + 42 : natTrackY + 32;
       const natH = s.isGhost ? 28 : 42;
       const natBot = natTop + natH;
 
-      const lrnTop = s.isGhost && !s.isProlonged ? lrnTrackY + 42 : lrnTrackY + 30;
+      const lrnTop = s.isGhost && !s.isProlonged ? lrnTrackY + 38 : lrnTrackY + 26;
       const lrnH = s.isGhost && !s.isProlonged ? 30 : 46;
 
-      // ----------------------------------------------------------------------
-      // A. SPECIAL CALLOUT 1: MID-FOOT HESITATION BLOCK (Red/Rose Jagged Tear Zone)
-      // ----------------------------------------------------------------------
+      // A. Mid-Foot Hesitation Block Tear Zone
       if (s.hasBlockBefore) {
-        const prevItem = idx > 0 ? items[idx - 1] : null;
-        const tearStartX = prevItem
-          ? Math.min(lx - 28, beatToX(prevItem.learnerBeat + prevItem.learnerDur) + 2)
+        const tearStartX = idx > 0
+          ? Math.min(lx - 30, prevLearnerRightX + 2)
           : Math.max(58, lx - 64);
-        const tearEndX = Math.max(tearStartX + 38, lx - (s.isStuttered ? 26 : 4));
-        const tearW = tearEndX - tearStartX;
-        const tearMidX = tearStartX + tearW / 2;
+        const tearEndX = Math.max(tearStartX + 36, lx - (s.isStuttered ? 26 : 4));
+        const tearMidX = (tearStartX + tearEndX) / 2;
 
-        // Jagged tear polygon splitting the tether gutter & learner track
         const jagLeft = `
-          ${tearStartX},${gutterY + 18}
-          ${tearStartX + 6},${gutterY + 38}
-          ${tearStartX - 4},${gutterY + 58}
+          ${tearStartX},${gutterY + 6}
+          ${tearStartX + 5},${gutterY + 34}
+          ${tearStartX - 4},${gutterY + 68}
           ${tearStartX + 5},${lrnTrackY}
-          ${tearStartX - 3},${lrnTrackY + 35}
-          ${tearStartX + 6},${lrnTrackY + 70}
           ${tearStartX},${lrnTrackY + lrnTrackH - 6}
         `.trim();
         const jagRight = `
           ${tearEndX},${lrnTrackY + lrnTrackH - 6}
-          ${tearEndX - 6},${lrnTrackY + 70}
-          ${tearEndX + 4},${lrnTrackY + 35}
           ${tearEndX - 5},${lrnTrackY}
-          ${tearEndX + 4},${gutterY + 58}
-          ${tearEndX - 6},${gutterY + 38}
-          ${tearEndX},${gutterY + 18}
+          ${tearEndX + 4},${gutterY + 68}
+          ${tearEndX - 5},${gutterY + 34}
+          ${tearEndX},${gutterY + 6}
         `.trim();
 
         svg += `
-          <!-- Jagged Red/Rose Hesitation Block Tear Zone -->
-          <polygon points="${jagLeft} ${jagRight}" fill="url(#g1-hatch-block-tear)" stroke="#f43f5e" stroke-width="2.2" />
-          <line x1="${tearStartX + 6}" y1="${gutterY + 44}" x2="${tearEndX - 6}" y2="${gutterY + 44}" stroke="#fb7185" stroke-width="2" marker-start="url(#g1-arrow-rose)" marker-end="url(#g1-arrow-rose)" />
-          <rect x="${tearMidX - 66}" y="${lrnTrackY + 26}" width="132" height="22" rx="5" fill="#881337" stroke="#fb7185" stroke-width="1.6" />
-          <text x="${tearMidX}" y="${lrnTrackY + 41}" text-anchor="middle" fill="#ffe4e6" font-size="9.5" font-family="monospace" font-weight="900">
-            ⚡ ${s.blockMs}ms BLOCK / "uh..."
-          </text>
-          <text x="${tearMidX}" y="${gutterY + 36}" text-anchor="middle" fill="#fda4af" font-size="9" font-weight="800">
-            TETHER SPLIT WIDE OPEN!
+          <polygon points="${jagLeft} ${jagRight}" fill="url(#g1-hatch-block-tear)" stroke="#f43f5e" stroke-width="2" />
+          <rect x="${tearMidX - 48}" y="${gutterY + gutterH / 2 - 10}" width="96" height="20" rx="5" fill="#881337" stroke="#fb7185" stroke-width="1.4" />
+          <text x="${tearMidX}" y="${gutterY + gutterH / 2 + 4}" text-anchor="middle" fill="#ffe4e6" font-size="9.5" font-family="monospace" font-weight="800">
+            ⚡ ${s.blockMs}ms Pause
           </text>
         `;
       }
 
-      // ----------------------------------------------------------------------
-      // B. ELASTIC TETHER RIBBON (Top Gutter + Bottom Gutter around Diff Strip)
-      // ----------------------------------------------------------------------
+      // B. Clean Direct Elastic Tether Ribbon
       svg += `
         <polygon points="${nx},${natBot} ${nx + nw},${natBot} ${lx + lw},${lrnTop} ${lx},${lrnTop}" fill="${ribbonFill}" />
-        <line x1="${nx}" y1="${natBot}" x2="${lx}" y2="${lrnTop}" stroke="${strokeColor}" stroke-width="${s.isProlonged || s.hasBlockBefore || s.crashedPause ? 2.8 : 2.1}" />
-        <line x1="${nx + nw}" y1="${natBot}" x2="${lx + lw}" y2="${lrnTop}" stroke="${strokeColor}" stroke-width="${s.isProlonged ? 2.6 : 1.5}" stroke-dasharray="${s.isProlonged ? '' : '4 2'}" />
+        <line x1="${nx}" y1="${natBot}" x2="${lx}" y2="${lrnTop}" stroke="${strokeColor}" stroke-width="${s.isProlonged || s.hasBlockBefore || s.crashedPause ? 2.6 : 2.0}" />
+        <line x1="${nx + nw}" y1="${natBot}" x2="${lx + lw}" y2="${lrnTop}" stroke="${strokeColor}" stroke-width="1.4" stroke-dasharray="4 2" />
       `;
 
-      // ----------------------------------------------------------------------
-      // C. SPECIAL CALLOUT 2: ABNORMAL PROLONGATION FUNNEL ("theeee..." +140% Bloated)
-      // ----------------------------------------------------------------------
-      if (s.isProlonged) {
-        const funnelY = gutterY + 42;
-        const funnelLeft = (nx + lx) / 2;
-        const funnelRight = (nx + nw + lx + lw) / 2;
-        const funnelCenter = (funnelLeft + funnelRight) / 2;
-        if (funnelRight - funnelLeft > 26) {
-          svg += `
-            <line x1="${funnelLeft + 4}" y1="${funnelY}" x2="${funnelRight - 4}" y2="${funnelY}" stroke="#fbbf24" stroke-width="2.2" marker-start="url(#g1-arrow-amber)" marker-end="url(#g1-arrow-amber)" />
-          `;
-        }
-        svg += `
-          <rect x="${funnelCenter - 46}" y="${gutterY + 20}" width="92" height="17" rx="8" fill="#78350f" stroke="#fbbf24" stroke-width="1.4" />
-          <text x="${funnelCenter}" y="${gutterY + 32}" text-anchor="middle" fill="#fef08a" font-size="9" font-family="monospace" font-weight="900">
-            +${s.bloatPct}% Bloated (${s.durRatio.toFixed(1)}×)
-          </text>
-        `;
-      }
-
-      // ----------------------------------------------------------------------
-      // D. SPECIAL CALLOUT 4B: OBLITERATED PAUSE GATE (Steep Leftward-Diving Orange Tether)
-      // ----------------------------------------------------------------------
-      if (s.crashedPause) {
-        const crashX = (nx + lx) / 2;
-        svg += `
-          <line x1="${nx}" y1="${gutterY + 26}" x2="${lx + 6}" y2="${gutterY + 58}" stroke="#fb923c" stroke-width="2.6" marker-end="url(#g1-arrow-orange)" />
-          <rect x="${crashX - 58}" y="${gutterY + 19}" width="116" height="17" rx="5" fill="#7c2d12" stroke="#fb923c" stroke-width="1.4" />
-          <text x="${crashX}" y="${gutterY + 31}" text-anchor="middle" fill="#ffedd5" font-size="9" font-family="monospace" font-weight="900">
-            ⏪ CRASHED PAUSE GATE
-          </text>
-        `;
-      }
-
-      // ----------------------------------------------------------------------
-      // E. DEDICATED DEVIATION & ENERGY DIFF STRIP CELL (Inside Middle Gutter)
-      // ----------------------------------------------------------------------
-      const cellCenterX = clamp((nx + nw / 2 + lx + lw / 2) / 2, 54, 906);
-      const cellW = Math.max(66, Math.min(104, Math.max(nw, lw) + 18));
-      const staggerY = idx % 2 === 0 ? diffStripY + 15 : diffStripY + 19;
-
-      svg += `
-        <g>
-          <rect x="${cellCenterX - cellW / 2}" y="${staggerY}" width="${cellW}" height="27" rx="5" fill="${s.stripBg}" stroke="${s.stripColor}" stroke-width="1.3" />
-          <text x="${cellCenterX}" y="${staggerY + 11.5}" text-anchor="middle" fill="#ffffff" font-size="9" font-family="ui-monospace, SFMono-Regular, monospace" font-weight="900">
-            ${s.stripPrimary}
-          </text>
-          <text x="${cellCenterX}" y="${staggerY + 22.5}" text-anchor="middle" fill="${s.stripColor}" font-size="8" font-family="ui-monospace, SFMono-Regular, monospace" font-weight="700">
-            ${s.stripSecondary}
-          </text>
-        </g>
-      `;
-
-      // ----------------------------------------------------------------------
-      // F. NATIVE REFERENCE SYLLABLE (Top Track)
-      // ----------------------------------------------------------------------
+      // C. Reference Syllable (Top Track)
       if (nPreW > 0) {
         svg += `
           <rect x="${nx - nPreW}" y="${natTop + 5}" width="${nPreW}" height="${natH - 10}" rx="4" fill="url(#g1-hatch-consonant)" stroke="#f59e0b" stroke-width="1.3" />
@@ -1241,9 +1151,7 @@
         <text x="${nx + nw / 2}" y="${natTop + natH / 2 + 4}" text-anchor="middle" fill="#f8fafc" font-size="${s.isGhost ? 10.5 : 12}" font-weight="${s.isGhost ? 600 : 800}">${s.text}</text>
       `;
 
-      // ----------------------------------------------------------------------
-      // G. SPECIAL CALLOUT 3: STUTTER / FALSE-START REPETITIONS ([p-][p-]PROB)
-      // ----------------------------------------------------------------------
+      // D. Stutter / Pre-Beat Consonant on Learner Track
       if (s.isStuttered) {
         const echoBoxW = 22;
         const echoCount = Math.min(3, Math.max(2, s.stutterCount || 2));
@@ -1258,69 +1166,32 @@
             <text x="${ex + echoBoxW / 2}" y="${lrnTop + lrnH / 2 + 3.5}" text-anchor="middle" fill="#fae8ff" font-size="8.5" font-family="monospace" font-weight="900">[${preToken}]</text>
           `;
         }
-        svg += `
-          <rect x="${lx - totalEchoW / 2 - 44}" y="${lrnTop - 19}" width="88" height="15" rx="4" fill="#581c87" stroke="#e879f9" stroke-width="1.2" />
-          <text x="${lx - totalEchoW / 2}" y="${lrnTop - 8.5}" text-anchor="middle" fill="#f5d0fe" font-size="8.5" font-family="monospace" font-weight="900">
-            ${s.stutterPrefix} COLLISION!
-          </text>
-        `;
       } else if (lPreW > 0) {
         const isClusterLag = s.errorType === 'cluster_lag';
         svg += `
           <rect x="${lx - lPreW}" y="${lrnTop + 5}" width="${lPreW}" height="${lrnH - 10}" rx="4" fill="${isClusterLag ? 'url(#g1-hatch-consonant-late)' : 'url(#g1-hatch-consonant)'}" stroke="${isClusterLag ? '#e879f9' : '#f59e0b'}" stroke-width="1.5" />
           <text x="${lx - lPreW / 2}" y="${lrnTop + lrnH / 2 + 3.5}" text-anchor="middle" fill="${isClusterLag ? '#fae8ff' : '#fde68a'}" font-size="9" font-family="monospace" font-weight="800">${s.pre}</text>
         `;
-        if (isClusterLag) {
-          svg += `<text x="${lx - lPreW / 2}" y="${lrnTop - 6}" text-anchor="middle" fill="#e879f9" font-size="8.5" font-weight="900">/${s.pre}/ on beat!</text>`;
-        }
       }
 
-      // ----------------------------------------------------------------------
-      // H. SPECIAL CALLOUT 4A: GUILLOTINE CUT MARKER (|✂ Clipped -52%)
-      // ----------------------------------------------------------------------
+      // E. Clipped Vowel Missing Tail
       if (s.isClipped) {
         const fullNatW = Math.max(nw, lw * 1.9);
         const missingW = Math.max(18, fullNatW - lw);
         const cutX = lx + lw;
         svg += `
-          <!-- Chopped-off missing vowel tail ghost box -->
           <rect x="${cutX}" y="${lrnTop + 2}" width="${missingW}" height="${lrnH - 4}" rx="5" fill="url(#g1-hatch-clipped-gap)" stroke="#fb923c" stroke-width="1.5" stroke-dasharray="3 2" />
-          <!-- Guillotine Blade Vertical Cut Line -->
-          <line x1="${cutX}" y1="${lrnTop - 10}" x2="${cutX}" y2="${lrnTop + lrnH + 10}" stroke="#f43f5e" stroke-width="3" />
-          <rect x="${cutX - 4}" y="${lrnTop - 19}" width="84" height="15" rx="4" fill="#7c2d12" stroke="#fb923c" stroke-width="1.3" />
-          <text x="${cutX + 38}" y="${lrnTop - 8.5}" text-anchor="middle" fill="#ffedd5" font-size="8.5" font-family="monospace" font-weight="900">
-            |✂ Clipped ${s.clippedPct}%
-          </text>
+          <line x1="${cutX}" y1="${lrnTop - 8}" x2="${cutX}" y2="${lrnTop + lrnH + 8}" stroke="#f43f5e" stroke-width="2.5" />
         `;
       }
 
-      // ----------------------------------------------------------------------
-      // I. LEARNER SYLLABLE BLOCK & BOTTOM CALLOUT PILL
-      // ----------------------------------------------------------------------
+      // F. Learner Syllable Block
       svg += `
         <rect x="${lx}" y="${lrnTop}" width="${lw}" height="${lrnH}" rx="${s.isGhost && !s.isProlonged ? 12 : 7}" fill="${capsuleFill}" stroke="${strokeColor}" stroke-width="${s.isProlonged || s.hasBlockBefore || s.isStuttered || s.isClipped ? 2.6 : 2.0}" />
         <polygon points="${lx},${lrnTop - 6} ${lx + 5.5},${lrnTop} ${lx},${lrnTop + 6} ${lx - 5.5},${lrnTop}" fill="${strokeColor}" />
-        <text x="${lx + lw / 2}" y="${lrnTop + lrnH / 2 + 4}" text-anchor="middle" fill="#ffffff" font-size="${s.isProlonged ? 12 : (s.isGhost ? 10.5 : 12)}" font-weight="900">${s.learnerText}</text>
+        <text x="${lx + lw / 2}" y="${lrnTop + lrnH / 2 + 4}" text-anchor="middle" fill="#ffffff" font-size="${s.isProlonged ? 11.5 : (s.isGhost ? 10.5 : 12)}" font-weight="900">${s.learnerText}</text>
       `;
-
-      // Bottom Track Callout Badge under every problem or anchor syllable
-      const bottomCallout = s.hasBlockBefore
-        ? `♦ +${Math.max(280, s.apparentMs)}ms Late`
-        : s.isStuttered
-        ? `♦ +${Math.max(210, s.apparentMs)}ms Late`
-        : s.isProlonged
-        ? `+${s.bloatPct}% Bloated`
-        : s.isClipped
-        ? `|✂ ${s.clippedPct}% Clipped`
-        : s.crashedPause
-        ? `⏪ ${s.apparentMs}ms Rushed`
-        : `${s.apparentMs >= 0 ? '+' : ''}${s.apparentMs}ms`;
-
-      svg += `
-        <text x="${lx + lw / 2}" y="${lrnTrackY + lrnTrackH - 8}" text-anchor="middle" fill="${strokeColor}" font-size="9.5" font-family="ui-monospace, SFMono-Regular, monospace" font-weight="900">
-          ${bottomCallout}
-        </text>
-      `;
+      prevLearnerRightX = lx + lw;
     });
 
     svg += renderAnimatedPlayheadSVG(svgH);
@@ -1867,70 +1738,8 @@
    *   - 🎚️ Toggle Raw Clock (0%) vs. DTW Foot-Normalized (100%)
    * while watching the dual-track playhead sweep across both tracks in real time.
    */
-  function ensureAuditionBarDOM(targetEl, data) {
-    if (typeof document === 'undefined' || !targetEl) return;
-    const parent = targetEl.tagName && targetEl.tagName.toLowerCase() === 'svg'
-      ? targetEl.parentElement
-      : targetEl;
-    if (!parent || !parent.parentElement) return;
-
-    let barEl = document.getElementById('goal1-audition-bar');
-    if (!barEl) {
-      barEl = document.createElement('div');
-      barEl.id = 'goal1-audition-bar';
-      barEl.className = 'flex flex-wrap items-center justify-between gap-2.5 bg-slate-900/95 border border-indigo-500/35 rounded-xl px-3.5 py-2.5 shadow-md';
-      parent.parentElement.insertBefore(barEl, parent);
-    }
-
-    const isRaw = data.normFactor < 0.5;
-    const profileShort = data.profileMeta.shortLabel.split('(')[0].trim();
-
-    barEl.innerHTML = `
-      <div class="flex flex-wrap items-center gap-2">
-        <span class="px-2 py-0.5 rounded text-[11px] font-extrabold uppercase tracking-wider bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-          One-Click Audition
-        </span>
-        <button
-          type="button"
-          onclick="window.Goal1PostDiagnostics.auditionNative()"
-          class="px-3 py-1.5 rounded-lg text-xs font-extrabold bg-sky-500/20 hover:bg-sky-500/30 text-sky-200 border border-sky-400/40 transition flex items-center gap-1.5 shadow-sm cursor-pointer"
-        >
-          <span>🔊</span>
-          <span>Play Native Reference</span>
-        </button>
-        <button
-          type="button"
-          onclick="window.Goal1PostDiagnostics.auditionLearner()"
-          class="px-3 py-1.5 rounded-lg text-xs font-extrabold bg-rose-500/25 hover:bg-rose-500/35 text-rose-200 border border-rose-400/50 transition flex items-center gap-1.5 shadow-sm cursor-pointer"
-        >
-          <span>🔊</span>
-          <span>Play Dysfluent / Learner Take (${profileShort})</span>
-        </button>
-        <button
-          type="button"
-          onclick="window.Goal1PostDiagnostics.stopAudition()"
-          class="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition cursor-pointer"
-          title="Stop Audio Audition"
-        >
-          ■ Stop
-        </button>
-      </div>
-
-      <div class="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onclick="window.Goal1PostDiagnostics.toggleNormFactor()"
-          class="px-3 py-1.5 rounded-lg text-xs font-extrabold transition flex items-center gap-1.5 border cursor-pointer ${
-            isRaw
-              ? 'bg-rose-500/25 text-rose-200 border-rose-400/50'
-              : 'bg-emerald-500/25 text-emerald-200 border-emerald-400/50'
-          }"
-        >
-          <span>🎚️</span>
-          <span>${isRaw ? 'Showing Raw Clock (0%) — Click for DTW (100%)' : 'Showing DTW Foot-Normalized (100%) — Click for Raw (0%)'}</span>
-        </button>
-      </div>
-    `;
+  function ensureAuditionBarDOM() {
+    // Audition buttons are rendered cleanly in the panel header; no duplicate bar injection.
   }
 
   /**
@@ -2338,7 +2147,7 @@
 
     if (resolvedMode === 'vocalign_tether') {
       svgMarkup = renderVocAlignTetherSVG(data);
-      viewBoxHeight = 440;
+      viewBoxHeight = 340;
     } else if (resolvedMode === 'prosogram_overlay') {
       svgMarkup = renderProsogramOverlaySVG(data);
       viewBoxHeight = 390;

@@ -6,10 +6,17 @@ from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
+from fastapi.testclient import TestClient
 from numpy.typing import NDArray
 from scipy.signal import butter, sosfiltfilt
 
-from src.audio.prosody_lab import analyze_prosody_recording, detect_syllables_and_pcenters
+from app.main import app
+from src.audio.prosody_lab import (
+    analyze_prosody_recording,
+    detect_syllables_and_pcenters,
+    generate_prosody_reference,
+    syllabify_english_text,
+)
 
 
 def _synthesize_test_utterance(
@@ -129,3 +136,73 @@ def test_detect_syllables_and_pcenters_handles_empty_input() -> None:
     assert empty["nuclei_times"] == []
     assert empty["p_center_times"] == []
     assert empty["syllable_details"] == []
+
+
+def test_syllabify_english_text_splits_words_and_marks_function_words() -> None:
+    items = syllabify_english_text("We need to focus on the core... problems first.")
+    texts = [item["text"] for item in items]
+    assert texts == [
+        "We",
+        "need",
+        "to",
+        "fo-",
+        "cus",
+        "on",
+        "the",
+        "core...",
+        "prob-",
+        "lems",
+        "first",
+    ]
+    assert items[0]["is_function_word"] is True
+    assert items[1]["is_function_word"] is False
+    assert items[3]["pre"] == "f"
+    assert items[3]["vowel"] == "o"
+    assert items[7]["has_pause_after"] is True
+    assert items[-1]["has_pause_after"] is True
+
+
+def test_generate_prosody_reference_uses_synthetic_fallback_and_builds_phrase(
+    monkeypatch: object,
+) -> None:
+    import os
+
+    monkeypatch.delenv("OMNIVOICE_TTS_PATH", raising=False)  # type: ignore[attr-defined]
+    os.environ.pop("OMNIVOICE_TTS_PATH", None)
+
+    result = generate_prosody_reference("We need to focus on the core... problems first")
+    assert result["synthesis_source"] == "synthetic_fallback"
+    assert result["mime_type"] == "audio/wav"
+    assert len(result["audio_base64"]) > 100
+    phrase = result["phrase"]
+    assert phrase["id"] == "custom"
+    assert phrase["bpm"] == 88
+    assert phrase["pauseGate"] is not None
+    assert len(phrase["feet"]) >= 2
+    assert len(phrase["syllables"]) == 11
+    for idx, syl in enumerate(phrase["syllables"]):
+        assert syl["index"] == idx
+        assert "beat" in syl
+        assert "dur" in syl
+        assert "pre" in syl
+        assert "vowel" in syl
+        assert "isGhost" in syl
+        assert "isFinal" in syl
+
+
+def test_prosody_lab_reference_endpoint_returns_custom_phrase(
+    monkeypatch: object,
+) -> None:
+    monkeypatch.delenv("OMNIVOICE_TTS_PATH", raising=False)  # type: ignore[attr-defined]
+    client = TestClient(app)
+    response = client.post(
+        "/api/prosody-lab/reference",
+        json={"target_text": "I said fifteen percent, not fifty."},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["target_text"] == "I said fifteen percent, not fifty."
+    assert payload["synthesis_source"] in {"omnivoice", "synthetic_fallback"}
+    assert payload["phrase"]["id"] == "custom"
+    assert len(payload["phrase"]["syllables"]) == 9
+    assert payload["analysis"]["summary"]["syllable_count"] >= 1

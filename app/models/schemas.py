@@ -70,6 +70,23 @@ class ProsodyLabAnalysisResponse(BaseModel):
     message: str = "Analysis complete"
 
 
+class ProsodyLabReferenceRequest(BaseModel):
+    """Request body for generating a custom Prosody Lab reference utterance."""
+
+    target_text: str = Field(..., min_length=1, max_length=240)
+
+
+class ProsodyLabReferenceResponse(BaseModel):
+    """Response containing synthesized reference audio, prosody analysis, and beat-mapped phrase."""
+
+    target_text: str
+    audio_base64: str
+    mime_type: str
+    phrase: dict[str, Any]
+    analysis: ProsodyLabAnalysisResponse
+    synthesis_source: str = "synthetic_fallback"
+
+
 class SelectErrorRequest(BaseModel):
     """Request body for selecting an error."""
 

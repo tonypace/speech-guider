@@ -3,9 +3,10 @@ import { escapeHtml } from './ipa_tooltips.js';
 export const PROSODY_PHRASES = [
     {
         id: 'prepared',
-        title: 'We NEED to FO-cus on the CORE... PROB-lems FIRST',
+        title: 'We NEED to focus on the CORE... PROBLEMs first',
         vibeLabel: 'Prepared Presentation',
         bpm: 84,
+        teacherNote: 'Balanced stress feet lead into "CORE...", which receives phrase-final lengthening plus a deliberate 350ms pause gate. Then the /pr/ cluster on "PROB-" launches early so its vowel P-center locks onto the post-pause beat.',
         pauseGate: { startBeat: 2.34, endBeat: 2.82, label: '|| 350ms Pause Gate' },
         feet: [
             { label: 'Pickup: We', startBeat: 0.0, endBeat: 0.34 },
@@ -33,6 +34,7 @@ export const PROSODY_PHRASES = [
         title: 'Well if you AC-tually THINK a-bout the PLAN',
         vibeLabel: 'Spontaneous Discussion',
         bpm: 92,
+        teacherNote: 'Fast 3-syllable anacrusis pickup ("Well if you") and phonetic compression on "AC-tually" (/æk.tʃli/) launching into conversational stress anchors.',
         pauseGate: { startBeat: 2.15, endBeat: 2.48, label: '|| Turn-Hold Breath' },
         feet: [
             { label: 'Anacrusis: Well if you', startBeat: 0.0, endBeat: 0.72 },
@@ -58,6 +60,7 @@ export const PROSODY_PHRASES = [
         title: 'I said FIF-TEEN per-CENT... not FIF-ty',
         vibeLabel: 'Contrastive Argument',
         bpm: 88,
+        teacherNote: 'Contrastive stress shifts onto "-TEEN" vs. "FIF-ty" with a sharp caesura pause gate after "per-CENT...".',
         pauseGate: { startBeat: 2.22, endBeat: 2.74, label: '|| Contrastive Caesura' },
         feet: [
             { label: 'Pickup: I said', startBeat: 0.0, endBeat: 0.58 },
@@ -82,6 +85,7 @@ export const PROSODY_PHRASES = [
         title: 'And then the WHOLE ROOM... went com-PLETE-ly SI-lent',
         vibeLabel: 'Expressive Storytelling',
         bpm: 78,
+        teacherNote: 'Expressive narrative pacing: drawn-out emphasis on "WHOLE ROOM...", dramatic suspension pause, and rapid acceleration through "went com-PLETE-ly SI-lent".',
         pauseGate: { startBeat: 1.98, endBeat: 2.48, label: '|| Suspense Gate' },
         feet: [
             { label: 'Anacrusis: And then the', startBeat: 0.0, endBeat: 0.74 },
@@ -105,8 +109,10 @@ export const PROSODY_PHRASES = [
     },
 ];
 
+let customPhraseStore = null;
+
 function computeRampProgress(syllables) {
-    const out = syllables.map((s) => ({ ...s }));
+    const out = (syllables || []).map((s) => ({ ...s }));
     let ghostRun = [];
     for (let i = 0; i < out.length; i += 1) {
         if (out[i].isGhost) {
@@ -126,7 +132,33 @@ function computeRampProgress(syllables) {
     return out;
 }
 
+export function setCustomPhrase(phraseObj) {
+    if (!phraseObj || !Array.isArray(phraseObj.syllables) || phraseObj.syllables.length === 0) return null;
+    customPhraseStore = {
+        id: 'custom',
+        title: phraseObj.title || 'Custom Target Sentence',
+        vibeLabel: phraseObj.vibeLabel || 'Custom Target Sentence',
+        bpm: Number(phraseObj.bpm) || 88,
+        teacherNote: phraseObj.teacherNote || 'Custom sentence synthesized via Reference TTS and segmented into acoustic P-centers.',
+        pauseGate: phraseObj.pauseGate || null,
+        feet: Array.isArray(phraseObj.feet) && phraseObj.feet.length > 0
+            ? phraseObj.feet
+            : [{ label: phraseObj.title || 'Custom Phrase', startBeat: 0.0, endBeat: 4.0 }],
+        syllables: computeRampProgress(phraseObj.syllables),
+        audioBase64: phraseObj.audioBase64 || null,
+        mimeType: phraseObj.mimeType || 'audio/wav',
+    };
+    return customPhraseStore;
+}
+
+export function getCustomPhrase() {
+    return customPhraseStore;
+}
+
 export function getPhraseById(phraseId) {
+    if (phraseId === 'custom' && customPhraseStore) {
+        return customPhraseStore;
+    }
     const found = PROSODY_PHRASES.find((p) => p.id === phraseId) || PROSODY_PHRASES[0];
     return {
         ...found,
@@ -238,6 +270,8 @@ export function recordToSyllableItems(record, targetBeats = 4.0) {
 export function buildProfileComparison(phraseId, profileKey = 'dysfluent_hesitation') {
     const phrase = getPhraseById(phraseId);
     const natSyls = phrase.syllables;
+    const midIdx = Math.max(1, Math.floor(natSyls.length * 0.6));
+
     const lrnSyls = natSyls.map((nat, idx) => {
         let rawBeat;
         let normBeat = nat.beat;
@@ -253,15 +287,15 @@ export function buildProfileComparison(phraseId, profileKey = 'dysfluent_hesitat
 
         if (profileKey === 'dysfluent_hesitation') {
             rawBeat = Number((nat.beat / 0.78).toFixed(3));
-            if (nat.isGhost && idx >= 4 && idx <= 6) {
+            if (nat.isGhost && idx >= Math.max(1, midIdx - 3) && idx < midIdx) {
                 dur = Number((nat.dur * 2.35).toFixed(3));
                 stress = Math.min(0.85, nat.stress + 0.45);
                 isProlonged = true;
             }
-            if (!nat.isGhost && idx >= 7) {
-                hasBlockBefore = idx === 7 || idx === 8;
+            if (!nat.isGhost && idx >= midIdx) {
+                hasBlockBefore = idx === midIdx;
                 blockMs = hasBlockBefore ? 440 : 0;
-                normBeat = Number((nat.beat + 0.22).toFixed(3));
+                normBeat = Number((nat.beat + 0.34).toFixed(3));
             }
         } else if (profileKey === 'syllable_timed_choppy') {
             rawBeat = Number((nat.beat / 0.84).toFixed(3));
@@ -279,13 +313,13 @@ export function buildProfileComparison(phraseId, profileKey = 'dysfluent_hesitat
                 dur = Number((nat.dur * 0.48).toFixed(3));
                 isClipped = true;
             }
-            if (idx >= 7) {
+            if (idx >= midIdx) {
                 normBeat = Number(Math.max(0.2, nat.beat - 0.24).toFixed(3));
-                crashedPause = idx === 8;
+                crashedPause = idx === midIdx + 1;
             }
         } else if (profileKey === 'dysfluent_stutter') {
             rawBeat = Number((nat.beat / 0.82).toFixed(3));
-            if (!nat.isGhost && idx >= 3) {
+            if (!nat.isGhost && idx >= Math.min(2, natSyls.length - 1)) {
                 isStuttered = true;
                 stutterPrefix = `[${(nat.pre || nat.text.slice(0, 1)).toLowerCase()}-]`;
                 normBeat = Number((nat.beat + 0.19).toFixed(3));
@@ -318,13 +352,14 @@ export function buildProfileComparison(phraseId, profileKey = 'dysfluent_hesitat
 
 export function alignRecordPairToTetherItems(teacherRecord, studentRecord, phraseId = 'prepared', profileKey = 'dysfluent_hesitation') {
     const base = getPhraseById(phraseId);
-    const hasRealPair = Boolean(
+    const useStudentRecord = Boolean(
         studentRecord &&
+        (profileKey === 'recorded_take' || !profileKey || profileKey === 'dysfluent_hesitation') &&
         ((Array.isArray(studentRecord.syllable_details) && studentRecord.syllable_details.length > 0) ||
             (Array.isArray(studentRecord.syllable_onsets) && studentRecord.syllable_onsets.length > 0)),
     );
 
-    if (!hasRealPair) {
+    if (!useStudentRecord) {
         return {
             ...buildProfileComparison(phraseId, profileKey),
             sourceMode: 'preset',
@@ -349,7 +384,6 @@ export function alignRecordPairToTetherItems(teacherRecord, studentRecord, phras
     const teacherDur = Math.max(0.4, Number(teacherRecord?.summary?.duration_seconds) || (60 / base.bpm) * 4.0);
     const rateRatio = teacherDur / studentDur;
 
-    // Piecewise anchor DTW normalization across stressed anchors
     const firstNat = natSyls[0].beat;
     const lastNat = natSyls[count - 1].beat;
     const firstStu = rawStudentSyls[0].beat;
@@ -359,7 +393,9 @@ export function alignRecordPairToTetherItems(teacherRecord, studentRecord, phras
 
     const lrnSyls = rawStudentSyls.slice(0, count).map((stu, idx) => {
         const nat = natSyls[idx];
-        const normBeat = Number((firstNat + ((stu.beat - firstStu) / stuSpan) * natSpan).toFixed(3));
+        const normBeat = count === 1
+            ? nat.beat
+            : Number((firstNat + ((stu.beat - firstStu) / stuSpan) * natSpan).toFixed(3));
         const rawBeat = Number(Math.max(0.08, Math.min(4.6, normBeat / Math.max(0.55, Math.min(1.5, rateRatio)))).toFixed(3));
         const durRatio = stu.dur / Math.max(0.05, nat.dur);
         const prevStuEnd = idx > 0 ? rawStudentSyls[idx - 1].beat + rawStudentSyls[idx - 1].dur : 0;
@@ -397,7 +433,7 @@ export function alignRecordPairToTetherItems(teacherRecord, studentRecord, phras
 }
 
 /**
- * Goal 1 Winner: Render VocAlign Pro Elastic Tethers + Danielsen Beat Bins + Polak Foot-Budget/nPVI SVG.
+ * Timing Review Winner: Render VocAlign Elastic Tethers & Beat Bins SVG (clean, no middle deviation strip).
  */
 export function renderVocAlignTetherDiagnosticSVG({
     phraseId = 'prepared',
@@ -409,8 +445,7 @@ export function renderVocAlignTetherDiagnosticSVG({
     const parsedNorm = Number(normFactor);
     const nf = Math.max(0, Math.min(1, Number.isFinite(parsedNorm) ? parsedNorm : 1.0));
     const aligned = alignRecordPairToTetherItems(teacherRecord, studentRecord, phraseId, profileKey);
-    const { phrase, natSyls, lrnSyls, sourceMode } = aligned;
-    const msPerBeat = (60 / (phrase.bpm || 84)) * 1000;
+    const { natSyls, lrnSyls, sourceMode } = aligned;
 
     const maxBeat = 4.65;
     const leftPad = 48;
@@ -422,77 +457,46 @@ export function renderVocAlignTetherDiagnosticSVG({
         const lrn = lrnSyls[idx] || nat;
         const displayBeat = lrn.rawBeat * (1 - nf) + lrn.normBeat * nf;
         const offsetBeats = displayBeat - nat.beat;
-        const offsetMs = Math.round(offsetBeats * msPerBeat);
-        const durRatio = lrn.dur / Math.max(0.05, nat.dur);
-        const bloatPct = Math.round((durRatio - 1) * 100);
         const inBeatBin = Math.abs(offsetBeats) <= 0.095 && !lrn.hasBlockBefore && !lrn.isStuttered;
 
         let strokeColor = '#10b981';
         let ribbonFill = 'rgba(16, 185, 129, 0.22)';
-        let stripLabel = `${offsetMs >= 0 ? '+' : ''}${offsetMs}ms`;
-        let stripSub = `${durRatio.toFixed(1)}x`;
 
         if (lrn.hasBlockBefore) {
             strokeColor = '#f43f5e';
             ribbonFill = 'rgba(244, 63, 94, 0.30)';
-            stripLabel = `⚡ +${lrn.blockMs}ms BLOCK`;
-            stripSub = `${offsetMs >= 0 ? '+' : ''}${offsetMs}ms Late`;
         } else if (lrn.isStuttered) {
             strokeColor = '#c084fc';
             ribbonFill = 'rgba(192, 132, 252, 0.28)';
-            stripLabel = `${lrn.stutterPrefix} STUTTER`;
-            stripSub = `+${Math.abs(offsetMs)}ms Late`;
         } else if (lrn.isProlonged) {
             strokeColor = '#f59e0b';
             ribbonFill = 'rgba(245, 158, 11, 0.32)';
-            stripLabel = `+${Math.max(45, bloatPct)}% Bloated`;
-            stripSub = `${durRatio.toFixed(1)}x Schwa`;
         } else if (lrn.crashedPause || lrn.isClipped) {
             strokeColor = '#fb923c';
             ribbonFill = 'rgba(249, 115, 22, 0.28)';
-            stripLabel = lrn.crashedPause ? `⏪ ${offsetMs}ms Rushed` : `|✂ ${bloatPct}% Clip`;
-            stripSub = lrn.crashedPause ? 'Gate Crashed' : `${durRatio.toFixed(2)}x Dur`;
         } else if (!inBeatBin) {
             strokeColor = offsetBeats > 0 ? '#a855f7' : '#fb923c';
             ribbonFill = offsetBeats > 0 ? 'rgba(168, 85, 247, 0.24)' : 'rgba(249, 115, 22, 0.24)';
-            stripLabel = `${offsetMs >= 0 ? '+' : ''}${offsetMs}ms ${offsetBeats > 0 ? 'Late' : 'Early'}`;
         }
 
         return {
             ...nat,
             lrn,
             displayBeat,
-            offsetMs,
-            durRatio,
-            bloatPct,
             inBeatBin,
             strokeColor,
             ribbonFill,
-            stripLabel,
-            stripSub,
         };
     });
 
-    const natNpvi = computeVocalicNpvi(natSyls.map((s) => s.dur));
-    const lrnNpvi = computeVocalicNpvi(lrnSyls.map((s) => s.dur));
-    const inBinCount = items.filter((it) => it.inBeatBin).length;
-
-    // Compute Polak 100% Foot Budget strip shares for the first multi-syllable foot
-    const footSyls = items.slice(0, Math.min(4, items.length));
-    const natFootSum = footSyls.reduce((acc, s) => acc + s.dur, 0) || 1;
-    const lrnFootSum = footSyls.reduce((acc, s) => acc + s.lrn.dur + (s.lrn.hasBlockBefore ? 0.32 : 0), 0) || 1;
-
-    const natTrackY = 44;
-    const natTrackH = 82;
-    const gutterY = 126;
-    const diffStripY = 186;
-    const diffStripH = 42;
-    const lrnTrackY = 268;
-    const lrnTrackH = 88;
-    const footStripY = 368;
+    const natTrackY = 16;
+    const natTrackH = 84;
+    const gutterY = 100;
+    const lrnTrackY = 200;
+    const lrnTrackH = 92;
 
     let svg = `
-    <svg data-prosody-tether-svg="true" viewBox="0 0 960 448" class="w-full h-auto rounded-lg bg-slate-950 shadow-inner">
+    <svg data-prosody-tether-svg="true" data-source-mode="${escapeHtml(sourceMode)}" viewBox="0 0 960 320" class="w-full h-auto rounded-lg bg-slate-950 shadow-inner">
       <defs>
         <pattern id="pl-hatch-pre" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
           <rect width="8" height="8" fill="rgba(245, 158, 11, 0.18)" />
@@ -509,31 +513,17 @@ export function renderVocAlignTetherDiagnosticSVG({
         </linearGradient>
       </defs>
 
-      <!-- Top Diagnostic Banner -->
-      <rect x="14" y="8" width="540" height="28" rx="6" fill="rgba(15, 23, 42, 0.95)" stroke="#38bdf8" stroke-width="1.2" />
-      <text x="26" y="26" fill="#f8fafc" font-size="11" font-weight="800" font-family="monospace">
-        GOAL 1 WINNER: VOCALIGN ELASTIC TETHERS &amp; DANIELSEN BEAT BINS (${escapeHtml(sourceMode.toUpperCase())})
-      </text>
-      <rect x="564" y="8" width="382" height="28" rx="6" fill="rgba(15, 23, 42, 0.95)" stroke="#10b981" stroke-width="1.2" />
-      <text x="576" y="26" fill="#e2e8f0" font-size="10.5" font-weight="700" font-family="monospace">
-        DTW Norm: ${Math.round(nf * 100)}% | Beat Bin: ${inBinCount}/${items.length} | nPVI: ${lrnNpvi} (Ref ${natNpvi})
-      </text>
-
       <!-- Track Containers -->
       <rect x="14" y="${natTrackY}" width="932" height="${natTrackH}" rx="7" fill="rgba(15, 23, 42, 0.90)" stroke="rgba(56, 189, 248, 0.35)" />
-      <text x="24" y="${natTrackY + 15}" fill="#38bdf8" font-size="10.5" font-weight="800">
-        NATIVE / TEACHER REFERENCE — Target ♦ P-Centers, Pre-Beat Consonant Runways &amp; ±65ms Danielsen Beat Bins
+      <text x="24" y="${natTrackY + 16}" fill="#38bdf8" font-size="10.5" font-weight="800">
+        REFERENCE
       </text>
 
       <rect x="14" y="${gutterY}" width="932" height="${lrnTrackY - gutterY}" fill="rgba(2, 6, 23, 0.82)" />
-      <rect x="14" y="${diffStripY}" width="932" height="${diffStripH}" fill="rgba(15, 23, 42, 0.95)" stroke="rgba(148, 163, 184, 0.25)" />
-      <text x="24" y="${gutterY + 14}" fill="#94a3b8" font-size="9.5" font-weight="800">
-        ELASTIC TETHER GUTTER — Vertical Green = Locked in Beat Bin | Amber Funnel = Bloated Schwa | Red Tear = Mid-Foot Block
-      </text>
 
       <rect x="14" y="${lrnTrackY}" width="932" height="${lrnTrackH}" rx="7" fill="rgba(15, 23, 42, 0.90)" stroke="rgba(244, 63, 94, 0.35)" />
-      <text x="24" y="${lrnTrackY + 15}" fill="#f8fafc" font-size="10.5" font-weight="800">
-        STUDENT / DYSFLUENT TAKE (${nf >= 0.85 ? 'DTW Foot-Normalized 100%' : nf <= 0.15 ? 'Raw Clock 0% (Global Rate Drift Included)' : `DTW Blend ${Math.round(nf * 100)}%`})
+      <text x="24" y="${lrnTrackY + 16}" fill="#f8fafc" font-size="10.5" font-weight="800">
+        LEARNER TAKE
       </text>
     `;
 
@@ -542,6 +532,9 @@ export function renderVocAlignTetherDiagnosticSVG({
         const gx = beatToX(b);
         const isWhole = Math.abs(b - Math.round(b)) < 0.01 && b >= 1 && b <= 4;
         svg += `<line x1="${gx}" y1="${natTrackY}" x2="${gx}" y2="${lrnTrackY + lrnTrackH}" stroke="${isWhole ? 'rgba(99, 102, 241, 0.35)' : 'rgba(148, 163, 184, 0.08)'}" stroke-width="${isWhole ? 1.5 : 1}" stroke-dasharray="${isWhole ? '4 3' : ''}" />`;
+        if (isWhole) {
+            svg += `<text x="${gx}" y="${lrnTrackY + lrnTrackH + 16}" text-anchor="middle" fill="#818cf8" font-size="10" font-family="monospace" font-weight="700">Beat ${Math.round(b)}</text>`;
+        }
     }
 
     // Danielsen Beat Bins around Stressed Native P-Centers
@@ -556,14 +549,19 @@ export function renderVocAlignTetherDiagnosticSVG({
         }
     });
 
-    // Syllables, Elastic Tethers, Tear Zones & Diff Strip
+    // Syllables, Clean Direct Elastic Tethers & Tear Zones
+    let minLearnerX = 28;
+    let prevLearnerRightX = 28;
     items.forEach((it, idx) => {
         const nx = beatToX(it.beat);
         const nw = Math.max(22, (it.dur / maxBeat) * spanW);
-        const nPreW = it.preDur > 0 ? Math.max(12, (it.preDur / maxBeat) * spanW) : 0;
+        const showPre = !it.isGhost && (it.pre || '').length >= 2 && it.preDur > 0;
+        const nPreW = showPre ? Math.max(14, (it.preDur / maxBeat) * spanW) : 0;
 
-        const lx = beatToX(it.displayBeat);
+        const rawLx = beatToX(it.displayBeat);
+        const lx = Math.max(rawLx, minLearnerX + (it.lrn.hasBlockBefore ? 40 : 0));
         const lw = Math.max(22, (it.lrn.dur / maxBeat) * spanW);
+        minLearnerX = lx + lw + 4;
 
         const natTop = it.isGhost ? natTrackY + 42 : natTrackY + 32;
         const natH = it.isGhost ? 26 : 38;
@@ -573,14 +571,13 @@ export function renderVocAlignTetherDiagnosticSVG({
         const lrnH = it.isGhost && !it.lrn.isProlonged ? 28 : 40;
 
         if (it.lrn.hasBlockBefore) {
-            const prev = idx > 0 ? items[idx - 1] : null;
-            const tearStart = prev ? Math.min(lx - 24, beatToX(prev.displayBeat + prev.lrn.dur) + 2) : Math.max(48, lx - 52);
+            const tearStart = idx > 0 ? Math.min(lx - 24, prevLearnerRightX + 2) : Math.max(48, lx - 52);
             const tearEnd = Math.max(tearStart + 30, lx - 3);
             const tearMid = 0.5 * (tearStart + tearEnd);
             svg += `
-              <rect x="${tearStart}" y="${gutterY + 18}" width="${tearEnd - tearStart}" height="${lrnTrackY + lrnTrackH - gutterY - 24}" fill="url(#pl-hatch-tear)" stroke="#f43f5e" stroke-width="1.8" stroke-dasharray="4 2" />
-              <rect x="${tearMid - 54}" y="${gutterY + 28}" width="108" height="18" rx="4" fill="#881337" stroke="#fb7185" />
-              <text x="${tearMid}" y="${gutterY + 40}" text-anchor="middle" fill="#ffe4e6" font-size="9" font-family="monospace" font-weight="800">⚡ ${it.lrn.blockMs}ms BLOCK</text>
+              <rect x="${tearStart}" y="${gutterY + 8}" width="${tearEnd - tearStart}" height="${lrnTrackY + lrnTrackH - gutterY - 14}" fill="url(#pl-hatch-tear)" stroke="#f43f5e" stroke-width="1.8" stroke-dasharray="4 2" />
+              <rect x="${tearMid - 46}" y="${gutterY + 36}" width="92" height="18" rx="4" fill="#881337" stroke="#fb7185" />
+              <text x="${tearMid}" y="${gutterY + 48}" text-anchor="middle" fill="#ffe4e6" font-size="9" font-family="monospace" font-weight="800">⚡ ${it.lrn.blockMs}ms Pause</text>
             `;
         }
 
@@ -604,14 +601,6 @@ export function renderVocAlignTetherDiagnosticSVG({
           <text x="${nx + nw / 2}" y="${natTop + natH / 2 + 4}" text-anchor="middle" fill="#f8fafc" font-size="${it.isGhost ? 10 : 11.5}" font-weight="800">${escapeHtml(it.text)}</text>
         `;
 
-        // Deviation Strip Cell
-        const midX = 0.5 * (nx + lx) + 0.25 * (nw + lw);
-        svg += `
-          <rect x="${midX - 38}" y="${diffStripY + 5}" width="76" height="32" rx="5" fill="rgba(2, 6, 23, 0.9)" stroke="${it.strokeColor}" stroke-width="1.2" />
-          <text x="${midX}" y="${diffStripY + 18}" text-anchor="middle" fill="${it.strokeColor}" font-size="8.5" font-family="monospace" font-weight="800">${escapeHtml(it.stripLabel)}</text>
-          <text x="${midX}" y="${diffStripY + 31}" text-anchor="middle" fill="#cbd5e1" font-size="8" font-family="monospace">${escapeHtml(it.stripSub)}</text>
-        `;
-
         // Learner Capsule + Callouts
         if (it.lrn.isClipped) {
             const fullW = Math.max(lw + 14, nw);
@@ -625,56 +614,20 @@ export function renderVocAlignTetherDiagnosticSVG({
           <polygon points="${lx},${lrnTop + lrnH / 2 - 5} ${lx + 5},${lrnTop + lrnH / 2} ${lx},${lrnTop + lrnH / 2 + 5} ${lx - 5},${lrnTop + lrnH / 2}" fill="${it.strokeColor}" />
           <text x="${lx + lw / 2}" y="${lrnTop + lrnH / 2 + 4}" text-anchor="middle" fill="#f8fafc" font-size="${it.isGhost && !it.lrn.isProlonged ? 10 : 11.5}" font-weight="800">${escapeHtml(it.lrn.isStuttered ? `${it.lrn.stutterPrefix}${it.text}` : it.text)}</text>
         `;
-    });
-
-    // Bottom Strip: Polak 100% Foot-Budget Comparison + nPVI Contrast Badge
-    svg += `
-      <rect x="14" y="${footStripY}" width="932" height="68" rx="7" fill="rgba(15, 23, 42, 0.94)" stroke="rgba(148, 163, 184, 0.28)" />
-      <text x="24" y="${footStripY + 16}" fill="#a5b4fc" font-size="10" font-weight="800" font-family="monospace">
-        POLAK 100% FOOT-BUDGET STRIP (Opening Stress Foot) — Reveals Unreduced Schwa &amp; Hesitation Time Theft:
-      </text>
-    `;
-
-    const barLeft = 24;
-    const barTotalW = 620;
-    let natCurX = barLeft;
-    footSyls.forEach((s) => {
-        const share = s.dur / natFootSum;
-        const w = Math.max(24, share * barTotalW);
-        svg += `
-          <rect x="${natCurX}" y="${footStripY + 22}" width="${w - 2}" height="17" rx="3" fill="${s.isGhost ? 'rgba(56, 189, 248, 0.22)' : 'rgba(16, 185, 129, 0.42)'}" stroke="#38bdf8" stroke-width="1" />
-          <text x="${natCurX + w / 2}" y="${footStripY + 34}" text-anchor="middle" fill="#f8fafc" font-size="8.5" font-family="monospace" font-weight="700">${escapeHtml(s.text)} ${Math.round(share * 100)}%</text>
-        `;
-        natCurX += w;
-    });
-
-    let lrnCurX = barLeft;
-    footSyls.forEach((s) => {
-        const effDur = s.lrn.dur + (s.lrn.hasBlockBefore ? 0.32 : 0);
-        const share = effDur / lrnFootSum;
-        const w = Math.max(24, share * barTotalW);
-        svg += `
-          <rect x="${lrnCurX}" y="${footStripY + 43}" width="${w - 2}" height="17" rx="3" fill="${s.lrn.isProlonged || s.lrn.hasBlockBefore ? 'rgba(245, 158, 11, 0.45)' : 'rgba(168, 85, 247, 0.35)'}" stroke="${s.strokeColor}" stroke-width="1" />
-          <text x="${lrnCurX + w / 2}" y="${footStripY + 55}" text-anchor="middle" fill="#f8fafc" font-size="8.5" font-family="monospace" font-weight="700">${escapeHtml(s.text)} ${Math.round(share * 100)}%</text>
-        `;
-        lrnCurX += w;
+        prevLearnerRightX = lx + lw;
     });
 
     svg += `
-      <rect x="664" y="${footStripY + 18}" width="268" height="42" rx="6" fill="rgba(2, 6, 23, 0.85)" stroke="#818cf8" stroke-width="1" />
-      <text x="676" y="${footStripY + 35}" fill="#e2e8f0" font-size="10" font-family="monospace" font-weight="800">
-        nPVI Contrast: Learner ${lrnNpvi} vs Ref ${natNpvi}
-      </text>
-      <text x="676" y="${footStripY + 51}" fill="${lrnNpvi >= 45 ? '#34d399' : '#fbbf24'}" font-size="9.5" font-family="monospace">
-        ${lrnNpvi >= 45 ? '✓ Stress-Timed Contrast' : '⚠ Flattened / Syllable-Timed Drift'}
-      </text>
+      <g id="prosody-tether-playhead" transform="translate(-40, 0)" style="opacity: 0; pointer-events: none;">
+        <line x1="0" y1="16" x2="0" y2="296" stroke="#38bdf8" stroke-width="2.8" />
+        <polygon points="-7,16 7,16 0,26" fill="#38bdf8" />
+      </g>
     </svg>`;
-
     return svg;
 }
 
 /**
- * Goal 2 Winner: Render Stationary 16-Slot Prosodic Flow Matrix + Bouncing Ball + Bar 2 Ghost Trail SVG.
+ * Live Flow Guide Winner: Render Stationary 16-Slot Prosodic Flow Matrix + Bouncing Ball + Bar 2 Ghost Trail SVG.
  */
 export function renderFlowMatrixTrainerSVG({
     phraseId = 'prepared',
@@ -708,13 +661,11 @@ export function renderFlowMatrixTrainerSVG({
         }
         if (performer === 'bot_dysfluent') {
             const bloat = s.isGhost && idx >= 4 && idx <= 6;
-            const block = !s.isGhost && idx >= 7;
+            const block = !s.isGhost && idx >= Math.floor(syls.length * 0.6);
             return {
                 perfBeat: Number(Math.min(3.85, s.beat + (block ? 0.20 : 0)).toFixed(3)),
                 perfDur: Number((s.dur * (bloat ? 2.2 : 1.0)).toFixed(3)),
                 kind: block ? 'hesitation_block' : (bloat ? 'prolongation' : 'fluent'),
-                blockStart: block ? Math.max(0, s.beat - 0.14) : null,
-                blockEnd: block ? s.beat + 0.18 : null,
                 label: s.text,
             };
         }
@@ -765,7 +716,7 @@ export function renderFlowMatrixTrainerSVG({
       <rect x="468" y="6" width="476" height="22" rx="5" fill="rgba(15, 23, 42, 0.92)" stroke="${isResponseBar ? '#10b981' : '#475569'}" stroke-width="${isResponseBar ? 1.6 : 1}" />
       <rect x="468" y="6" width="${isResponseBar ? (476 * clampedBeat) / 4.0 : 0}" height="22" rx="5" fill="rgba(16, 185, 129, 0.25)" />
       <text x="478" y="21" fill="${isResponseBar ? '#6ee7b7' : '#94a3b8'}" font-size="10" font-weight="800" font-family="monospace">
-        BAR 2: LIVE RESPONSE (${escapeHtml(performer.toUpperCase())}) · Stutter-Free Biofeedback
+        BAR 2: LIVE RESPONSE (${escapeHtml(performer.toUpperCase())})
       </text>
     `;
 
@@ -832,7 +783,9 @@ export function renderFlowMatrixTrainerSVG({
     syls.forEach((s) => {
         const pCenterX = beatToX(s.beat);
         const vowelW = Math.max(32, (s.dur / 4.0) * width);
-        const preW = s.pre ? Math.max(20, (s.preDur / 4.0) * width, s.pre.length * 9 + 6) : 0;
+        const preW = !s.isGhost && s.pre && s.pre.length >= 2
+            ? Math.max(20, (s.preDur / 4.0) * width, s.pre.length * 9 + 6)
+            : 0;
         const isActive = clampedBeat >= s.beat - 0.03 && clampedBeat <= s.beat + s.dur;
         const wipePct = Math.max(0, Math.min(1, (clampedBeat - s.beat) / Math.max(0.05, s.dur)));
 
@@ -870,15 +823,17 @@ export function renderFlowMatrixTrainerSVG({
     svg += `
       <rect x="${leftX - 8}" y="${laneY}" width="${width + 16}" height="${laneH}" rx="7" fill="rgba(15, 23, 42, 0.94)" stroke="${isResponseBar ? '#10b981' : 'rgba(148, 163, 184, 0.25)'}" />
       <text x="${leftX}" y="${laneY + 13}" fill="#cbd5e1" font-size="9" font-family="monospace" font-weight="800">
-        BAR 2 PERFORMER GHOST TRAIL — Performed ♦ P-Center &amp; Vowel Hold vs. Target Dashed Outline:
+        BAR 2 GHOST TRAIL
       </text>
     `;
+    let minTrailX = leftX;
     perfTrails.forEach((t, idx) => {
         const s = syls[idx];
         const tx = beatToX(s.beat);
         const tw = Math.max(22, (s.dur / 4.0) * width);
-        const px = beatToX(t.perfBeat);
+        const px = Math.max(beatToX(t.perfBeat), minTrailX);
         const pw = Math.max(12, (t.perfDur / 4.0) * width);
+        minTrailX = px + pw + 3;
         const by = laneY + 18;
         const stroke = t.kind === 'fluent' ? '#10b981' : (t.kind === 'prolongation' || t.kind === 'hesitation_block' ? '#f59e0b' : '#38bdf8');
         svg += `
@@ -909,4 +864,142 @@ export function renderFlowMatrixTrainerSVG({
     </svg>`;
 
     return svg;
+}
+
+/**
+ * Dual-mode audio engine supporting both:
+ * - 'synth_beats': Formant voice + rhythmic beat pulse synthesis
+ * - 'real_tts': Real recorded / OmniVoice TTS playback without synthetic beats
+ */
+export class ProsodyAudioPlayer {
+    constructor() {
+        this.ctx = null;
+        this.activeNodes = [];
+        this.activeAudioEl = null;
+    }
+
+    _ensureCtx() {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) return null;
+        if (!this.ctx || this.ctx.state === 'closed') {
+            this.ctx = new AudioCtx();
+        }
+        if (this.ctx.state === 'suspended') {
+            void this.ctx.resume();
+        }
+        return this.ctx;
+    }
+
+    stop() {
+        this.activeNodes.forEach((node) => {
+            try {
+                node.stop?.();
+                node.disconnect?.();
+            } catch {
+                // Ignore already-stopped nodes
+            }
+        });
+        this.activeNodes = [];
+        if (this.activeAudioEl) {
+            try {
+                this.activeAudioEl.pause();
+                this.activeAudioEl.currentTime = 0;
+            } catch {
+                // Ignore audio element cleanup error
+            }
+            this.activeAudioEl = null;
+        }
+    }
+
+    playBase64Audio(base64, mimeType = 'audio/wav') {
+        this.stop();
+        if (!base64 || typeof Audio === 'undefined') return false;
+        try {
+            const audio = new Audio(`data:${mimeType};base64,${base64}`);
+            this.activeAudioEl = audio;
+            void audio.play().catch(() => {});
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    playBlobUrl(blobUrl) {
+        this.stop();
+        if (!blobUrl || typeof Audio === 'undefined') return false;
+        try {
+            const audio = new Audio(blobUrl);
+            this.activeAudioEl = audio;
+            void audio.play().catch(() => {});
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    scheduleBeatClick(beatIndex, whenSec) {
+        const ctx = this._ensureCtx();
+        if (!ctx) return;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(beatIndex % 4 === 0 ? 190 : 420, whenSec);
+        gain.gain.setValueAtTime(0.001, whenSec);
+        gain.gain.linearRampToValueAtTime(beatIndex % 4 === 0 ? 0.14 : 0.08, whenSec + 0.005);
+        gain.gain.exponentialRampToValueAtTime(0.0001, whenSec + 0.055);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(whenSec);
+        osc.stop(whenSec + 0.06);
+        this.activeNodes.push(osc, gain);
+    }
+
+    playSyllableSequence(syllables, bpm = 88, includeBeats = true) {
+        this.stop();
+        const ctx = this._ensureCtx();
+        if (!ctx || !Array.isArray(syllables) || syllables.length === 0) return 0;
+
+        const secPerBeat = 60 / Math.max(60, bpm);
+        const now = ctx.currentTime + 0.03;
+
+        if (includeBeats) {
+            for (let b = 0; b < 4; b += 1) {
+                this.scheduleBeatClick(b, now + b * secPerBeat);
+            }
+        }
+
+        syllables.forEach((s) => {
+            const beatPos = Number(s.normBeat ?? s.beat ?? 0);
+            const durSec = Math.max(0.05, Number(s.dur ?? 0.2) * secPerBeat);
+            const startSec = now + beatPos * secPerBeat;
+            const pitchST = Number(s.pitchST ?? (s.isGhost ? -1.5 : 3.0));
+            const f0 = 145 * (2 ** (pitchST / 12));
+
+            const osc = ctx.createOscillator();
+            const filter = ctx.createBiquadFilter();
+            const gain = ctx.createGain();
+
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(f0, startSec);
+            osc.frequency.linearRampToValueAtTime(f0 * (s.isGhost ? 0.96 : 0.90), startSec + durSec);
+
+            filter.type = 'bandpass';
+            filter.frequency.setValueAtTime(s.isGhost ? 560 : 720, startSec);
+            filter.Q.setValueAtTime(3.2, startSec);
+
+            const peakGain = s.isGhost ? 0.07 : 0.15;
+            gain.gain.setValueAtTime(0.0001, startSec);
+            gain.gain.linearRampToValueAtTime(peakGain, startSec + Math.min(0.02, durSec * 0.25));
+            gain.gain.exponentialRampToValueAtTime(0.0001, startSec + durSec);
+
+            osc.connect(filter);
+            filter.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(startSec);
+            osc.stop(startSec + durSec + 0.01);
+            this.activeNodes.push(osc, filter, gain);
+        });
+
+        return Math.round(4.4 * secPerBeat * 1000);
+    }
 }

@@ -887,84 +887,56 @@
 
       container.innerHTML = `
         <div class="space-y-3 select-none">
-          <!-- ROW 1: 2 Winning Display Modes + Speech Vibe Context + Live Bar Phase Pill -->
-          <div class="flex flex-wrap items-center justify-between gap-2 bg-slate-900/85 border border-slate-800 rounded-xl p-2.5">
+          <!-- Compact Control Bar -->
+          <div class="flex flex-wrap items-center justify-between gap-2 bg-slate-950/90 border border-slate-800 rounded-xl p-2.5">
+            <div class="flex flex-wrap items-center gap-1.5">
+              <span class="text-xs font-bold text-slate-300 mr-1">Bar 2 Performer:</span>
+              <div class="flex flex-wrap items-center gap-1.5" data-goal2-performer-bar>
+                ${performerButtonsHtml}
+              </div>
+            </div>
+
             <div class="flex flex-wrap items-center gap-2">
-              <span class="text-[11px] font-bold uppercase tracking-wider text-slate-400 px-1">Visual Mode:</span>
-              <div class="flex flex-wrap items-center gap-1.5" data-goal2-mode-bar>
-                ${modeButtonsHtml}
-              </div>
-            </div>
-
-            <div class="flex flex-wrap items-center gap-1.5" data-goal2-vibe-bar title="4 Speech Vibes: Adapts Stress-Foot Pillars, Pause Gates (||), and Kinematic Gravity">
-              <span class="text-[11px] font-bold uppercase tracking-wider text-slate-400 mr-0.5">Speech Vibe:</span>
-              ${vibeButtonsHtml}
-            </div>
-
-            <div class="flex items-center gap-2">
+              <button
+                type="button"
+                data-goal2-audition-bar2-btn
+                class="px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 transition"
+              >
+                ▶ Preview Bar 2
+              </button>
+              <button
+                type="button"
+                data-goal2-tap-btn
+                class="px-3 py-1.5 rounded-lg text-xs font-bold bg-sky-500/20 hover:bg-sky-500/30 active:bg-emerald-500/40 text-sky-200 border border-sky-400/50 transition"
+              >
+                🎤 Hold Spacebar
+              </button>
               <span data-goal2-phase-pill class="px-2.5 py-1 rounded-full text-xs font-semibold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
-                🔊 Bar 1: Native Model Call (Beats 1–4)
+                🔊 Bar 1: Reference Call
               </span>
             </div>
           </div>
 
-          <!-- ROW 2: Zero-Mic Bar 2 Live Performer Selector (Virtual Speaker Bots + Hold-Spacebar Tapper) -->
-          <div class="bg-slate-950/90 border border-emerald-500/30 rounded-xl p-3 space-y-2">
-            <div class="flex flex-wrap items-center justify-between gap-2">
-              <div class="flex flex-wrap items-center gap-1.5">
-                <span class="px-2 py-0.5 rounded text-[11px] font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-                  NO-MIC SIMULATOR
-                </span>
-                <span class="text-xs font-bold text-slate-200">
-                  Bar 2 Live Performer (Virtual Speaker / Keyboard Hold):
-                </span>
-                <div class="flex flex-wrap items-center gap-1.5" data-goal2-performer-bar>
-                  ${performerButtonsHtml}
-                </div>
-              </div>
-
-              <div class="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  data-goal2-audition-bar2-btn
-                  class="px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 transition"
-                  title="Immediately jump to Bar 2 and hear/watch the selected Virtual Speaker perform in real time"
-                >
-                  ▶ Hear/Watch Bar 2 Bot Now
-                </button>
-                <button
-                  type="button"
-                  data-goal2-tap-btn
-                  class="px-3 py-1.5 rounded-lg text-xs font-bold bg-sky-500/20 hover:bg-sky-500/30 active:bg-emerald-500/40 text-sky-200 border border-sky-400/50 transition"
-                  title="Hold down Spacebar (or press and hold this button) to voice the syllable for as long as you hold!"
-                >
-                  🎤 Hold Spacebar to Voice Syllable
-                </button>
-              </div>
-            </div>
-
-            <div class="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400 pt-1 border-t border-slate-800/80">
-              <p data-goal2-perf-desc class="leading-relaxed text-slate-300">
-                ${LIVE_PERFORMERS[this.currentPerformer].description}
-              </p>
-              <span data-goal2-telemetry-badge class="font-mono text-[11px] text-emerald-400 shrink-0">
-                🤖 Bar 2 Auto-Sim Ready: ${LIVE_PERFORMERS[this.currentPerformer].shortLabel}
-              </span>
-            </div>
-          </div>
-
-          <!-- Active Mode & Speech Vibe Rule Subtitle -->
-          <div class="flex flex-wrap items-center justify-between gap-2 px-1 text-xs text-slate-400">
-            <p data-goal2-mode-desc class="leading-relaxed">${LIVE_MODES[this.currentMode].description}</p>
-            <span data-goal2-vibe-rule class="font-mono text-[11px] text-sky-300">
-              ${phrase.vibeMeta.shortLabel}: ${phrase.vibeMeta.rhythmRule}
-            </span>
-          </div>
-
-          <!-- Primary SVG Stage -->
+          <!-- Primary SVG Stage (Prosodic Flow Matrix Winner) -->
           <div class="relative rounded-xl border border-slate-800 bg-slate-950/95 overflow-hidden shadow-inner" style="min-height: 360px;">
             <svg data-goal2-stage="true" class="w-full h-full block" viewBox="0 0 980 360" preserveAspectRatio="xMidYMid meet"></svg>
           </div>
+
+          <!-- Collapsible Teacher Notes Dropdown -->
+          <details class="bg-slate-900/75 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-300">
+            <summary class="cursor-pointer font-bold text-slate-200 select-none">
+              Teacher Notes &amp; Performer Details
+            </summary>
+            <div class="mt-2 space-y-1.5 pt-2 border-t border-slate-800 text-slate-400">
+              <p data-goal2-perf-desc>${LIVE_PERFORMERS[this.currentPerformer].description}</p>
+              <p data-goal2-vibe-rule class="font-mono text-[11px] text-sky-300">
+                ${phrase.vibeMeta.shortLabel}: ${phrase.vibeMeta.rhythmRule}
+              </p>
+              <p data-goal2-telemetry-badge class="font-mono text-[11px] text-emerald-400">
+                ${LIVE_PERFORMERS[this.currentPerformer].shortLabel}
+              </p>
+            </div>
+          </details>
         </div>
       `;
 

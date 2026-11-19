@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+import base64
+import io
 import logging
+import re
+import tempfile
 import uuid
+from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
@@ -11,6 +16,8 @@ import parselmouth
 from scipy.io import wavfile as scipy_wavfile
 from scipy.ndimage import gaussian_filter1d
 from scipy.signal import butter, find_peaks, resample_poly, sosfiltfilt
+
+from src.audio.reference_tts import OmniVoiceTTSProvider
 
 try:
     import soundfile as sf
@@ -21,6 +28,73 @@ logger = logging.getLogger(__name__)
 
 
 _NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+_FUNCTION_WORDS: frozenset[str] = frozenset(
+    {
+        "a",
+        "an",
+        "the",
+        "to",
+        "of",
+        "in",
+        "on",
+        "at",
+        "for",
+        "with",
+        "and",
+        "or",
+        "but",
+        "if",
+        "is",
+        "was",
+        "are",
+        "were",
+        "be",
+        "been",
+        "we",
+        "you",
+        "they",
+        "it",
+        "he",
+        "she",
+        "i",
+        "that",
+        "as",
+        "by",
+        "from",
+    }
+)
+_ONSET_DIGRAPHS: frozenset[str] = frozenset(
+    {
+        "bl",
+        "br",
+        "ch",
+        "cl",
+        "cr",
+        "dr",
+        "fl",
+        "fr",
+        "gl",
+        "gr",
+        "ph",
+        "pl",
+        "pr",
+        "qu",
+        "sc",
+        "sh",
+        "sk",
+        "sl",
+        "sm",
+        "sn",
+        "sp",
+        "st",
+        "sw",
+        "th",
+        "tr",
+        "tw",
+        "wh",
+        "wr",
+    }
+)
 
 
 def _hz_to_midi_value(frequency: float) -> float:
@@ -656,3 +730,492 @@ def analyze_prosody_recording(audio_path: str) -> dict[str, Any]:
         "raw_feedback": "",
         "analysis_source": "heuristic",
     }
+
+
+def _find_vowel_runs(word: str) -> list[tuple[int, int]]:
+    """Locate contiguous vowel nuclei runs in an English word."""
+    vowels = set("aeiouyAEIOUY")
+    runs: list[tuple[int, int]] = []
+    n = len(word)
+    i = 0
+    while i < n:
+        ch = word[i]
+        is_vowel = ch in vowels
+        if ch in {"y", "Y"} and i == 0 and i + 1 < n and word[i + 1] in vowels:
+            is_vowel = False
+        if is_vowel:
+            start = i
+            while i < n and word[i] in vowels:
+                i += 1
+            runs.append((start, i))
+        else:
+            i += 1
+
+    if len(runs) >= 2:
+        last_start, last_end = runs[-1]
+        tail = word[last_start:last_end].lower()
+        is_syllabic_le = (
+            last_end == n
+            and tail == "e"
+            and last_start >= 2
+            and word[last_start - 1].lower() == "l"
+            and word[last_start - 2].lower() not in set("aeiouylrw")
+        )
+        if last_end == n and tail == "e" and not is_syllabic_le:
+            runs.pop()
+
+    return runs
+
+
+def _split_word_into_syllables(word: str) -> list[str]:
+    """Split a single alphabetic word into orthographic syllables."""
+    clean = re.sub(r"[^A-Za-z']", "", word)
+    if not clean:
+        return []
+
+    runs = _find_vowel_runs(clean)
+    if len(runs) <= 1:
+        return [clean]
+
+    boundaries: list[int] = [0]
+    for idx in range(len(runs) - 1):
+        _, e_curr = runs[idx]
+        s_next, _ = runs[idx + 1]
+        cons = clean[e_curr:s_next]
+        c_len = len(cons)
+        if c_len == 0:
+            split_at = e_curr
+        elif c_len == 1:
+            split_at = e_curr
+        elif c_len == 2:
+            if cons.lower() in {"ch", "sh", "th", "ph", "wh", "qu"}:
+                split_at = e_curr
+            else:
+                split_at = e_curr + 1
+        else:
+            if cons[-2:].lower() in _ONSET_DIGRAPHS:
+                split_at = s_next - 2
+            else:
+                split_at = s_next - 1
+        boundaries.append(split_at)
+    boundaries.append(len(clean))
+
+    parts = [clean[boundaries[k] : boundaries[k + 1]] for k in range(len(boundaries) - 1)]
+    return [p for p in parts if p]
+
+
+def _split_onset_and_rhyme(syllable: str) -> tuple[str, str]:
+    """Split a syllable into lowercase consonant onset (`pre`) and vowel+coda (`vowel`)."""
+    clean = re.sub(r"[^A-Za-z']", "", syllable)
+    if not clean:
+        return "", syllable
+    vowels = set("aeiouyAEIOUY")
+    for idx, ch in enumerate(clean):
+        if ch in {"y", "Y"} and idx == 0 and idx + 1 < len(clean) and clean[idx + 1] in vowels:
+            continue
+        if ch in vowels:
+            return clean[:idx].lower(), clean[idx:]
+    return "", clean
+
+
+def syllabify_english_text(text: str) -> list[dict[str, Any]]:
+    """Split English text into syllable dicts with onset, vowel nucleus, function flag, and pauses."""
+    raw_tokens = re.findall(r"[A-Za-z'-]+[^\sA-Za-z'-]*", text)
+    syllables: list[dict[str, Any]] = []
+
+    for token in raw_tokens:
+        m = re.match(r"^([A-Za-z'-]+)(.*)$", token)
+        if not m:
+            continue
+        word_part, punct = m.group(1), m.group(2)
+        explicit_chunks = [c for c in word_part.split("-") if re.sub(r"[^A-Za-z']", "", c)]
+        if not explicit_chunks:
+            continue
+
+        word_alpha = re.sub(r"[^A-Za-z']", "", word_part).lower()
+        is_func = word_alpha in _FUNCTION_WORDS
+        has_pause = any(p in punct for p in ("...", ",", ";", ".", "?", "!", ":", "—", "--"))
+        has_ellipsis = "..." in punct
+
+        word_syllables: list[str] = []
+        if len(explicit_chunks) > 1:
+            word_syllables = [re.sub(r"[^A-Za-z']", "", c) for c in explicit_chunks]
+        else:
+            word_syllables = _split_word_into_syllables(explicit_chunks[0])
+
+        for idx, syl_raw in enumerate(word_syllables):
+            is_last_in_word = idx == len(word_syllables) - 1
+            pre, vowel = _split_onset_and_rhyme(syl_raw)
+            display_text = syl_raw
+            if not is_last_in_word:
+                display_text = f"{syl_raw}-"
+            elif has_ellipsis:
+                display_text = f"{syl_raw}..."
+
+            syllables.append(
+                {
+                    "text": display_text,
+                    "pre": pre,
+                    "vowel": vowel,
+                    "is_function_word": bool(is_func and len(word_syllables) == 1),
+                    "has_pause_after": bool(is_last_in_word and has_pause),
+                }
+            )
+
+    if not syllables:
+        fallback = text.strip() or "AH"
+        syllables.append(
+            {
+                "text": fallback,
+                "pre": "",
+                "vowel": fallback,
+                "is_function_word": False,
+                "has_pause_after": False,
+            }
+        )
+
+    return syllables
+
+
+def build_prosody_phrase_from_text_and_analysis(
+    target_text: str,
+    analysis: dict[str, Any],
+) -> dict[str, Any]:
+    """Align orthographic syllables with analyzed acoustic syllable details onto a 4.0-beat bar."""
+    orth = syllabify_english_text(target_text)
+    details: list[dict[str, Any]] = list(analysis.get("syllable_details") or [])
+    n_syl = len(orth)
+    target_beats = 4.0
+    bpm = 88
+
+    mapped_times: list[float] = []
+    mapped_pre_sec: list[float] = []
+    mapped_v_sec: list[float] = []
+    mapped_prom: list[float] = []
+    mapped_stressed: list[bool] = []
+    mapped_pitch_st: list[float] = []
+
+    if details:
+        m_det = len(details)
+        for i, item in enumerate(orth):
+            pos = (i * (m_det - 1) / max(1, n_syl - 1)) if n_syl > 1 and m_det > 1 else 0.0
+            lo_idx = min(m_det - 1, int(np.floor(pos)))
+            hi_idx = min(m_det - 1, int(np.ceil(pos)))
+            frac = pos - lo_idx
+            d_lo = details[lo_idx]
+            d_hi = details[hi_idx]
+
+            p_t = (1.0 - frac) * float(d_lo.get("p_center_time", 0.2)) + frac * float(
+                d_hi.get("p_center_time", 0.2)
+            )
+            pre_s = (1.0 - frac) * float(d_lo.get("pre_duration", 0.03)) + frac * float(
+                d_hi.get("pre_duration", 0.03)
+            )
+            v_s = (1.0 - frac) * float(d_lo.get("vowel_duration", 0.14)) + frac * float(
+                d_hi.get("vowel_duration", 0.14)
+            )
+            prom = (1.0 - frac) * float(d_lo.get("prominence", 0.5)) + frac * float(
+                d_hi.get("prominence", 0.5)
+            )
+            p_st = (1.0 - frac) * float(d_lo.get("pitch_st", 0.0)) + frac * float(
+                d_hi.get("pitch_st", 0.0)
+            )
+            ac_stress = bool(d_lo.get("is_stressed") if frac < 0.5 else d_hi.get("is_stressed"))
+
+            if item["is_function_word"]:
+                is_stressed = False
+                prom = min(prom, 0.28)
+                p_st = min(p_st, -0.8)
+            else:
+                is_stressed = ac_stress or (not item["text"].endswith("-") and prom >= 0.48)
+
+            mapped_times.append(p_t)
+            mapped_pre_sec.append(pre_s if item["pre"] else 0.0)
+            mapped_v_sec.append(v_s)
+            mapped_prom.append(prom)
+            mapped_stressed.append(is_stressed)
+            mapped_pitch_st.append(p_st)
+    else:
+        cursor_t = 0.18
+        for i, item in enumerate(orth):
+            is_stressed = not item["is_function_word"] and (i % 2 == 0 or i == n_syl - 1)
+            v_s = 0.22 if is_stressed else 0.11
+            pre_s = (0.05 if is_stressed else 0.03) if item["pre"] else 0.0
+            mapped_times.append(cursor_t)
+            mapped_pre_sec.append(pre_s)
+            mapped_v_sec.append(v_s)
+            mapped_prom.append(0.88 if is_stressed else 0.20)
+            mapped_stressed.append(is_stressed)
+            mapped_pitch_st.append(3.0 if is_stressed else -1.4)
+            cursor_t += v_s + (0.24 if item["has_pause_after"] else 0.08)
+
+    if not any(mapped_stressed) and n_syl > 0:
+        best_idx = max(
+            range(n_syl),
+            key=lambda idx: (not orth[idx]["is_function_word"], mapped_prom[idx]),
+        )
+        mapped_stressed[best_idx] = True
+        mapped_prom[best_idx] = max(0.82, mapped_prom[best_idx])
+
+    first_t = max(0.0, mapped_times[0] - 0.10)
+    last_end_t = max(first_t + 0.40, mapped_times[-1] + mapped_v_sec[-1] + 0.10)
+    span_t = max(0.40, last_end_t - first_t)
+    scale = (target_beats - 0.34) / span_t
+
+    phrase_syllables: list[dict[str, Any]] = []
+    min_next_beat = 0.16
+    for idx, item in enumerate(orth):
+        is_stressed = mapped_stressed[idx]
+        is_ghost = not is_stressed
+        raw_beat = 0.16 + (mapped_times[idx] - first_t) * scale
+        max_allowed = 3.82 - (n_syl - 1 - idx) * 0.12
+        beat = round(float(max(min_next_beat, min(max_allowed, raw_beat))), 2)
+        dur = round(
+            float(
+                max(
+                    0.10 if is_ghost else 0.24,
+                    min(0.54, mapped_v_sec[idx] * scale),
+                )
+            ),
+            2,
+        )
+        min_next_beat = round(
+            min(3.86, beat + max(0.12, dur * 0.85) + (0.22 if item["has_pause_after"] else 0.03)),
+            2,
+        )
+        pre_dur = (
+            round(float(max(0.03, min(0.12, mapped_pre_sec[idx] * scale))), 2)
+            if item["pre"]
+            else 0.0
+        )
+
+        raw_text = str(item["text"])
+        raw_vowel = str(item["vowel"])
+        if is_stressed:
+            has_hyph = raw_text.endswith("-")
+            has_ell = raw_text.endswith("...")
+            core = re.sub(r"[-.]+$", "", raw_text).upper()
+            syl_text = f"{core}-" if has_hyph else (f"{core}..." if has_ell else core)
+            vowel_str = raw_vowel.upper()
+        else:
+            syl_text = raw_text
+            vowel_str = raw_vowel.lower()
+
+        phrase_syllables.append(
+            {
+                "index": idx,
+                "text": syl_text,
+                "pre": str(item["pre"]),
+                "preDur": pre_dur,
+                "vowel": vowel_str,
+                "beat": beat,
+                "dur": dur,
+                "stress": round(float(mapped_prom[idx]), 2),
+                "pitchST": round(float(mapped_pitch_st[idx]), 1),
+                "isGhost": is_ghost,
+                "isFinal": bool(idx == n_syl - 1 or item["has_pause_after"]),
+            }
+        )
+
+    pause_gate: dict[str, Any] | None = None
+    for idx in range(n_syl - 1):
+        if orth[idx]["has_pause_after"]:
+            cur_s = phrase_syllables[idx]
+            nxt_s = phrase_syllables[idx + 1]
+            g_start = round(min(3.60, float(cur_s["beat"]) + float(cur_s["dur"])), 2)
+            g_end = round(max(g_start + 0.18, float(nxt_s["beat"]) - 0.02), 2)
+            if g_end > g_start:
+                pause_gate = {
+                    "startBeat": g_start,
+                    "endBeat": min(3.88, g_end),
+                    "label": "|| Phrase Pause Gate",
+                }
+                break
+
+    feet: list[dict[str, Any]] = []
+    stressed_indices = [i for i, s in enumerate(phrase_syllables) if not s["isGhost"]]
+    if stressed_indices:
+        first_st = stressed_indices[0]
+        if first_st > 0:
+            pickup_text = " ".join(str(phrase_syllables[k]["text"]) for k in range(first_st))
+            feet.append(
+                {
+                    "label": f"Pickup: {pickup_text}",
+                    "startBeat": 0.0,
+                    "endBeat": round(float(phrase_syllables[first_st]["beat"]), 2),
+                }
+            )
+        for f_num, st_idx in enumerate(stressed_indices, start=1):
+            next_st_idx = (
+                stressed_indices[f_num] if f_num < len(stressed_indices) else len(phrase_syllables)
+            )
+            start_b = (
+                0.0 if (f_num == 1 and first_st == 0) else float(phrase_syllables[st_idx]["beat"])
+            )
+            end_b = (
+                4.0
+                if next_st_idx >= len(phrase_syllables)
+                else float(phrase_syllables[next_st_idx]["beat"])
+            )
+            foot_words = " ".join(
+                str(phrase_syllables[k]["text"]) for k in range(st_idx, next_st_idx)
+            )
+            feet.append(
+                {
+                    "label": f"Foot {f_num}: {foot_words}",
+                    "startBeat": round(start_b, 2),
+                    "endBeat": round(max(start_b + 0.2, end_b), 2),
+                }
+            )
+
+    return {
+        "id": "custom",
+        "title": target_text.strip(),
+        "vibeLabel": "Custom Target Sentence",
+        "bpm": bpm,
+        "pauseGate": pause_gate,
+        "feet": feet,
+        "syllables": phrase_syllables,
+    }
+
+
+def _synthesize_fallback_prosody_wav(
+    target_text: str,
+    sample_rate: int = 16000,
+) -> bytes:
+    """Synthesize a clean 16kHz mono WAV reference with stress-timed vowel formants and F0 contour."""
+    orth = syllabify_english_text(target_text)
+    n_syl = len(orth)
+
+    events: list[tuple[float, float, float, float, float]] = []
+    cursor = 0.16
+    seen_stressed_in_word = False
+
+    for idx, item in enumerate(orth):
+        is_continuation = idx > 0 and str(orth[idx - 1]["text"]).endswith("-")
+        if not is_continuation:
+            seen_stressed_in_word = False
+
+        if item["is_function_word"]:
+            is_stressed = False
+        elif not seen_stressed_in_word:
+            is_stressed = True
+            seen_stressed_in_word = True
+        else:
+            is_stressed = False
+
+        pre_dur = (0.045 if is_stressed else 0.025) if item["pre"] else 0.0
+        v_dur = 0.21 if is_stressed else 0.09
+        if idx == n_syl - 1 or item["has_pause_after"]:
+            v_dur += 0.05
+
+        declination = 12.0 * (idx / max(1, n_syl - 1))
+        f0 = (152.0 - declination) if is_stressed else (122.0 - 0.6 * declination)
+        amp = 0.72 if is_stressed else 0.36
+
+        v_start = cursor + pre_dur
+        events.append((v_start, v_dur, f0, amp, pre_dur))
+        gap = 0.28 if item["has_pause_after"] else 0.085
+        cursor = v_start + v_dur + gap
+
+    total_dur = max(0.8, cursor + 0.22)
+    n_samples = int(round(total_dur * sample_rate))
+    y = np.zeros(n_samples, dtype=np.float64)
+    rng = np.random.default_rng(42)
+
+    for v_start, v_dur, f0, amp, pre_dur in events:
+        if pre_dur > 0.0:
+            p_idx = max(0, int(round((v_start - pre_dur) * sample_rate)))
+            n_p = max(1, int(round(pre_dur * sample_rate)))
+            if p_idx + n_p <= n_samples:
+                noise = rng.standard_normal(n_p)
+                sos_c = butter(
+                    3,
+                    [3600.0 / (0.5 * sample_rate), min(0.95, 7200.0 / (0.5 * sample_rate))],
+                    btype="bandpass",
+                    output="sos",
+                )
+                cons_sig = cast(np.ndarray, sosfiltfilt(sos_c, noise))
+                cons_sig /= max(float(np.max(np.abs(cons_sig))), 1e-6)
+                y[p_idx : p_idx + n_p] += 0.20 * amp * cons_sig
+
+        s_idx = int(round(v_start * sample_rate))
+        n_v = max(1, int(round(v_dur * sample_rate)))
+        if s_idx + n_v > n_samples:
+            break
+        f0_curve = f0 * (1.0 + 0.04 * np.sin(np.pi * np.linspace(0.0, 1.0, n_v)))
+        phase = 2.0 * np.pi * np.cumsum(f0_curve) / sample_rate
+        sig = np.zeros(n_v, dtype=np.float64)
+        for h in range(1, 16):
+            if h * f0 >= 3200.0:
+                break
+            sig += (1.0 / (h**0.68)) * np.sin(h * phase)
+
+        sos_v = butter(
+            3,
+            [320.0 / (0.5 * sample_rate), 2400.0 / (0.5 * sample_rate)],
+            btype="bandpass",
+            output="sos",
+        )
+        sig = cast(np.ndarray, sosfiltfilt(sos_v, sig))
+        sig /= max(float(np.max(np.abs(sig))), 1e-6)
+
+        env = np.ones(n_v, dtype=np.float64)
+        atk = min(int(0.018 * sample_rate), max(2, n_v // 4))
+        rel = min(int(0.028 * sample_rate), max(2, n_v // 3))
+        env[:atk] = 0.5 * (1.0 - np.cos(np.pi * np.arange(atk) / atk))
+        env[-rel:] = 0.5 * (1.0 + np.cos(np.pi * np.arange(rel) / rel))
+        y[s_idx : s_idx + n_v] += amp * sig * env
+
+    y = np.clip(y, -0.96, 0.96)
+    pcm16 = (y * 32767.0).astype(np.int16)
+    buf = io.BytesIO()
+    scipy_wavfile.write(buf, sample_rate, pcm16)
+    return buf.getvalue()
+
+
+def generate_prosody_reference(target_text: str) -> dict[str, Any]:
+    """Synthesize reference audio for target_text, analyze prosody, and build a beat-aligned phrase."""
+    clean_text = target_text.strip()
+    if not clean_text:
+        raise ValueError("Target sentence cannot be empty")
+
+    audio_bytes: bytes
+    mime_type: str
+    synthesis_source: str
+
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_wav:
+        temp_wav_path = tmp_wav.name
+
+    try:
+        try:
+            provider = OmniVoiceTTSProvider()
+            ref_audio = provider.synthesize(clean_text, output_sample_rate=16000)
+            audio_bytes = ref_audio.audio_bytes
+            mime_type = "audio/ogg" if ref_audio.format == "ogg" else "audio/wav"
+            synthesis_source = "omnivoice"
+            if sf is not None:
+                decoded, sr = sf.read(io.BytesIO(audio_bytes), dtype="float32")
+                sf.write(temp_wav_path, decoded, sr, format="WAV", subtype="PCM_16")
+            else:
+                Path(temp_wav_path).write_bytes(audio_bytes)
+        except (ValueError, FileNotFoundError, RuntimeError) as exc:
+            logger.info("[generate_prosody_reference] Using synthetic prosody fallback: %s", exc)
+            audio_bytes = _synthesize_fallback_prosody_wav(clean_text, sample_rate=16000)
+            mime_type = "audio/wav"
+            synthesis_source = "synthetic_fallback"
+            Path(temp_wav_path).write_bytes(audio_bytes)
+
+        analysis = analyze_prosody_recording(temp_wav_path)
+        phrase = build_prosody_phrase_from_text_and_analysis(clean_text, analysis)
+
+        return {
+            "target_text": clean_text,
+            "audio_base64": base64.b64encode(audio_bytes).decode("ascii"),
+            "mime_type": mime_type,
+            "phrase": phrase,
+            "analysis": analysis,
+            "synthesis_source": synthesis_source,
+        }
+    finally:
+        Path(temp_wav_path).unlink(missing_ok=True)
