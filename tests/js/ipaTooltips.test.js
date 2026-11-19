@@ -126,8 +126,10 @@ describe('IPATooltips', () => {
 
         it('should create proper HTML structure', () => {
             const result = wrapIPATooltip('t');
-            // Should be wrapped in a span with proper classes
+            // Should be wrapped in a span with proper classes and keyboard attributes
             expect(result).toMatch(/^<span class="ipa-phoneme"/);
+            expect(result).toContain('tabindex="0"');
+            expect(result).toContain('role="button"');
             expect(result).toMatch(/<\/span>$/);
         });
     });
@@ -239,6 +241,28 @@ describe('IPATooltips', () => {
             // Should not create tooltip without data-tooltip
             const tooltip = phonemeEl.querySelector('.ipa-tooltip');
             expect(tooltip).toBeFalsy();
+        });
+
+        it('should show tooltip on focusin and dismiss on Escape or focusout', () => {
+            const phonemeEl = document.createElement('span');
+            phonemeEl.className = 'ipa-phoneme';
+            phonemeEl.setAttribute('tabindex', '0');
+            phonemeEl.setAttribute('data-tooltip', '/t/ as in **T**OP');
+            phonemeEl.textContent = '/t/';
+            document.body.appendChild(phonemeEl);
+
+            phonemeEl.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+            const tooltip = phonemeEl.querySelector('.ipa-tooltip');
+            expect(tooltip).not.toBeNull();
+            expect(tooltip.classList.contains('visible')).toBe(true);
+
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+            expect(tooltip.classList.contains('visible')).toBe(false);
+
+            phonemeEl.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+            expect(tooltip.classList.contains('visible')).toBe(true);
+            phonemeEl.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+            expect(tooltip.classList.contains('visible')).toBe(false);
         });
     });
 

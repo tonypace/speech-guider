@@ -100,8 +100,14 @@ function createSvgMarkup(prefix) {
           <path d="M 12 0 H -16 M 12 0 C 14.2 0 16 1.8 16 4 C 16 6.2 14.2 8 12 8 C 9.8 8 8 6.2 8 4" />
           <path d="M 4 8 H -8 M 4 8 C 6.2 8 8 9.8 8 12 C 8 14.2 6.2 16 4 16 C 1.8 16 0 14.2 0 12" />
         </g>
+        <g id="${prefix}-anatomy-labels" font-size="9" font-weight="600" fill="#64748b" pointer-events="none" opacity="0.85">
+          <text x="6" y="256">Lips</text>
+          <text x="148" y="164" text-anchor="middle">Palate</text>
+          <text x="278" y="182" text-anchor="middle">Velum</text>
+          <text x="160" y="330" text-anchor="middle" fill="#881337" opacity="0.75">Tongue</text>
+        </g>
         <g id="${prefix}-larynx-view" transform="translate(260, 385)">
-          <text x="0" y="-18" font-size="10" font-weight="bold" text-anchor="middle" fill="#64748b">GLO</text>
+          <text x="0" y="-18" font-size="9" font-weight="bold" text-anchor="middle" fill="#64748b">Glottis</text>
           <circle cx="0" cy="0" r="14" fill="#fb7185" stroke="#334155" stroke-width="2" />
           <polygon id="${prefix}-glottis-hole" fill="#0f172a" points="0,-10 0,10 0,10" />
           <line id="${prefix}-vf-left" x1="0" y1="-10" x2="0" y2="10" stroke="#f8fafc" stroke-width="2" stroke-linecap="round" />

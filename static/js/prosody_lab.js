@@ -64,6 +64,7 @@ class ProsodyLabRecorder {
         this.cancelOnStop = false;
 
         this.initElements();
+        this.updateCustomSentenceBarVisibility();
         this.bindEvents();
         this.renderRhythmViews(this.loadHistory());
     }
@@ -85,6 +86,7 @@ class ProsodyLabRecorder {
         this.livePanelEl = document.getElementById('prosody-panel-live');
         this.phraseSelectEl = document.getElementById('prosody-phrase-select');
         this.audioModeSelectEl = document.getElementById('prosody-audio-mode-select');
+        this.customSentenceBarEl = document.getElementById('prosody-custom-sentence-bar');
         this.customTextEl = document.getElementById('prosody-custom-text');
         this.customGenerateBtnEl = document.getElementById('prosody-custom-generate-btn');
         this.profileSelectEl = document.getElementById('prosody-profile-select');
@@ -128,9 +130,23 @@ class ProsodyLabRecorder {
 
         if (this.recordBtn) {
             listen(this, this.recordBtn, 'mousedown', () => this.startRecording());
-            listen(this, this.recordBtn, 'mouseup', () => this.stopRecording());
-            listen(this, this.recordBtn, 'mouseleave', () => {
-                if (this.isRecording) this.stopRecording();
+            listen(this, window, 'mouseup', () => {
+                if (this.isRecording || this.isStartingRecording) this.stopRecording();
+            });
+            listen(this, window, 'blur', () => {
+                if (this.isRecording || this.isStartingRecording) this.stopRecording();
+            });
+            listen(this, this.recordBtn, 'keydown', (event) => {
+                if ((event.key === ' ' || event.key === 'Enter') && !event.repeat) {
+                    event.preventDefault();
+                    this.startRecording();
+                }
+            });
+            listen(this, this.recordBtn, 'keyup', (event) => {
+                if (event.key === ' ' || event.key === 'Enter') {
+                    event.preventDefault();
+                    this.stopRecording();
+                }
             });
             listen(this, this.recordBtn, 'touchstart', (event) => {
                 event.preventDefault();
@@ -155,6 +171,7 @@ class ProsodyLabRecorder {
         if (this.phraseSelectEl) {
             listen(this, this.phraseSelectEl, 'change', () => {
                 this.phraseId = this.phraseSelectEl.value || 'prepared';
+                this.updateCustomSentenceBarVisibility();
                 const phrase = getPhraseById(this.phraseId);
                 if (this.customTextEl && this.phraseId !== 'custom') {
                     this.customTextEl.value = phrase.title.replace(/\.\.\./g, ',').replace(/-/g, '');
@@ -228,6 +245,12 @@ class ProsodyLabRecorder {
                 this.setRhythmTab('review');
                 this.renderRhythmViews(this.loadHistory());
             });
+        }
+    }
+
+    updateCustomSentenceBarVisibility() {
+        if (this.customSentenceBarEl) {
+            this.customSentenceBarEl.classList.toggle('hidden', this.phraseId !== 'custom');
         }
     }
 
@@ -417,7 +440,7 @@ class ProsodyLabRecorder {
         this.canvasCtx.fillStyle = 'rgb(240, 240, 240)';
         this.canvasCtx.fillRect(0, 0, this.canvas.width, this.canvas.height);
         this.canvasCtx.lineWidth = 2;
-        this.canvasCtx.strokeStyle = 'rgb(16, 185, 129)';
+        this.canvasCtx.strokeStyle = 'rgb(220, 38, 38)';
         this.canvasCtx.beginPath();
 
         const sliceWidth = this.canvas.width / this.dataArray.length;
@@ -465,6 +488,10 @@ class ProsodyLabRecorder {
             this.profileKey = 'recorded_take';
             if (this.profileSelectEl) {
                 this.profileSelectEl.value = 'recorded_take';
+            }
+            this.performer = 'recorded_take';
+            if (this.performerSelectEl) {
+                this.performerSelectEl.value = 'recorded_take';
             }
             await this.storeRecord(result);
             this.renderFromStorage(result.recording_id);
@@ -515,6 +542,7 @@ class ProsodyLabRecorder {
             if (this.phraseSelectEl) {
                 this.phraseSelectEl.value = 'custom';
             }
+            this.updateCustomSentenceBarVisibility();
             this.renderRhythmViews(this.loadHistory());
             this.setStatus(`Reference ready (${data.phrase?.syllables?.length || 0} syllables).`);
         } catch (error) {
@@ -755,11 +783,13 @@ class ProsodyLabRecorder {
         if (this.reviewPanelEl) this.reviewPanelEl.classList.toggle('hidden', !isReview);
         if (this.livePanelEl) this.livePanelEl.classList.toggle('hidden', isReview);
         if (this.reviewTabBtnEl) {
+            this.reviewTabBtnEl.setAttribute('aria-selected', String(isReview));
             this.reviewTabBtnEl.className = isReview
                 ? 'rounded-md bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-sm'
                 : 'rounded-md bg-gray-100 px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-200';
         }
         if (this.liveTabBtnEl) {
+            this.liveTabBtnEl.setAttribute('aria-selected', String(!isReview));
             this.liveTabBtnEl.className = !isReview
                 ? 'rounded-md bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-sm'
                 : 'rounded-md bg-gray-100 px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-200';

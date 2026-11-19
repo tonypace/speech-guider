@@ -39,11 +39,13 @@ window.switchTab = function switchTab(tabName) {
     document.querySelectorAll('.tab-btn').forEach((btn) => {
         btn.classList.remove('tab-btn-active', 'text-blue-600', 'border-b-2', 'border-blue-600');
         btn.classList.add('text-gray-500');
+        btn.setAttribute('aria-selected', 'false');
     });
     const activeBtn = document.getElementById(`tab-btn-${tabName}`);
     if (activeBtn) {
         activeBtn.classList.add('tab-btn-active', 'text-blue-600', 'border-b-2', 'border-blue-600');
         activeBtn.classList.remove('text-gray-500');
+        activeBtn.setAttribute('aria-selected', 'true');
     }
 
     document.querySelectorAll('.tab-panel').forEach((panel) => panel.classList.add('hidden'));
@@ -59,8 +61,8 @@ window.switchTab = function switchTab(tabName) {
     }
 
     if (previousTab === 'analysis' && tabName !== 'analysis') {
-        window.svgLeftRenderer?.stopAnimation();
-        window.svgRightRenderer?.stopAnimation();
+        stopPoseAnimation('left');
+        stopPoseAnimation('right');
         void resetRecorderInput(window.recorder);
     }
     if (previousTab === 'prosody' && tabName !== 'prosody') {
@@ -119,21 +121,110 @@ window.updateVocalTractDescriptions = function updateVocalTractDescriptions(inco
         console.error('[updateVocalTractDescriptions] Failed to parse highlight JSON:', error);
     }
 
-    if (window.currentAnimationParams.left) window.svgLeftRenderer?.setState(window.currentAnimationParams.left);
-    if (window.currentAnimationParams.right) window.svgRightRenderer?.setState(window.currentAnimationParams.right);
+    if (window.currentAnimationParams.left) {
+        window.currentLeftState = window.currentAnimationParams.left;
+        window.svgLeftRenderer?.setState(window.currentAnimationParams.left);
+    }
+    if (window.currentAnimationParams.right) {
+        window.currentRightState = window.currentAnimationParams.right;
+        window.svgRightRenderer?.setState(window.currentAnimationParams.right);
+    }
     if (window.currentHighlightParams.zone) {
         window.svgLeftRenderer?.setHighlightZone(window.currentHighlightParams.zone);
         window.svgRightRenderer?.setHighlightZone(window.currentHighlightParams.zone);
     }
 };
 
+const POSE_TRANSITION_MS = 450;
+const poseTransitionIds = { left: null, right: null };
+
+function stopPoseAnimation(side) {
+    if (poseTransitionIds[side] !== null) {
+        cancelAnimationFrame(poseTransitionIds[side]);
+        poseTransitionIds[side] = null;
+    }
+    const renderer = side === 'left' ? window.svgLeftRenderer : window.svgRightRenderer;
+    renderer?.stopAnimation();
+}
+
+function togglePoseAnimation(side) {
+    const renderer = side === 'left' ? window.svgLeftRenderer : window.svgRightRenderer;
+    if (!renderer) return;
+
+    if (renderer.isRunning || poseTransitionIds[side] !== null) {
+        stopPoseAnimation(side);
+        return;
+    }
+
+    const targetState = (side === 'left' ? window.currentLeftState : window.currentRightState)
+        || window.currentAnimationParams?.[side]
+        || DEFAULT_STATE;
+    const fromState = { ...DEFAULT_STATE };
+    const keys = Object.keys(DEFAULT_STATE);
+    const startMs = performance.now();
+
+    renderer.setState(fromState);
+    renderer.startAnimation();
+
+    const step = (now) => {
+        if (!renderer.isRunning) {
+            poseTransitionIds[side] = null;
+            return;
+        }
+        const rawT = Math.min(1, Math.max(0, (now - startMs) / POSE_TRANSITION_MS));
+        const easedT = 1 - (1 - rawT) ** 3;
+        const interpolated = {};
+        for (const key of keys) {
+            const startVal = Number(fromState[key] ?? 0);
+            const endVal = Number(targetState[key] ?? startVal);
+            interpolated[key] = startVal + (endVal - startVal) * easedT;
+        }
+        renderer.setState(interpolated);
+        if (rawT < 1) {
+            poseTransitionIds[side] = requestAnimationFrame(step);
+        } else {
+            poseTransitionIds[side] = null;
+        }
+    };
+    poseTransitionIds[side] = requestAnimationFrame(step);
+}
+
 window.animateLeft = function animateLeft() {
-    window.svgLeftRenderer?.startAnimation();
+    togglePoseAnimation('left');
 };
 
 window.animateRight = function animateRight() {
-    window.svgRightRenderer?.startAnimation();
+    togglePoseAnimation('right');
 };
+
+function bindTargetSentenceSync() {
+    const inputIds = ['target_text', 'comparison-target-text', 'prosody-custom-text'];
+    const inputs = inputIds
+        .map((id) => document.getElementById(id))
+        .filter(Boolean);
+    if (inputs.length < 2) return;
+
+    let isSyncing = false;
+    inputs.forEach((source) => {
+        source.addEventListener('input', () => {
+            if (isSyncing) return;
+            isSyncing = true;
+            try {
+                const value = source.value;
+                inputs.forEach((target) => {
+                    if (target !== source && target.value !== value) {
+                        target.value = value;
+                        if (target.id === 'comparison-target-text') {
+                            target.dispatchEvent(new Event('input', { bubbles: true }));
+                        }
+                    }
+                });
+            } finally {
+                isSyncing = false;
+            }
+        });
+    });
+}
 
 window.selectError = async function selectError(index) {
     const errors = window.currentErrors;
@@ -162,6 +253,7 @@ window.selectError = async function selectError(index) {
 
 document.addEventListener('DOMContentLoaded', () => {
     mountSvgRenderers();
+    bindTargetSentenceSync();
     window.switchTab(window.currentTab);
 });
 

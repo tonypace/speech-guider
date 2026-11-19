@@ -14,18 +14,7 @@ This document is the active, priority-ordered **working stack** for cleanup, bug
 
 ## Stack status
 
-The initial codebase cleanup stack (`P0.1`–`P4.3`) was completed and logged in [completed tasks](completed_tasks.md) on **2026-11-17**. A full 3-agent review on **2026-11-19** queued the cleanup, bug-fix, and UX improvement sections below (`Section 1`–`Section 3`), followed by release validation and planned domain research.
-
----
-
-## Priority 0 — Post-review cleanup, bug fixes & UX refinement (2026-11-19)
-
-### Section 3 — Design & usability (UX/UI) improvements
-- **3.1 Recording interaction & cutoff fix:** Prevent accidental `mouseleave` recording cutoff during hold-to-record, add keyboard `Space`/`Enter` support on focused record buttons, and unify record button styling/semantics.
-- **3.2 Cross-tab target sentence sync & contextual instructions:** Sync target sentence across `Analysis`, `Comparison Lab`, and `Prosody Lab (Custom)`; move `#tab-panel-analysis` instructions inside `#tab-panel-analysis`; add a direct `"Compare with Reference in Comparison Lab"` action from `Analysis` results.
-- **3.3 Learner-friendly Analysis & Prosody Lab defaults:** Compute acoustic vocalic nPVI in `/api/analyze` when forced alignment is absent and replace raw pipeline diagnostic strings with learner-friendly metrics; in Prosody Lab, hide `#prosody-custom-sentence-bar` unless `5. Custom Sentence (TTS)...` is selected, auto-select `Latest Recorded Take (Student)` once recorded, and open coaching/history `<details>` by default.
-- **3.4 Vocal tract anatomical legend, dynamic pose preview & playback speed clarity:** Add anatomical orientation labels to `SvgArticulatoryRenderer`, animate tongue/jaw pose transition on `Animate` button click, and clarify slow-motion playback speed (`0.3x` / `0.5x` / `1.0x`).
-- **3.5 Accessibility & color semantics:** Add `role="tablist"` / `role="tab"` / `role="tabpanel"` / `aria-selected` to main and Prosody tabs; make `.ipa-phoneme` tooltips keyboard-focusable (`tabindex="0"`, `focusin`/`focusout`); replace blocking `window.alert()` in `recorder.js` with inline status banners; fix inverted target/error phoneme colors in `recorder.js`.
+The initial codebase cleanup stack (`P0.1`–`P4.3`) was completed on **2026-11-17**, and the post-review cleanup, bug-fix, and UX refinement stack (`Section 1`–`Section 3`) was completed and logged in [completed tasks](completed_tasks.md) on **2026-11-19**. Remaining open work below tracks release/hardware validation and planned domain features.
 
 ---
 

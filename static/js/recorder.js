@@ -77,12 +77,28 @@ class IntercomRecorder {
             });
         }
 
-        // Mouse/Touch events
+        // Mouse/Touch/Keyboard hold-to-record events
         if (this.recordBtn) {
             listen(this, this.recordBtn, 'mousedown', () => this.startRecording());
-            listen(this, this.recordBtn, 'mouseup', () => this.stopRecording());
-            listen(this, this.recordBtn, 'mouseleave', () => {
-                if (this.isRecording) this.stopRecording();
+            listen(this, window, 'mouseup', () => {
+                if (this.isRecording || this.isStartingRecording) this.stopRecording();
+            });
+            listen(this, window, 'blur', () => {
+                if (this.isRecording || this.isStartingRecording) this.stopRecording();
+            });
+
+            // Keyboard Space/Enter hold-to-record on focused button
+            listen(this, this.recordBtn, 'keydown', (e) => {
+                if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) {
+                    e.preventDefault();
+                    this.startRecording();
+                }
+            });
+            listen(this, this.recordBtn, 'keyup', (e) => {
+                if (e.key === ' ' || e.key === 'Enter') {
+                    e.preventDefault();
+                    this.stopRecording();
+                }
             });
 
             // Touch events
@@ -412,6 +428,26 @@ class IntercomRecorder {
         this.canvasCtx.stroke();
     }
 
+    showAlert(message) {
+        this.clearAlert();
+        const alertEl = document.createElement('div');
+        alertEl.id = 'analysis-alert';
+        alertEl.setAttribute('role', 'alert');
+        alertEl.className = 'mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700';
+        alertEl.textContent = message;
+
+        const feedbackContainer = document.getElementById('feedback-container');
+        if (feedbackContainer) {
+            feedbackContainer.prepend(alertEl);
+        } else if (this.recorderContainer?.parentNode) {
+            this.recorderContainer.parentNode.insertBefore(alertEl, this.recorderContainer);
+        }
+    }
+
+    clearAlert() {
+        document.getElementById('analysis-alert')?.remove();
+    }
+
     async sendForAnalysis() {
         if (this.destroyed || this.audioChunks.length === 0) {
             console.error('No audio recorded');
@@ -426,7 +462,7 @@ class IntercomRecorder {
         } catch (error) {
             console.error('Audio conversion failed:', error);
             if (!this.destroyed) {
-                alert('Failed to process recorded audio: ' + error.message);
+                this.showAlert('Failed to process recorded audio: ' + error.message);
             }
         } finally {
             if (this.recTimer) {
@@ -440,9 +476,10 @@ class IntercomRecorder {
         const targetText = targetTextInput ? targetTextInput.value : '';
 
         if (!targetText.trim()) {
-            alert('Please enter the target sentence first');
+            this.showAlert('Please enter the target sentence first');
             return;
         }
+        this.clearAlert();
 
         const formData = new FormData();
         formData.append('audio', wavBlob, filename);
@@ -473,7 +510,7 @@ class IntercomRecorder {
             if (!this.destroyed) this.displayResults(result, wavBlob);
         } catch (error) {
             console.error('Analysis failed:', error);
-            alert('Analysis failed: ' + error.message);
+            this.showAlert('Analysis failed: ' + error.message);
         } finally {
             if (progress) progress.close();
             if (progressContainer) progressContainer.classList.add('hidden');
@@ -485,7 +522,7 @@ class IntercomRecorder {
         const targetText = targetTextInput ? targetTextInput.value : '';
 
         if (!targetText.trim()) {
-            alert('Please enter the target sentence first');
+            this.showAlert('Please enter the target sentence first');
             this._clearFileInput();
             return;
         }
@@ -496,7 +533,7 @@ class IntercomRecorder {
             await this.submitAudioBlob(wavBlob, `${basename}.wav`);
         } catch (error) {
             console.error('File upload failed:', error);
-            alert('Failed to process audio file: ' + error.message);
+            this.showAlert('Failed to process audio file: ' + error.message);
         } finally {
             this._clearFileInput();
         }
@@ -525,6 +562,7 @@ class IntercomRecorder {
         console.log('[displayResults] result.errors:', result.errors);
         
         // Update feedback container - server now sends HTML directly
+        this.clearAlert();
         const feedbackContainer = document.getElementById('feedback-container');
         if (feedbackContainer) {
             if (result.success || result.status === 'partial') {
@@ -534,8 +572,25 @@ class IntercomRecorder {
                         <div class="prose max-w-none">
                             ${result.feedback}
                         </div>
+                        <div class="mt-4 pt-3 border-t border-gray-100">
+                            <button type="button" id="analysis-compare-cta" class="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition">
+                                Compare with Reference in Comparison Lab →
+                            </button>
+                        </div>
                     </div>
                 `;
+                const compareBtn = feedbackContainer.querySelector('#analysis-compare-cta');
+                if (compareBtn) {
+                    compareBtn.addEventListener('click', () => {
+                        const sourceInput = document.getElementById('target_text');
+                        const comparisonInput = document.getElementById('comparison-target-text');
+                        if (sourceInput && comparisonInput && comparisonInput.value !== sourceInput.value) {
+                            comparisonInput.value = sourceInput.value;
+                            comparisonInput.dispatchEvent(new Event('input', { bubbles: true }));
+                        }
+                        window.switchTab?.('comparison');
+                    });
+                }
                 if (result.status === 'partial') {
                     const warning = document.createElement('p');
                     warning.className = 'bg-red-50 text-red-700 p-4';
@@ -595,9 +650,9 @@ class IntercomRecorder {
             btn.innerHTML = `
                 <span class="font-medium">${index + 1}.</span>
                 <span class="text-gray-700" data-word-context></span>
-                <span class="text-red-600">${window.wrapIPATooltip(error.target_phoneme)}</span>
+                <span class="text-green-600">${window.wrapIPATooltip(error.target_phoneme)}</span>
                 <span class="text-gray-400">→</span>
-                <span class="text-blue-600">${window.wrapIPATooltip(error.predicted_phoneme)}</span>
+                <span class="text-red-600">${window.wrapIPATooltip(error.predicted_phoneme)}</span>
             `;
             btn.querySelector('[data-word-context]').textContent = `'${error.word_context}':`;
             btn.onclick = () => window.selectError(index);

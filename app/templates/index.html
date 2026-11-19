@@ -33,28 +33,45 @@
         {% endif %}
 
         <!-- Tab Navigation -->
-        <div class="flex border-b border-gray-200 mb-6">
-            <button id="tab-btn-analysis" 
+        <div class="flex border-b border-gray-200 mb-6" role="tablist" aria-label="Main sections">
+            <button id="tab-btn-analysis"
+                    type="button"
+                    role="tab"
+                    aria-selected="true"
+                    aria-controls="tab-panel-analysis"
                     onclick="switchTab('analysis')"
                     class="tab-btn tab-btn-active px-6 py-3 font-medium text-blue-600 border-b-2 border-blue-600 -mb-px">
                 Analysis
             </button>
             <button id="tab-btn-prosody"
+                    type="button"
+                    role="tab"
+                    aria-selected="false"
+                    aria-controls="tab-panel-prosody"
                     onclick="switchTab('prosody')"
                     class="tab-btn px-6 py-3 font-medium text-gray-500 hover:text-gray-700">
                 Prosody Lab
             </button>
             <button id="tab-btn-comparison"
+                    type="button"
+                    role="tab"
+                    aria-selected="false"
+                    aria-controls="tab-panel-comparison"
                     onclick="switchTab('comparison')"
                     class="tab-btn px-6 py-3 font-medium text-gray-500 hover:text-gray-700">
                 Comparison Lab
             </button>
-            <button id="tab-btn-settings" onclick="switchTab('settings')"
+            <button id="tab-btn-settings"
+                    type="button"
+                    role="tab"
+                    aria-selected="false"
+                    aria-controls="tab-panel-settings"
+                    onclick="switchTab('settings')"
                     class="tab-btn px-6 py-3 font-medium text-gray-500 hover:text-gray-700">Settings</button>
         </div>
 
         <!-- Tab Panels -->
-        <div id="tab-panel-analysis" class="tab-panel">
+        <div id="tab-panel-analysis" class="tab-panel" role="tabpanel" aria-labelledby="tab-btn-analysis">
         
         <!-- Main Analysis Section -->
         <section class="bg-white rounded-lg shadow-md p-6 mb-8">
@@ -170,18 +187,35 @@
             </div>
         </section>
 
+        <!-- Instructions (Analysis Tab) -->
+        <section class="prose max-w-none">
+            <h2 class="text-xl font-semibold text-gray-800 mb-3">Instructions</h2>
+            <ol class="list-decimal list-inside space-y-1 text-gray-600">
+                <li>Enter the target sentence you want to practice</li>
+                <li>Hold the microphone button, press Space/Enter while focused, or hold F5 while reading aloud, then release to analyze (or upload a WAV/audio file when the recorder is unavailable)</li>
+                <li>Inspect your vocal tract trajectory and prosody metrics in the feedback card</li>
+                <li>Scrub or play your articulatory trajectory at 0.5x slow motion, or open Comparison Lab to compare side-by-side with a spoken reference</li>
+            </ol>
+
+            <div class="mt-4 p-4 bg-blue-50 rounded-md">
+                <p class="text-sm text-blue-800">
+                    <strong>Note:</strong> For best results, record in a quiet space and speak clearly at a natural pace.
+                </p>
+            </div>
+        </section>
+
         </div><!-- End tab-panel-analysis -->
 
         <!-- Prosody Lab Tab Panel -->
-        <div id="tab-panel-prosody" class="tab-panel hidden">
+        <div id="tab-panel-prosody" class="tab-panel hidden" role="tabpanel" aria-labelledby="tab-btn-prosody">
             <section class="bg-white rounded-lg shadow-md p-6 mb-8 space-y-5">
                 <!-- Top Bar: 2 Separate Tabs + Phrase Selector + Audio Mode Switch -->
                 <div class="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 pb-4">
-                    <div class="flex items-center gap-2">
-                        <button type="button" id="prosody-view-tab-review" class="rounded-md bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-sm">
+                    <div class="flex items-center gap-2" role="tablist" aria-label="Prosody Lab views">
+                        <button type="button" id="prosody-view-tab-review" role="tab" aria-selected="true" aria-controls="prosody-panel-review" class="rounded-md bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-sm">
                             Timing Review
                         </button>
-                        <button type="button" id="prosody-view-tab-live" class="rounded-md bg-gray-100 px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-200">
+                        <button type="button" id="prosody-view-tab-live" role="tab" aria-selected="false" aria-controls="prosody-panel-live" class="rounded-md bg-gray-100 px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-200">
                             Live Flow Guide
                         </button>
                     </div>
@@ -209,7 +243,7 @@
                 </div>
 
                 <!-- Custom Sentence TTS Bar -->
-                <div id="prosody-custom-sentence-bar" class="flex flex-wrap items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg p-3">
+                <div id="prosody-custom-sentence-bar" class="hidden flex flex-wrap items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg p-3">
                     <label for="prosody-custom-text" class="text-xs font-semibold text-gray-700">Custom Sentence:</label>
                     <input type="text" id="prosody-custom-text" maxlength="240"
                            value="We need to focus on the core problems first."
@@ -225,7 +259,7 @@
                     <div class="flex flex-wrap items-center gap-3">
                         <button id="prosody-record-btn"
                                 type="button"
-                                class="record-button px-4 py-2 rounded-full bg-emerald-600 text-white font-semibold text-xs shadow hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-400 transition flex items-center gap-2">
+                                class="record-button px-4 py-2 rounded-full bg-red-600 text-white font-semibold text-xs shadow hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-400 transition flex items-center gap-2">
                             <span>🎙</span>
                             <span class="btn-text">Hold to Record</span>
                         </button>
@@ -238,7 +272,7 @@
                 </div>
 
                 <!-- TAB 1: TIMING REVIEW (VocAlign Elastic Tethers) -->
-                <div id="prosody-panel-review" class="space-y-3">
+                <div id="prosody-panel-review" class="space-y-3" role="tabpanel" aria-labelledby="prosody-view-tab-review">
                     <div class="flex flex-wrap items-center justify-between gap-3">
                         <div class="flex flex-wrap items-center gap-2">
                             <label class="text-xs font-semibold text-gray-700" for="prosody-profile-select">Learner Take:</label>
@@ -269,7 +303,7 @@
                 </div>
 
                 <!-- TAB 2: LIVE FLOW GUIDE (Prosodic Flow Matrix) -->
-                <div id="prosody-panel-live" class="hidden space-y-3">
+                <div id="prosody-panel-live" class="hidden space-y-3" role="tabpanel" aria-labelledby="prosody-view-tab-live">
                     <div class="flex flex-wrap items-center justify-between gap-3">
                         <div class="flex flex-wrap items-center gap-2">
                             <label class="text-xs font-semibold text-gray-700" for="prosody-performer-select">Bar 2 Performer:</label>
@@ -298,7 +332,7 @@
                 </div>
 
                 <!-- Collapsible Teacher Notes, Coaching & Recording History -->
-                <details class="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                <details open class="bg-gray-50 border border-gray-200 rounded-lg p-4">
                     <summary class="text-xs font-semibold text-gray-800 cursor-pointer select-none">
                         Teacher Notes, Recording Metrics &amp; History
                     </summary>
@@ -321,7 +355,7 @@
         </div><!-- End tab-panel-prosody -->
 
         <!-- Comparison Lab Tab Panel -->
-        <div id="tab-panel-comparison" class="tab-panel hidden">
+        <div id="tab-panel-comparison" class="tab-panel hidden" role="tabpanel" aria-labelledby="tab-btn-comparison">
             <section class="comparison-workspace bg-white rounded-lg shadow-md p-4 sm:p-6 mb-8">
                 <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
                     <h2 class="text-2xl font-semibold text-gray-800">Comparison Lab</h2>
@@ -422,12 +456,13 @@
                                     class="px-3 py-2 border border-gray-300 rounded text-sm disabled:opacity-50"
                                     disabled>
                                 <option value="0.25">0.25x</option>
-                                <option value="0.3" selected>0.3x</option>
-                                <option value="0.5">0.5x</option>
+                                <option value="0.3">0.3x</option>
+                                <option value="0.5" selected>0.5x</option>
                                 <option value="0.75">0.75x</option>
                                 <option value="1">1x</option>
                                 <option value="1.25">1.25x</option>
                             </select>
+                            <span id="comparison-speed-badge" class="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800">Slow Motion (0.5x)</span>
                         </div>
 
                         <!-- Link Playheads -->
@@ -487,7 +522,7 @@
             </section>
         </div><!-- End tab-panel-comparison -->
 
-        <div id="tab-panel-settings" class="tab-panel hidden">
+        <div id="tab-panel-settings" class="tab-panel hidden" role="tabpanel" aria-labelledby="tab-btn-settings">
             <form id="settings-form" class="bg-white rounded-lg shadow-md p-6 mb-8 space-y-6">
                 <h2 class="text-2xl font-semibold text-gray-800">Settings</h2>
                 <fieldset class="space-y-3">
@@ -528,24 +563,6 @@
                 </div>
             </form>
         </div><!-- End tab-panel-settings -->
-
-        <!-- Instructions -->
-        <section class="prose max-w-none">
-            <h2 class="text-xl font-semibold text-gray-800 mb-3">Instructions</h2>
-            <ol class="list-decimal list-inside space-y-1 text-gray-600">
-                <li>Enter the target sentence you want to practice</li>
-                <li>Hold the microphone button or F5 while reading aloud, then release to analyze (or upload a WAV/audio file when the recorder is unavailable)</li>
-                <li>Inspect the articulatory trajectory and prosody feedback</li>
-                <li>Select a detected error and click "Animate" to inspect mouth and tongue positions</li>
-                <li>Open Comparison Lab to compare your recording with a spoken reference</li>
-            </ol>
-            
-            <div class="mt-4 p-4 bg-blue-50 rounded-md">
-                <p class="text-sm text-blue-800">
-                    <strong>Note:</strong> This system uses IPA-based phoneme and articulatory analysis. For best results, speak clearly and at a moderate pace.
-                </p>
-            </div>
-        </section>
     </div>
 
     <script>

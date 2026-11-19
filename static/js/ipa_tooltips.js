@@ -111,7 +111,7 @@ function wrapIPATooltip(phoneme) {
   
     // Always return with tooltip wrapper, even if no example word exists
     if (!data) {
-        return `<span class="ipa-phoneme" data-phoneme="${safePhoneme}" data-tooltip="/${safePhoneme}/">/${safePhoneme}/</span>`;
+        return `<span class="ipa-phoneme" tabindex="0" role="button" data-phoneme="${safePhoneme}" data-tooltip="/${safePhoneme}/">/${safePhoneme}/</span>`;
     }
 
     const word = data.word;
@@ -130,7 +130,7 @@ function wrapIPATooltip(phoneme) {
         tooltipText = `/${phoneme}/ as in ${word}${lang}`;
     }
 
-    return `<span class="ipa-phoneme" data-phoneme="${safePhoneme}" data-tooltip="${escapeHtml(tooltipText)}">/${safePhoneme}/</span>`;
+    return `<span class="ipa-phoneme" tabindex="0" role="button" data-phoneme="${safePhoneme}" data-tooltip="${escapeHtml(tooltipText)}">/${safePhoneme}/</span>`;
 }
 
 // ES Module exports
@@ -142,48 +142,65 @@ if (typeof window !== 'undefined') {
     window.wrapIPATooltip = wrapIPATooltip;
 }
 
+function showTooltip(phonemeEl) {
+    if (!phonemeEl) return;
+    const tooltipText = phonemeEl.getAttribute('data-tooltip');
+    if (!tooltipText) return;
+
+    let tooltip = phonemeEl.querySelector('.ipa-tooltip');
+    if (!tooltip) {
+        tooltip = document.createElement('span');
+        tooltip.className = 'ipa-tooltip';
+        phonemeEl.appendChild(tooltip);
+    }
+
+    const fragment = document.createDocumentFragment();
+    const marker = /\*\*(.+?)\*\*/g;
+    let cursor = 0;
+    let match;
+    while ((match = marker.exec(tooltipText)) !== null) {
+        fragment.appendChild(document.createTextNode(tooltipText.slice(cursor, match.index)));
+        const strong = document.createElement('strong');
+        strong.textContent = match[1];
+        fragment.appendChild(strong);
+        cursor = marker.lastIndex;
+    }
+    fragment.appendChild(document.createTextNode(tooltipText.slice(cursor)));
+    tooltip.replaceChildren(fragment);
+    tooltip.classList.add('visible');
+}
+
+function hideTooltip(phonemeEl) {
+    if (!phonemeEl) return;
+    const tooltip = phonemeEl.querySelector('.ipa-tooltip');
+    if (tooltip) {
+        tooltip.classList.remove('visible');
+    }
+}
+
 // Use event delegation for dynamically added elements
 if (typeof document !== 'undefined' && document.addEventListener) {
-    document.addEventListener('mouseover', function(e) {
-        if (!e.target) return;
-        // Find the closest ipa-phoneme element
+    const handleShow = (e) => {
+        if (!e.target || typeof e.target.closest !== 'function') return;
         const phonemeEl = e.target.closest('.ipa-phoneme');
-        if (phonemeEl) {
-            const tooltipText = phonemeEl.getAttribute('data-tooltip');
-            if (!tooltipText) return;
+        if (phonemeEl) showTooltip(phonemeEl);
+    };
 
-            let tooltip = phonemeEl.querySelector('.ipa-tooltip');
-            if (!tooltip) {
-                tooltip = document.createElement('span');
-                tooltip.className = 'ipa-tooltip';
-                phonemeEl.appendChild(tooltip);
-            }
-
-            const fragment = document.createDocumentFragment();
-            const marker = /\*\*(.+?)\*\*/g;
-            let cursor = 0;
-            let match;
-            while ((match = marker.exec(tooltipText)) !== null) {
-                fragment.appendChild(document.createTextNode(tooltipText.slice(cursor, match.index)));
-                const strong = document.createElement('strong');
-                strong.textContent = match[1];
-                fragment.appendChild(strong);
-                cursor = marker.lastIndex;
-            }
-            fragment.appendChild(document.createTextNode(tooltipText.slice(cursor)));
-            tooltip.replaceChildren(fragment);
-            tooltip.classList.add('visible');
-        }
-    });
-
-    document.addEventListener('mouseout', function(e) {
-        if (!e.target) return;
+    const handleHide = (e) => {
+        if (!e.target || typeof e.target.closest !== 'function') return;
         const phonemeEl = e.target.closest('.ipa-phoneme');
-        if (phonemeEl) {
-            const tooltip = phonemeEl.querySelector('.ipa-tooltip');
-            if (tooltip) {
+        if (phonemeEl) hideTooltip(phonemeEl);
+    };
+
+    document.addEventListener('mouseover', handleShow);
+    document.addEventListener('mouseout', handleHide);
+    document.addEventListener('focusin', handleShow);
+    document.addEventListener('focusout', handleHide);
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            document.querySelectorAll('.ipa-tooltip.visible').forEach((tooltip) => {
                 tooltip.classList.remove('visible');
-            }
+            });
         }
     });
 }

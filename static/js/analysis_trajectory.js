@@ -13,8 +13,8 @@ export function showAnalysisTrajectory(container, trajectory, blob) {
             <audio controls preload="metadata" class="max-w-full"></audio>
             <label>Playback speed
                 <select class="rounded border px-2 py-1">
-                    <option value="0.3" selected>0.3×</option>
-                    <option value="0.5">0.5×</option>
+                    <option value="0.3">0.3×</option>
+                    <option value="0.5" selected>0.5×</option>
                     <option value="0.75">0.75×</option>
                     <option value="1">1×</option>
                     <option value="1.25">1.25×</option>
@@ -22,6 +22,7 @@ export function showAnalysisTrajectory(container, trajectory, blob) {
                     <option value="2">2×</option>
                 </select>
             </label>
+            <span data-speed-badge class="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800">Slow Motion (0.5x)</span>
         </div>
         <div class="mt-3 max-w-xs">
             <div data-tract></div>
@@ -35,12 +36,28 @@ export function showAnalysisTrajectory(container, trajectory, blob) {
     slider.max = String(frames.length - 1);
     const audio = section.querySelector('audio');
     const speed = section.querySelector('select');
+    const speedBadge = section.querySelector('[data-speed-badge]');
+    const updateSpeedBadge = (rateValue) => {
+        if (!speedBadge) return;
+        if (rateValue < 1) {
+            speedBadge.textContent = `Slow Motion (${rateValue}x)`;
+            speedBadge.className = 'inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800';
+        } else if (rateValue === 1) {
+            speedBadge.textContent = 'Normal (1.0x)';
+            speedBadge.className = 'inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-800';
+        } else {
+            speedBadge.textContent = `Fast (${rateValue}x)`;
+            speedBadge.className = 'inline-flex items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-800';
+        }
+    };
     const url = blob ? URL.createObjectURL(blob) : null;
     if (url) {
         audio.src = url;
         const setSpeed = () => {
-            audio.defaultPlaybackRate = Number(speed.value);
-            audio.playbackRate = audio.defaultPlaybackRate;
+            const rateValue = Number(speed.value);
+            audio.defaultPlaybackRate = rateValue;
+            audio.playbackRate = rateValue;
+            updateSpeedBadge(rateValue);
         };
         speed.onchange = setSpeed;
         setSpeed();

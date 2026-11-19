@@ -62,6 +62,7 @@ class ComparisonLab {
         this.setupController();
         this.setupEventListeners();
         this.initRenderers();
+        this.updateSpeedBadge(this.controller?.playbackSpeed ?? 0.5);
         this.updateUIState();
     }
 
@@ -119,7 +120,7 @@ class ComparisonLab {
                 if (type === 'reference') this.showReferenceStatus('error', 'Reference audio could not play.');
                 else this.showStudentStatus('error', 'Recording audio could not play.');
             },
-            defaultSpeed: 0.3,
+            defaultSpeed: 0.5,
             linkedPlayheads: true,
         });
     }
@@ -419,6 +420,26 @@ class ComparisonLab {
         if (!this.controller) return;
         const speed = parseFloat(event.target.value);
         this.controller.setSpeed(speed);
+        this.updateSpeedBadge(this.controller.playbackSpeed);
+    }
+
+    /**
+   * Update visible playback speed mode badge
+   */
+    updateSpeedBadge(speed) {
+        const badge = document.getElementById('comparison-speed-badge');
+        if (!badge) return;
+        const rate = Number(speed);
+        if (rate < 1) {
+            badge.textContent = `Slow Motion (${rate}x)`;
+            badge.className = 'inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800';
+        } else if (rate === 1) {
+            badge.textContent = 'Normal (1.0x)';
+            badge.className = 'inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-800';
+        } else {
+            badge.textContent = `Fast (${rate}x)`;
+            badge.className = 'inline-flex items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-800';
+        }
     }
 
     /**

@@ -9,6 +9,8 @@ describe('analysis trajectory', () => {
             frames: [{ lip_aperture: 0.1 }, { lip_aperture: 0.8 }],
         });
         expect(container.querySelector('svg')).not.toBeNull();
+        expect(container.querySelector('select').value).toBe('0.5');
+        expect(container.querySelector('[data-speed-badge]').textContent).toBe('Slow Motion (0.5x)');
         expect(container.querySelector('output').textContent).toContain('0.000 s');
         const slider = container.querySelector('input');
         slider.value = '1';

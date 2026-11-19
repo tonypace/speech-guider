@@ -2,8 +2,11 @@
 
 import asyncio
 import logging
+import math
 from typing import Any
 
+import numpy as np
+import parselmouth
 import torch
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
@@ -19,6 +22,7 @@ from app.utils.audio import (
     save_upload_to_temp,
 )
 from src.audio import processor
+from src.audio.prosody_lab import detect_syllables_and_pcenters
 from src.models.aai_adapter import (
     SPEAKER_Z_METADATA,
     aai_to_canonical_state,
@@ -148,6 +152,34 @@ def _load_and_preprocess_audio(
     return load_audio_tensor(audio_source, DEFAULT_SSL_FEATURE_CONFIG.sample_rate)
 
 
+def _extract_acoustic_vowel_intervals(
+    audio_tensor: torch.Tensor,
+    sample_rate: int,
+    praat_sound: Any = None,
+) -> list[tuple[float, float]]:
+    """Estimate non-overlapping acoustic vowel (onset, offset) intervals via P-center detection."""
+    samples = np.asarray(audio_tensor.detach().cpu().numpy(), dtype=np.float64).reshape(-1)
+    if samples.size == 0 or sample_rate <= 0:
+        return []
+    sound = praat_sound if isinstance(praat_sound, parselmouth.Sound) else None
+    detection = detect_syllables_and_pcenters(samples, sample_rate, sound=sound)
+    intervals: list[tuple[float, float]] = []
+    prev_end = 0.0
+    for detail in detection.get("syllable_details", []):
+        onset = float(detail.get("p_center_time", 0.0))
+        duration = float(detail.get("vowel_duration", 0.0))
+        offset = onset + duration
+        if not (math.isfinite(onset) and math.isfinite(offset)) or onset < 0.0 or duration <= 0.0:
+            continue
+        if onset < prev_end:
+            onset = prev_end
+        if offset <= onset:
+            continue
+        intervals.append((onset, offset))
+        prev_end = offset
+    return intervals if len(intervals) >= 2 else []
+
+
 async def _run_analysis_pipeline(
     audio_path: str, target_text: str, job_id: str, contact_enabled: bool = False
 ) -> dict[str, Any]:
@@ -207,10 +239,24 @@ async def _run_analysis_pipeline(
 
     prosody_analyzer = processor.ProsodyAnalyzer(audio_context)
 
-    # Run prosody analysis without phoneme alignment (alignment requires phoneme model)
-    logger.debug("[analyze] Running prosody analysis without alignment timestamps")
+    # Estimate acoustic vowel intervals for live vocalic nPVI when forced alignment is unavailable
+    vowel_intervals: list[tuple[float, float]] = []
+    try:
+        vowel_intervals = await run_blocking(
+            _extract_acoustic_vowel_intervals,
+            audio_tensor,
+            sample_rate,
+            getattr(audio_context, "praat_sound", None),
+        )
+    except Exception:
+        logger.debug("[analyze] Acoustic vowel interval detection failed; proceeding without nPVI")
+        vowel_intervals = []
+
+    logger.debug(
+        "[analyze] Running prosody analysis with %d acoustic vowel intervals", len(vowel_intervals)
+    )
     prosody_metrics = await run_blocking(
-        prosody_analyzer.analyze_complete, vowel_timestamps=[], word_timestamps=[]
+        prosody_analyzer.analyze_complete, vowel_timestamps=vowel_intervals, word_timestamps=[]
     )
 
     if prosody_metrics:
@@ -226,16 +272,20 @@ async def _run_analysis_pipeline(
     feedback = _generate_comprehensive_feedback(prosody_metrics)
     if ssl_animation_state is None:
         feedback = feedback.replace(
-            "Articulatory analysis via ContentVec-L7 + R4",
+            "Articulatory trajectory captured",
             "Articulatory analysis unavailable; prosody feedback only",
         )
     elif ssl_meta.get("contact_augmentation") == "enabled":
         feedback = feedback.replace(
-            "Articulatory analysis via ContentVec-L7 + R4",
-            "Articulatory analysis via ContentVec-L7 + R4 with tongue contact enhancement",
+            "Articulatory trajectory captured",
+            "Articulatory trajectory captured (tongue contact enhanced)",
         )
     elif ssl_meta.get("contact_augmentation") == "unavailable":
-        feedback += "<br>Contact enhancement unavailable. Using baseline R4."
+        feedback += (
+            '<br><span class="text-xs text-amber-700">'
+            "Tongue contact enhancement unavailable; using standard model."
+            "</span>"
+        )
 
     # Serialize trajectory if available
     serialized_trajectory: dict[str, Any] | None = None
@@ -303,22 +353,29 @@ def _get_npvi_label(npvi: float | None) -> str:
 def _get_npvi_coaching(npvi: float | None) -> str:
     """Return coaching text for nPVI."""
     if npvi is None:
-        return "Requires at least two valid vowel intervals; vowel alignment is unavailable."
+        return "Not enough syllables detected for rhythm metric."
     return "Duration variability; not a speaking-quality score."
 
 
 def _build_npvi_bar_html(npvi: float | None) -> str:
-    """Build an inline neutral nPVI bar HTML."""
+    """Build a learner-friendly nPVI indicator using Tailwind utility classes."""
+    if npvi is None:
+        return (
+            '<div class="mt-1.5 inline-flex items-center rounded-full bg-gray-100 '
+            'px-3 py-1 text-xs font-medium text-gray-600">'
+            "Not enough syllables detected for rhythm metric"
+            "</div>"
+        )
     label = _get_npvi_label(npvi)
     coaching = _get_npvi_coaching(npvi)
-    bar_color = "#9ca3af"
+    width_pct = max(4.0, min(100.0, float(npvi)))
     return (
-        f'<div style="display:flex;align-items:center;gap:8px;margin-top:4px;">'
-        f'<div style="flex:1;height:8px;background:#e5e7eb;border-radius:4px;overflow:hidden;">'
-        f'<div style="width:100%;height:100%;background:{bar_color};border-radius:4px;"></div>'
-        f"</div>"
-        f'<span style="font-size:12px;color:{bar_color};font-weight:600;">{label} — {coaching}</span>'
-        f"</div>"
+        '<div class="mt-1.5 flex items-center gap-2">'
+        '<div class="h-2 flex-1 overflow-hidden rounded bg-gray-200">'
+        f'<div class="h-full rounded bg-slate-500" style="width:{width_pct:.0f}%"></div>'
+        "</div>"
+        f'<span class="text-xs font-semibold text-gray-600">{label} — {coaching}</span>'
+        "</div>"
     )
 
 
@@ -377,7 +434,7 @@ def _generate_comprehensive_feedback(prosody_metrics: processor.ProsodyMetrics |
     # Pronunciation summary
     # NOTE: Phoneme-level error detection requires a phoneme CTC model.
     # This feature is currently non-functional pending model integration.
-    sections.append("<strong>Pronunciation:</strong> Articulatory analysis via ContentVec-L7 + R4")
+    sections.append("<strong>Pronunciation:</strong> Articulatory trajectory captured")
 
     # Prosody summary with student-friendly labels
     if prosody_metrics:

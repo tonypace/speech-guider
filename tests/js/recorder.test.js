@@ -225,6 +225,39 @@ describe('IntercomRecorder', () => {
             expect(stopSpy).toHaveBeenCalledOnce();
             expect(recorder.isRecording).toBe(false);
         });
+
+        it('keeps recording on mouseleave and stops on window mouseup', () => {
+            const mockStream = new MockMediaStream();
+            recorder.setupRecorder(mockStream);
+            recorder.setupVisualizer(mockStream);
+            vi.spyOn(recorder, 'sendForAnalysis').mockResolvedValue();
+
+            recorder.recordBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+            expect(recorder.isRecording).toBe(true);
+
+            recorder.recordBtn.dispatchEvent(new MouseEvent('mouseleave', { bubbles: false }));
+            expect(recorder.isRecording).toBe(true);
+
+            window.dispatchEvent(new MouseEvent('mouseup'));
+            expect(recorder.isRecording).toBe(false);
+        });
+
+        it('supports Space and Enter hold-to-record on focused record button', () => {
+            const mockStream = new MockMediaStream();
+            recorder.setupRecorder(mockStream);
+            recorder.setupVisualizer(mockStream);
+            vi.spyOn(recorder, 'sendForAnalysis').mockResolvedValue();
+
+            const down = new KeyboardEvent('keydown', { key: ' ', cancelable: true });
+            recorder.recordBtn.dispatchEvent(down);
+            expect(down.defaultPrevented).toBe(true);
+            expect(recorder.isRecording).toBe(true);
+
+            const up = new KeyboardEvent('keyup', { key: ' ', cancelable: true });
+            recorder.recordBtn.dispatchEvent(up);
+            expect(up.defaultPrevented).toBe(true);
+            expect(recorder.isRecording).toBe(false);
+        });
     });
 
     describe('Waveform Visualization', () => {
@@ -327,21 +360,18 @@ describe('IntercomRecorder', () => {
             expect(handler).toHaveBeenCalledWith(file);
         });
 
-        it('handleFileUpload rejects empty target text and clears input', async () => {
+        it('handleFileUpload rejects empty target text with inline alert and clears input', async () => {
             const targetInput = document.getElementById('target_text');
             targetInput.value = '';
-
-            let alertCalled = false;
-            const originalAlert = global.alert;
-            global.alert = vi.fn(() => { alertCalled = true; });
 
             const mockFile = new File(['test'], 'test.wav', { type: 'audio/wav' });
             await recorder.handleFileUpload(mockFile);
 
-            expect(alertCalled).toBe(true);
+            const alertEl = document.querySelector('#feedback-container [role="alert"]');
+            expect(alertEl).not.toBeNull();
+            expect(alertEl.textContent).toContain('Please enter the target sentence first');
             expect(recorder.audioInput.value).toBe('');
 
-            global.alert = originalAlert;
             targetInput.value = 'The weather is very hot today.';
         });
 
