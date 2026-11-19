@@ -27,13 +27,35 @@ from scipy.ndimage import gaussian_filter1d
 from scipy.signal import butter, find_peaks, sosfiltfilt
 
 from src.audio.prosody_lab import (
+    _bandpass_filter,
+    _compute_rms_db_envelope,
     _framed_energy,
     _heuristic_pause_spans,
-    _heuristic_syllable_markers,
     _load_audio_samples,
+    _normalize_prominences,
+    detect_syllables_and_pcenters,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _heuristic_syllable_markers(y: np.ndarray, sr: int) -> list[float]:
+    """Estimate syllable nuclei from raw energy peaks (legacy baseline)."""
+    if y.size == 0:
+        return []
+
+    energy = _framed_energy(y)
+    if energy.size == 0:
+        return []
+
+    hop_length = 256
+    distance = max(1, int(0.12 * sr / hop_length))
+    try:
+        peaks, _ = find_peaks(energy, distance=distance, prominence=max(energy.max() * 0.1, 1e-6))
+        return [round(float(index * hop_length / sr), 3) for index in peaks]
+    except ValueError as e:
+        logger.warning("[_heuristic_syllable_markers] Peak detection failed: %s", e)
+        return []
 
 
 @dataclass
@@ -66,43 +88,6 @@ def _get_r4_predictor() -> Any:
         predictor.load()
         _R4_PREDICTOR_CACHE = predictor
     return _R4_PREDICTOR_CACHE
-
-
-def _bandpass_filter(
-    y: np.ndarray, sr: int, low_hz: float, high_hz: float, order: int = 4
-) -> np.ndarray:
-    """Apply zero-phase Butterworth bandpass filter."""
-    nyq = 0.5 * sr
-    lo = max(20.0 / nyq, min(0.96, low_hz / nyq))
-    hi = max(lo + 0.01, min(0.99, high_hz / nyq))
-    sos = butter(order, [lo, hi], btype="bandpass", output="sos")
-    return cast(np.ndarray, sosfiltfilt(sos, y.astype(np.float64)))
-
-
-def _compute_rms_db_envelope(
-    y: np.ndarray,
-    sr: int,
-    hop_sec: float = 0.005,
-    win_sec: float = 0.025,
-    smooth_sigma: float = 1.5,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Compute smoothed RMS envelope in dB at fixed time step."""
-    hop = max(1, int(round(hop_sec * sr)))
-    win = max(hop, int(round(win_sec * sr)))
-    if win % 2 == 1:
-        win += 1
-    padded = np.pad(y.astype(np.float64), (win // 2, win // 2), mode="constant")
-    if len(padded) < win:
-        return np.array([0.0]), np.array([-100.0])
-    window = np.hanning(win)
-    window_norm = np.sum(window**2) / win
-    frames = np.lib.stride_tricks.sliding_window_view(padded, win)[::hop]
-    power = np.mean((frames * window) ** 2, axis=1) / max(window_norm, 1e-12)
-    db = 10.0 * np.log10(np.maximum(power, 1e-12))
-    if smooth_sigma > 0 and len(db) > 3:
-        db = gaussian_filter1d(db, sigma=smooth_sigma)
-    times = np.arange(len(db), dtype=np.float64) * (hop / sr)
-    return times, db
 
 
 def _extract_pause_spans_from_db(
@@ -140,19 +125,6 @@ def _extract_pause_spans_from_db(
                 )
             start_idx = None
     return spans
-
-
-def _normalize_prominences(raw_scores: list[float]) -> list[float]:
-    """Normalize prominence scores into [0.15, 1.0]."""
-    if not raw_scores:
-        return []
-    arr = np.asarray(raw_scores, dtype=np.float64)
-    lo = float(np.min(arr))
-    hi = float(np.max(arr))
-    if hi - lo < 1e-6:
-        return [0.65 for _ in raw_scores]
-    normed = 0.15 + 0.85 * ((arr - lo) / (hi - lo))
-    return [round(float(x), 4) for x in normed]
 
 
 # =============================================================================
@@ -670,21 +642,7 @@ def r4_articulatory_sonority(audio_path: str) -> SyllableDetectionResult:
 def hybrid_acoustic_pcenter(audio_path: str) -> SyllableDetectionResult:
     """Production-grade acoustic syllable & P-center detector for speech-guider.
 
-    Combines:
-    - High-resolution (5ms hop, 26ms window) vocalic bandpass energy (200-3200 Hz)
-      vs. sibilant/burst high-frequency energy (3500-7800 Hz) and low-frequency
-      voice-bar energy (80-850 Hz).
-    - Dual voicing gate: Praat autocorrelation F0 OR strong low-frequency voice bar
-      with steep negative spectral tilt (preserving 40ms reduced schwas between
-      voiceless obstruents while rejecting 100% of unvoiced sibilant/plosive bursts).
-    - 4-subband vocalic timbre flux (200-600, 600-1200, 1200-2200, 2200-3400 Hz) +
-      adaptive valley dip threshold:
-        * Sensitive dip threshold (~1.38 dB) when a voicing break or vowel timbre
-          transition occurs (capturing fast 50ms unstressed schwas and liquid/glide links).
-        * Anti-tremor dip threshold (~4.2 dB) during continuous voicing with invariant
-          formant timbre (preventing double-counting on prolonged vowels with vibrato).
-    - Šturm & Volín (2016) / Cummins & Port (1998) P-center (V_onset) & pre-beat
-      consonant lead-in (C_onset) tracing.
+    Delegates syllable and P-center detection to `src.audio.prosody_lab.detect_syllables_and_pcenters`.
     """
     t0 = time.perf_counter()
     sound = parselmouth.Sound(str(audio_path))
@@ -693,233 +651,16 @@ def hybrid_acoustic_pcenter(audio_path: str) -> SyllableDetectionResult:
     if sound.values.shape[0] > 1:
         y = np.mean(sound.values, axis=0)
 
-    hop_sec = 0.005
-    win_sec = 0.026
-
-    # 1. Multi-band envelopes (vocalic, low-frequency voice bar, sibilant, broadband, and 4 formant bands)
-    y_voc = _bandpass_filter(y, sr, 200.0, min(3200.0, 0.47 * sr), order=4)
-    y_lf = _bandpass_filter(y, sr, 80.0, min(850.0, 0.45 * sr), order=3)
-
-    times, voc_db = _compute_rms_db_envelope(
-        y_voc, sr, hop_sec=hop_sec, win_sec=win_sec, smooth_sigma=1.5
-    )
-    _, lf_db = _compute_rms_db_envelope(
-        y_lf, sr, hop_sec=hop_sec, win_sec=win_sec, smooth_sigma=1.5
-    )
-    _, full_db = _compute_rms_db_envelope(y, sr, hop_sec=hop_sec, win_sec=0.016, smooth_sigma=1.0)
-
-    if 0.5 * sr > 3700.0:
-        y_sib = _bandpass_filter(y, sr, 3500.0, min(7800.0, 0.48 * sr), order=4)
-        _, sib_db = _compute_rms_db_envelope(
-            y_sib, sr, hop_sec=hop_sec, win_sec=0.018, smooth_sigma=1.2
-        )
-    else:
-        sib_db = voc_db - 20.0
-
-    # 4 vocalic timbre subbands for formant-shift vs. prolonged-vowel tremor discrimination
-    subbands = [(200.0, 600.0), (600.0, 1200.0), (1200.0, 2200.0), (2200.0, 3400.0)]
-    b_list: list[np.ndarray] = []
-    for lo_b, hi_b in subbands:
-        yb = _bandpass_filter(y, sr, lo_b, min(hi_b, 0.47 * sr), order=3)
-        _, b_db = _compute_rms_db_envelope(
-            yb, sr, hop_sec=hop_sec, win_sec=win_sec, smooth_sigma=1.5
-        )
-        b_list.append(b_db)
-    b_matrix = np.stack(b_list, axis=1)
-    b_norm = b_matrix - np.mean(b_matrix, axis=1, keepdims=True)
-
-    n_frames = len(times)
-    if n_frames < 5:
-        return SyllableDetectionResult([], [], [], [], [], [], 0.0)
-
-    # 2. Praat Pitch + Low-Frequency Voice-Bar Voicing Detection
-    pitch = sound.to_pitch_ac(
-        time_step=0.008,
-        pitch_floor=65.0,
-        max_number_of_candidates=15,
-        very_accurate=False,
-        silence_threshold=0.02,
-        voicing_threshold=0.33,
-        octave_cost=0.01,
-        octave_jump_cost=0.35,
-        voiced_unvoiced_cost=0.14,
-        pitch_ceiling=500.0,
-    )
-    f0_track = np.array([pitch.get_value_at_time(float(t)) for t in times], dtype=np.float64)
-    q98_voc = float(np.percentile(voc_db, 98))
-    silence_thresh_db = q98_voc - 19.5
-    noise_floor_db = float(np.percentile(full_db, 10))
-
-    has_f0 = np.isfinite(f0_track) & (f0_track > 0.0)
-    has_voice_bar = (lf_db >= q98_voc - 14.0) & (sib_db <= voc_db - 5.0) & (lf_db >= sib_db + 6.0)
-    voiced_mask = has_f0 | has_voice_bar
-
-    # 3. Candidate vocalic peaks (min distance 12 frames = 60ms)
-    raw_peaks, _ = find_peaks(
-        voc_db,
-        height=silence_thresh_db,
-        distance=12,
-        prominence=0.45,
-    )
-
-    cands: list[int] = []
-    for pk in raw_peaks:
-        pk_i = int(pk)
-        if not np.any(voiced_mask[max(0, pk_i - 3) : min(n_frames, pk_i + 4)]):
-            continue
-        if sib_db[pk_i] > voc_db[pk_i] + 1.0:
-            continue
-        cands.append(pk_i)
-
-    # Suppress weak pre-/post-vocalic murmur shoulders (< q98 - 14.5 dB) within 140ms of a dominant peak
-    filtered_cands: list[int] = []
-    for i, pk_i in enumerate(cands):
-        if voc_db[pk_i] < q98_voc - 14.5:
-            prev_dom = (
-                i > 0
-                and (times[pk_i] - times[cands[i - 1]]) < 0.145
-                and (voc_db[cands[i - 1]] - voc_db[pk_i]) > 11.5
-            )
-            next_dom = (
-                i + 1 < len(cands)
-                and (times[cands[i + 1]] - times[pk_i]) < 0.145
-                and (voc_db[cands[i + 1]] - voc_db[pk_i]) > 11.5
-            )
-            if prev_dom or next_dom:
-                continue
-        filtered_cands.append(pk_i)
-
-    # 4. Adaptive Valley / Dip Pruning (Schwa Sensitivity vs. Prolonged Vowel Anti-Tremor)
-    validated_peaks: list[int] = []
-    if filtered_cands:
-        curr_pk = filtered_cands[0]
-        for next_pk in filtered_cands[1:]:
-            val_idx = curr_pk + int(np.argmin(voc_db[curr_pk : next_pk + 1]))
-            dip = min(
-                float(voc_db[curr_pk] - voc_db[val_idx]),
-                float(voc_db[next_pk] - voc_db[val_idx]),
-            )
-            dt = float(times[next_pk] - times[curr_pk])
-            v_rat = float(np.mean(voiced_mask[curr_pk : next_pk + 1]))
-            timbre_shift = float(
-                np.linalg.norm(b_norm[next_pk] - b_norm[curr_pk])
-                + np.linalg.norm(b_norm[val_idx] - 0.5 * (b_norm[curr_pk] + b_norm[next_pk]))
-            )
-
-            if v_rat >= 0.90 and timbre_shift < 10.5:
-                # Continuous voicing with near-constant vowel formant ratios -> prolonged vowel tremor!
-                req_dip = 6.20
-            elif dt < 0.095:
-                # Ultra-close intra-syllable glottal/diphthong ripple (<95ms)
-                req_dip = 3.20
-            elif min(float(voc_db[curr_pk]), float(voc_db[next_pk])) < q98_voc - 12.5:
-                # Weak trailing/leading vowel tail requires stronger dip to count as separate syllable
-                req_dip = 3.00
-            elif v_rat < 0.85 or timbre_shift >= 12.0:
-                # Distinct consonant break or clear vowel-to-vowel formant transition
-                req_dip = 1.38
-            else:
-                req_dip = 2.15
-
-            if dip >= req_dip:
-                validated_peaks.append(curr_pk)
-                curr_pk = next_pk
-            else:
-                if voc_db[next_pk] > voc_db[curr_pk]:
-                    curr_pk = next_pk
-        validated_peaks.append(curr_pk)
-
-    # 5. P-center (V_onset), Pre-Beat Consonant Lead-in (C_onset), Duration & Prominence
-    nuclei: list[float] = []
-    p_centers: list[float] = []
-    c_onsets: list[float] = []
-    durations: list[float] = []
-    raw_proms: list[float] = []
-
-    voiced_f0_all = f0_track[has_f0]
-    mean_f0 = float(np.median(voiced_f0_all)) if len(voiced_f0_all) else 130.0
-
-    for idx_pos, pk in enumerate(validated_peaks):
-        t_pk = float(times[pk])
-        nuclei.append(round(t_pk, 4))
-
-        prev_limit = validated_peaks[idx_pos - 1] if idx_pos > 0 else 0
-        back_start = max(prev_limit, pk - int(round(0.160 / hop_sec)))
-        if pk > back_start:
-            valley_rel = int(np.argmin(voc_db[back_start : pk + 1]))
-            valley_idx = back_start + valley_rel
-        else:
-            valley_idx = pk
-
-        if pk > valley_idx:
-            rise_seg = voc_db[valley_idx : pk + 1]
-            deriv = np.diff(rise_seg)
-            valid_rise = np.where(
-                rise_seg[:-1] >= max(silence_thresh_db - 2.0, float(voc_db[pk] - 16.0))
-            )[0]
-            if len(valid_rise) > 0:
-                steep_rel = int(valid_rise[np.argmax(deriv[valid_rise])])
-                p_idx = valley_idx + steep_rel
-            else:
-                p_idx = valley_idx + int(np.argmax(deriv))
-        else:
-            p_idx = pk
-
-        p_t = float(times[p_idx])
-        p_centers.append(round(p_t, 4))
-
-        c_search_start = max(
-            prev_limit + 1 if idx_pos > 0 else 0, p_idx - int(round(0.130 / hop_sec))
-        )
-        c_idx = p_idx
-        if p_idx > c_search_start:
-            cons_threshold = max(noise_floor_db + 8.0, voc_db[pk] - 24.0)
-            for scan_i in range(p_idx - 1, c_search_start - 1, -1):
-                if full_db[scan_i] >= cons_threshold or sib_db[scan_i] >= cons_threshold - 2.0:
-                    c_idx = scan_i
-                else:
-                    break
-        c_t = float(times[min(p_idx, c_idx)])
-        c_onsets.append(round(c_t, 4))
-
-        next_limit = (
-            validated_peaks[idx_pos + 1] if idx_pos + 1 < len(validated_peaks) else n_frames - 1
-        )
-        fwd_end = min(next_limit, pk + int(round(0.280 / hop_sec)))
-        if fwd_end > pk:
-            fall_seg = voc_db[pk : fwd_end + 1]
-            drop_thresh = max(silence_thresh_db, float(voc_db[pk] - 6.5))
-            below = np.where(fall_seg <= drop_thresh)[0]
-            if len(below) > 0:
-                end_idx = pk + int(below[0])
-            else:
-                end_idx = pk + int(np.argmin(fall_seg))
-        else:
-            end_idx = pk
-
-        v_dur = max(0.035, float(times[end_idx] - p_t))
-        durations.append(round(v_dur, 4))
-
-        local_f0 = f0_track[max(0, pk - 3) : min(n_frames, pk + 4)]
-        local_f0_v = local_f0[np.isfinite(local_f0) & (local_f0 > 0)]
-        if len(local_f0_v) > 0 and mean_f0 > 0:
-            st_above_mean = max(0.0, float(12.0 * np.log2(np.max(local_f0_v) / mean_f0)))
-        else:
-            st_above_mean = 0.0
-
-        int_score = max(0.0, float(voc_db[pk] - silence_thresh_db)) / 22.0
-        dur_score = min(1.0, v_dur / 0.22)
-        f0_score = min(1.0, st_above_mean / 6.0)
-        raw_proms.append(0.45 * int_score + 0.35 * dur_score + 0.20 * f0_score)
-
+    detected = detect_syllables_and_pcenters(y, sr, sound=sound)
+    times, full_db = _compute_rms_db_envelope(y, sr, hop_sec=0.005, win_sec=0.016, smooth_sigma=1.0)
     pause_spans = _extract_pause_spans_from_db(times, full_db, silence_offset_db=25.0)
     runtime_ms = (time.perf_counter() - t0) * 1000.0
     return SyllableDetectionResult(
-        nuclei_times=nuclei,
-        p_center_times=p_centers,
-        consonant_onset_times=c_onsets,
-        vowel_durations=durations,
-        prominences=_normalize_prominences(raw_proms),
+        nuclei_times=detected["nuclei_times"],
+        p_center_times=detected["p_center_times"],
+        consonant_onset_times=detected["consonant_onset_times"],
+        vowel_durations=detected["vowel_durations"],
+        prominences=detected["prominences"],
         pause_spans=pause_spans,
         runtime_ms=round(runtime_ms, 3),
     )

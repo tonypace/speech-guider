@@ -1,4 +1,4 @@
-const DEFAULT_STATE = {
+export const DEFAULT_STATE = {
     lip_aperture: 0.25,
     lip_protrusion: 0.71,
     tongue_tip_constriction_location: 0.2,

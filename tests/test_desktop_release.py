@@ -55,7 +55,7 @@ def test_desktop_persists_history_and_settings_across_webview_origins(
 ) -> None:
     monkeypatch.setenv("SPEECH_GUIDER_DESKTOP", "1")
     monkeypatch.setenv("SPEECH_GUIDER_ASSET_DIR", str(tmp_path / "assets"))
-    monkeypatch.setattr(state, "PRESETS_FILE", tmp_path / "presets.json")
+    monkeypatch.setattr(state, "DATA_DIR", tmp_path)
     record: dict[str, Any] = {
         "recording_id": "saved-sample",
         "summary": {

@@ -151,10 +151,6 @@ export function setCustomPhrase(phraseObj) {
     return customPhraseStore;
 }
 
-export function getCustomPhrase() {
-    return customPhraseStore;
-}
-
 export function getPhraseById(phraseId) {
     if (phraseId === 'custom' && customPhraseStore) {
         return customPhraseStore;
@@ -164,21 +160,6 @@ export function getPhraseById(phraseId) {
         ...found,
         syllables: computeRampProgress(found.syllables),
     };
-}
-
-export function computeVocalicNpvi(durations) {
-    const valid = (durations || []).filter((d) => Number.isFinite(d) && d > 0);
-    if (valid.length < 2) return 0;
-    let sum = 0;
-    for (let i = 0; i < valid.length - 1; i += 1) {
-        const d1 = valid[i];
-        const d2 = valid[i + 1];
-        const mean = 0.5 * (d1 + d2);
-        if (mean > 0) {
-            sum += Math.abs(d1 - d2) / mean;
-        }
-    }
-    return Math.round((100 * sum) / (valid.length - 1));
 }
 
 export function recordToSyllableItems(record, targetBeats = 4.0) {
@@ -635,7 +616,6 @@ export function renderFlowMatrixTrainerSVG({
     isResponseBar = false,
     performer = 'bot_native',
     liveRecord = null,
-    heldTrails = {},
 } = {}) {
     const phrase = getPhraseById(phraseId);
     const syls = phrase.syllables;
@@ -648,9 +628,6 @@ export function renderFlowMatrixTrainerSVG({
 
     const recordedItems = liveRecord ? recordToSyllableItems(liveRecord, 4.0) : [];
     const perfTrails = syls.map((s, idx) => {
-        if (heldTrails && heldTrails[idx]) {
-            return heldTrails[idx];
-        }
         if (performer === 'recorded_take' && recordedItems[idx]) {
             return {
                 perfBeat: recordedItems[idx].beat,

@@ -60,16 +60,6 @@ def file_identity(path: str | Path) -> tuple[str, int, int]:
     return str(resolved), info.st_size, info.st_mtime_ns
 
 
-def _to_mono(audio_data: np.ndarray) -> np.ndarray:
-    """Convert stereo to mono float32 by averaging channels."""
-    return to_mono_float32(audio_data)
-
-
-def _resample_audio(audio_data: np.ndarray, orig_rate: int, target_rate: int) -> np.ndarray:
-    """Resample audio to target sample rate."""
-    return resample_audio(audio_data, orig_rate, target_rate)
-
-
 def _compress_ogg(audio_data: np.ndarray, sample_rate: int) -> bytes:
     """Convert float32 samples to int16 OGG Vorbis bytes."""
     audio_int16 = (np.clip(audio_data, -1.0, 1.0) * 32767).astype(np.int16)
@@ -167,7 +157,7 @@ class OmniVoiceTTSProvider(TTSProvider):
                 )
 
             audio_data, orig_rate = sf.read(wav_path, dtype="float32")
-            audio_data = _resample_audio(_to_mono(audio_data), orig_rate, output_sample_rate)
+            audio_data = resample_audio(to_mono_float32(audio_data), orig_rate, output_sample_rate)
             compressed = _compress_ogg(audio_data, output_sample_rate)
             duration = len(audio_data) / output_sample_rate
 

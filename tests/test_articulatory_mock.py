@@ -59,8 +59,9 @@ def test_basic_structure(mock_pyclts: None) -> None:
     assert unknown_desc.technical_name == "Unknown: unknown_symbol"
 
     # Test parameter mapping
-    mapped_params = mapper.map_to_parameters(description)
+    mapped_params = mapper.map_to_svg_state(description)
     assert mapped_params is not None
+    assert "lip_aperture" in mapped_params
     svg_state = mapper.get_animation_params("/z/")
     assert "lip_aperture" in svg_state
     assert "tongue_tip_constriction_location" in svg_state
@@ -81,7 +82,7 @@ def test_static_assets() -> None:
     css_content = css_path.read_text()
 
     assert "window.switchTab" in js_content, "JavaScript missing app bootstrap"
-    assert ".tooltip" in css_content, "CSS missing tooltip styling"
+    assert ".ipa-tooltip" in css_content, "CSS missing IPA tooltip styling"
 
 
 def test_aai_payload_parse_without_pyclts() -> None:

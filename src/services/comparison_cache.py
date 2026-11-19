@@ -38,21 +38,6 @@ class ReferenceAsset:
         """Check if cache entry has exceeded TTL."""
         return (time.time() - self.created_at) > self.ttl_seconds
 
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary for serialization."""
-        return {
-            "text_key": self.text_key,
-            "audio_sample_rate": self.audio_sample_rate,
-            "audio_duration": self.audio_duration,
-            "audio_format": self.audio_format,
-            "frame_rate": self.frame_rate,
-            "frames": self.frames,
-            "frame_count": self.frame_count,
-            "created_at": self.created_at,
-            "ttl_seconds": self.ttl_seconds,
-            # audio_bytes stored separately
-        }
-
 
 class ComparisonCache:
     """LRU cache for reference audio and articulatory frames.
@@ -295,19 +280,6 @@ class ComparisonCache:
             except OSError:
                 logger.warning("Failed to remove cached audio %s", temp_path, exc_info=True)
 
-    def invalidate(self, text: str, namespace: str = "") -> bool:
-        """Explicitly invalidate cache entry for text.
-
-        Returns:
-            True if entry existed and was removed
-        """
-        text_key = self._normalize_text(text, namespace)
-        with self._lock:
-            if text_key in self._cache:
-                self._remove_locked(text_key)
-                return True
-            return False
-
     def clear(self) -> None:
         """Clear all cached entries and cleanup temp files."""
         with self._lock:
@@ -337,14 +309,6 @@ class ComparisonCache:
                 else 0.0,
                 "temp_files": len(self._temp_files),
             }
-
-    def cleanup_expired(self) -> int:
-        """Remove all expired entries. Returns count removed."""
-        with self._lock:
-            expired_keys = [key for key, asset in self._cache.items() if asset.is_expired()]
-            for key in expired_keys:
-                self._remove_locked(key)
-            return len(expired_keys)
 
 
 # Global cache instance

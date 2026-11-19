@@ -17,28 +17,11 @@ async function openHome(page) {
 /**
  * Switch to a tab by name.
  * @param {import('@playwright/test').Page} page
- * @param {'analysis' | 'animation' | 'prosody' | 'comparison'} tabName
+ * @param {'analysis' | 'prosody' | 'comparison' | 'settings'} tabName
  */
 async function switchToTab(page, tabName) {
-    if (tabName === 'animation') {
-        await page.evaluate(name => window.switchTab(name), tabName);
-    } else {
-        await page.locator(`#tab-btn-${tabName}`).click();
-    }
+    await page.locator(`#tab-btn-${tabName}`).click();
     await expect(page.locator(`#tab-panel-${tabName}`)).toBeVisible();
-}
-
-/**
- * Assert the SVG renderer has mounted inside a given container.
- * Fails fast if the container is empty or the SVG root is missing.
- * @param {import('@playwright/test').Page} page
- * @param {string} containerSelector  e.g. '#svg-articulatory-animation'
- */
-async function waitForSvgRenderer(page, containerSelector) {
-    const container = page.locator(containerSelector);
-    await container.waitFor({ state: 'attached' });
-    const svg = container.locator('svg');
-    await svg.waitFor({ state: 'attached' });
 }
 
 /**
@@ -101,7 +84,6 @@ module.exports = {
     setRangeValue,
     openHome,
     switchToTab,
-    waitForSvgRenderer,
     expectSvgHealthy,
     waitForAnalysisDone,
 };

@@ -121,25 +121,6 @@ def _framed_energy(y: np.ndarray, frame_length: int = 2048, hop_length: int = 25
     return cast(np.ndarray, np.mean(np.abs(frames), axis=1))
 
 
-def _heuristic_syllable_markers(y: np.ndarray, sr: int) -> list[float]:
-    """Estimate syllable nuclei from raw energy peaks (legacy baseline)."""
-    if y.size == 0:
-        return []
-
-    energy = _framed_energy(y)
-    if energy.size == 0:
-        return []
-
-    hop_length = 256
-    distance = max(1, int(0.12 * sr / hop_length))
-    try:
-        peaks, _ = find_peaks(energy, distance=distance, prominence=max(energy.max() * 0.1, 1e-6))
-        return [round(float(index * hop_length / sr), 3) for index in peaks]
-    except ValueError as e:
-        logger.warning("[_heuristic_syllable_markers] Peak detection failed: %s", e)
-        return []
-
-
 def _heuristic_pause_spans(y: np.ndarray, sr: int) -> list[dict[str, float]]:
     """Estimate silent spans for pause visualization."""
     if y.size == 0:
@@ -681,8 +662,6 @@ def analyze_prosody_recording(audio_path: str) -> dict[str, Any]:
     pitch = _compute_pitch_track(pitch_y, pitch_sr)
     syllable_data = detect_syllables_and_pcenters(pitch_y, pitch_sr)
     markers = syllable_data["nuclei_times"]
-    if not markers:
-        markers = _heuristic_syllable_markers(pitch_y, pitch_sr)
     p_centers = syllable_data["p_center_times"] or markers
     syllable_details = syllable_data["syllable_details"]
     pause_spans = _heuristic_pause_spans(pitch_y, pitch_sr)

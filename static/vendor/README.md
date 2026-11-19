@@ -7,13 +7,9 @@ desktop backend does not require Node.js or a CDN connection.
   Its inputs are `css/tailwind.input.css` and `tailwind.config.cjs`. The config
   scans templates, JavaScript, and Python-generated UI markup; its safelist
   keeps the classes used by runtime status and control updates.
-- `vendor/plotly-2.32.0/plotly.min.js` is the unchanged distribution from
-  [Plotly.js 2.32.0](https://github.com/plotly/plotly.js/releases/tag/v2.32.0),
-  copied from the `plotly.js-dist-min` npm package. The version matches the
-  previously used CDN bundle.
 
 Package tarball integrity is pinned in `package-lock.json`. The generated
-`manifest.json` records SHA-256 checksums of the served CSS, JavaScript, and
+`manifest.json` records SHA-256 checksums of the served CSS and
 included upstream MIT licenses. After changing UI classes or package versions,
 run `npm ci` then `npm run assets:build`; keep the template asset paths and
 this provenance note in sync with package upgrades. `npm run assets:check`

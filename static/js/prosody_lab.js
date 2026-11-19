@@ -1,4 +1,4 @@
-import { trimProsodyHistory, loadHistory, storeRecord, getRoleId, setRoleId, createDesktopHistoryStorage } from './prosody_history.js';
+import { loadHistory, storeRecord, getRoleId, setRoleId, createDesktopHistoryStorage } from './prosody_history.js';
 import { listen, releaseCapture } from './capture_resources.js';
 import { microphoneError, openMicrophone } from './microphone.js';
 import { convertAudioToWav, encodePcmWav } from './audio_conversion.js';
@@ -12,18 +12,6 @@ import {
     ProsodyAudioPlayer,
 } from './prosody_rhythm_views.js';
 
-function midiToNoteName(midi) {
-    if (midi === null || midi === undefined || Number.isNaN(midi)) {
-        return '-';
-    }
-
-    const notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-    const rounded = Math.round(midi);
-    const note = notes[((rounded % 12) + 12) % 12];
-    const octave = Math.floor(rounded / 12) - 1;
-    return `${note}${octave}`;
-}
-
 function formatMetricValue(value, suffix = '') {
     if (value === null || value === undefined || Number.isNaN(value)) {
         return '—';
@@ -32,249 +20,6 @@ function formatMetricValue(value, suffix = '') {
         return `${value.toFixed(value >= 100 ? 0 : 2)}${suffix}`;
     }
     return `${value}${suffix}`;
-}
-
-const BAR_DURATION_SECONDS = 2.0;
-const PITCH_MARKER_SIZE = 9;
-const ANCHOR_MARKER_SIZE = 11;
-const GRACE_NOTE_SIZE = 5;
-const MAX_GRACE_NOTES_PER_REGION = 3;
-const STRESS_EVERY_N_SYLLABLES = 3;
-
-function detectBeatsPerBar(syllableCount, durationSeconds) {
-    if (syllableCount < 4 || durationSeconds <= 0) return 4;
-    const syllablesPerSecond = syllableCount / durationSeconds;
-    if (syllablesPerSecond > 5) return 8;
-    return 4;
-}
-
-function snapToGrid(value, gridStep) {
-    return Math.round(value / gridStep) * gridStep;
-}
-
-function buildNoteTicks(minMidi, maxMidi) {
-    const tickVals = [];
-    const tickText = [];
-    const span = Math.max(1, Math.ceil(maxMidi) - Math.floor(minMidi));
-    const step = Math.max(2, Math.ceil(span / 5));
-    for (let midi = Math.floor(minMidi); midi <= Math.ceil(maxMidi); midi += step) {
-        tickVals.push(midi);
-        tickText.push(midiToNoteName(midi));
-    }
-    return { tickVals, tickText };
-}
-
-function chunkIntoBars(pitchTrack, barDuration) {
-    if (!pitchTrack || pitchTrack.length === 0) return [];
-    const maxTime = pitchTrack[pitchTrack.length - 1].time;
-    const barCount = Math.max(1, Math.ceil(maxTime / barDuration));
-    const bars = [];
-    for (let i = 0; i < barCount; i += 1) {
-        const windowStart = i * barDuration;
-        const windowEnd = (i + 1) * barDuration;
-        const points = pitchTrack.filter((p) => p.time >= windowStart && p.time < windowEnd);
-        bars.push({
-            index: i,
-            startTime: windowStart,
-            endTime: Math.min(windowEnd, maxTime),
-            duration: Math.min(windowEnd, maxTime) - windowStart,
-            points,
-        });
-    }
-    return bars;
-}
-
-function classifySyllableStress(syllableOnsets, syllableDetails = null) {
-    if (Array.isArray(syllableDetails) && syllableDetails.length > 0) {
-        const stressed = [];
-        const unstressed = [];
-        syllableDetails.forEach((detail) => {
-            const t = Number(detail.p_center_time ?? detail.nucleus_time ?? 0);
-            if (detail.is_stressed) {
-                stressed.push(t);
-            } else {
-                unstressed.push(t);
-            }
-        });
-        if (stressed.length === 0 && syllableDetails.length > 0) {
-            stressed.push(Number(syllableDetails[0].p_center_time ?? syllableDetails[0].nucleus_time ?? 0));
-        }
-        return { stressed, unstressed };
-    }
-
-    if (!syllableOnsets || syllableOnsets.length === 0) return { stressed: [], unstressed: [] };
-    const n = STRESS_EVERY_N_SYLLABLES;
-    const stressed = [];
-    const unstressed = [];
-    syllableOnsets.forEach((onset, idx) => {
-        if (idx % n === 0) {
-            stressed.push(onset);
-        } else {
-            unstressed.push(onset);
-        }
-    });
-    return { stressed, unstressed };
-}
-
-function assignGraceNotesBetween(unstressed, stressed) {
-    if (!unstressed.length || !stressed.length) return [];
-    const regions = [];
-    for (let i = 0; i < stressed.length - 1; i += 1) {
-        regions.push({ start: stressed[i], end: stressed[i + 1] });
-    }
-    if (stressed.length >= 1 && unstressed.length > 0) {
-        const lastStressed = stressed[stressed.length - 1];
-        regions.push({ start: lastStressed, end: Infinity });
-    }
-    const graceByRegion = regions.map((region) => {
-        const inRegion = unstressed.filter((u) => u > region.start && u < region.end);
-        return inRegion.slice(0, MAX_GRACE_NOTES_PER_REGION);
-    });
-    return graceByRegion.flat();
-}
-
-function buildBarTrace(bar, quantizedMidi, localTimes, textValues, anchorTimes, graceTimes) {
-    const traces = [];
-    if (quantizedMidi.length > 0) {
-        traces.push({
-            type: 'scatter',
-            mode: 'lines+markers',
-            x: localTimes,
-            y: quantizedMidi,
-            line: { color: '#0f0f0f', width: 2 },
-            marker: { size: PITCH_MARKER_SIZE, color: '#0f0f0f' },
-            text: textValues,
-            hovertemplate: '%{text}<extra></extra>',
-            name: 'pitch',
-            xaxis: `x${bar.index + 1}`,
-            yaxis: `y${bar.index + 1}`,
-            showlegend: false,
-        });
-    }
-    if (anchorTimes.length > 0) {
-        const anchorMidi = anchorTimes.map(() => quantizedMidi.length > 0 ? quantizedMidi[Math.floor(quantizedMidi.length / 2)] : 60);
-        traces.push({
-            type: 'scatter',
-            mode: 'markers',
-            x: anchorTimes,
-            y: anchorMidi,
-            marker: { size: ANCHOR_MARKER_SIZE, color: '#0f0f0f', symbol: 'circle' },
-            text: anchorTimes.map((t) => `stressed @ ${t.toFixed(3)}s`),
-            hovertemplate: '%{text}<extra></extra>',
-            name: 'stressed',
-            xaxis: `x${bar.index + 1}`,
-            yaxis: `y${bar.index + 1}`,
-            showlegend: false,
-        });
-    }
-    if (graceTimes.length > 0) {
-        const graceMidi = graceTimes.map(() => quantizedMidi.length > 0 ? quantizedMidi[Math.floor(quantizedMidi.length / 2)] : 60);
-        traces.push({
-            type: 'scatter',
-            mode: 'markers',
-            x: graceTimes,
-            y: graceMidi,
-            marker: { size: GRACE_NOTE_SIZE, color: '#555555', symbol: 'circle' },
-            text: graceTimes.map((t) => `unstressed @ ${t.toFixed(3)}s`),
-            hovertemplate: '%{text}<extra></extra>',
-            name: 'unstressed',
-            xaxis: `x${bar.index + 1}`,
-            yaxis: `y${bar.index + 1}`,
-            showlegend: false,
-        });
-    }
-    return traces;
-}
-
-function buildMusicalScoreChart(record, options = {}) {
-    const { locked = false, beatsPerBar = 4, zoomLevel = 1.0 } = options;
-    const pitchTrack = record?.pitch_track || [];
-    const syllableOnsets = (Array.isArray(record?.syllable_p_centers) && record.syllable_p_centers.length > 0)
-        ? record.syllable_p_centers
-        : (record?.syllable_onsets || []);
-    const syllableDetails = record?.syllable_details || null;
-    const barDuration = BAR_DURATION_SECONDS / zoomLevel;
-    const bars = chunkIntoBars(pitchTrack, barDuration);
-
-    if (bars.length === 0) {
-        return { traces: [], layout: {}, frames: [] };
-    }
-    const { stressed, unstressed } = classifySyllableStress(syllableOnsets, syllableDetails);
-    const graceTimes = assignGraceNotesBetween(unstressed, stressed);
-    const allMidi = pitchTrack.map((p) => p.midi).filter((m) => m !== null && !Number.isNaN(m));
-    const globalMinMidi = allMidi.length ? Math.floor(Math.min(...allMidi)) - 1 : 36;
-    const globalMaxMidi = allMidi.length ? Math.ceil(Math.max(...allMidi)) + 1 : 72;
-    const { tickVals, tickText } = buildNoteTicks(globalMinMidi, globalMaxMidi);
-    const beatInterval = barDuration / beatsPerBar;
-    const traces = [];
-
-    bars.forEach((bar) => {
-        const localTimes = bar.points.map((p) => p.time - bar.startTime);
-        const quantizedMidi = bar.points.map((p) => {
-            if (p.midi === null || p.midi === undefined || Number.isNaN(p.midi)) return null;
-            return Math.round(p.midi);
-        });
-        const textValues = bar.points.map((p) => {
-            const note = p.note || midiToNoteName(p.midi);
-            const f0 = p.f0_hz ? `${p.f0_hz.toFixed(1)} Hz` : 'unvoiced';
-            return `${note}<br>${f0}`;
-        });
-        let anchorTimes = stressed
-            .filter((t) => t >= bar.startTime && t < bar.startTime + barDuration)
-            .map((t) => {
-                const local = t - bar.startTime;
-                return locked ? snapToGrid(local, beatInterval) : local;
-            });
-        let barGraceTimes = graceTimes
-            .filter((t) => t >= bar.startTime && t < bar.startTime + barDuration)
-            .map((t) => t - bar.startTime);
-        const barTraces = buildBarTrace(bar, quantizedMidi, localTimes, textValues, anchorTimes, barGraceTimes);
-        traces.push(...barTraces);
-    });
-    const axesDict = {};
-    const gap = bars.length > 1 ? Math.min(0.08, 0.25 / bars.length) : 0;
-    const bandHeight = (1 - gap * (bars.length - 1)) / bars.length;
-    bars.forEach((bar, idx) => {
-        const row = idx + 1;
-        const yAxisKey = row === 1 ? 'y' : `y${row}`;
-        const xAxisKey = row === 1 ? 'x' : `x${row}`;
-        const top = Math.min(1, 1 - idx * (bandHeight + gap));
-        const bottom = Math.max(0, top - bandHeight);
-        axesDict[`yaxis${row}`] = {
-            title: idx === 0 ? 'Note' : '',
-            range: [globalMinMidi, globalMaxMidi],
-            tickmode: 'array',
-            tickvals: tickVals,
-            ticktext: tickText,
-            gridcolor: '#d1d5db',
-            zeroline: false,
-            showgrid: true,
-            domain: [bottom, top],
-            anchor: xAxisKey,
-        };
-        axesDict[`xaxis${row}`] = {
-            title: idx === bars.length - 1 ? 'Time (s)' : '',
-            zeroline: false,
-            gridcolor: '#e5e7eb',
-            showticklabels: idx === bars.length - 1,
-            ticksuffix: 's',
-            anchor: yAxisKey,
-        };
-    });
-    axesDict.xaxis = { ...axesDict.xaxis1 };
-    axesDict.yaxis = { ...axesDict.yaxis1 };
-    delete axesDict.xaxis1;
-    delete axesDict.yaxis1;
-    const layout = {
-        title: { text: 'Musical Score', font: { size: 14 } },
-        paper_bgcolor: 'white',
-        plot_bgcolor: '#fafafa',
-        margin: { l: 60, r: 20, t: 50, b: 60 },
-        ...axesDict,
-        showlegend: false,
-        uniformtext: { mode: 'hide', minsize: 8 },
-    };
-    return { traces, layout };
 }
 
 class ProsodyLabRecorder {
@@ -293,12 +38,8 @@ class ProsodyLabRecorder {
         this.historyStorage = window.__SPEECH_GUIDER_DESKTOP__
             ? createDesktopHistoryStorage(window.__DESKTOP_HISTORY__)
             : undefined;
-        this.locked = false;
-        this.beatsPerBar = 4;
-        this.zoomLevel = 1.0;
         this.phraseId = 'prepared';
         this.profileKey = 'dysfluent_hesitation';
-        this.dtwNormFactor = 1.0;
         this.activeRhythmTab = 'review';
         this.audioMode = 'synth_beats';
         this.performer = 'bot_native';
@@ -335,11 +76,6 @@ class ProsodyLabRecorder {
         this.historyEl = document.getElementById('prosody-history');
         this.currentSummaryEl = document.getElementById('prosody-current-summary');
         this.currentLabelEl = document.getElementById('prosody-current-label');
-        this.currentPlotEl = document.getElementById('prosody-current-plot');
-        this.teacherLabelEl = document.getElementById('prosody-teacher-label');
-        this.studentLabelEl = document.getElementById('prosody-student-label');
-        this.teacherPlotEl = document.getElementById('prosody-teacher-plot');
-        this.studentPlotEl = document.getElementById('prosody-student-plot');
         this.tetherStageEl = document.getElementById('prosody-tether-stage');
         this.flowStageEl = document.getElementById('prosody-flow-stage');
         this.reviewTabBtnEl = document.getElementById('prosody-view-tab-review');
@@ -891,7 +627,6 @@ class ProsodyLabRecorder {
             this.renderCurrent(currentRecord);
         }
         this.renderHistory(history);
-        this.renderComparison(history);
         this.renderRhythmViews(history);
     }
 
@@ -918,7 +653,6 @@ class ProsodyLabRecorder {
                 .join('');
         }
 
-        this.renderPlot(this.currentPlotEl, record);
         this.renderFeedback(record);
     }
 
@@ -986,21 +720,6 @@ class ProsodyLabRecorder {
         });
     }
 
-    renderComparison(history) {
-        const teacherRecord = history.find((item) => item.recording_id === this.getTeacherId()) || history[1] || null;
-        const studentRecord = history.find((item) => item.recording_id === this.getStudentId()) || history[0] || null;
-
-        if (this.teacherLabelEl) {
-            this.teacherLabelEl.textContent = teacherRecord ? `Recording ${teacherRecord.recording_id.slice(0, 6)}` : 'None selected';
-        }
-        if (this.studentLabelEl) {
-            this.studentLabelEl.textContent = studentRecord ? `Recording ${studentRecord.recording_id.slice(0, 6)}` : 'None selected';
-        }
-
-        this.renderPlot(this.teacherPlotEl, teacherRecord);
-        this.renderPlot(this.studentPlotEl, studentRecord);
-    }
-
     setRhythmTab(tab) {
         this.activeRhythmTab = tab === 'live' ? 'live' : 'review';
         const isReview = this.activeRhythmTab === 'review';
@@ -1029,7 +748,6 @@ class ProsodyLabRecorder {
             this.tetherStageEl.innerHTML = renderVocAlignTetherDiagnosticSVG({
                 phraseId: this.phraseId,
                 profileKey: this.profileKey,
-                normFactor: this.dtwNormFactor,
                 teacherRecord,
                 studentRecord,
             });
@@ -1110,31 +828,6 @@ class ProsodyLabRecorder {
             this.flowPlayBtnEl.textContent = '▶ Start 2-Bar Loop';
         }
     }
-
-    renderPlot(targetElement, record) {
-        if (!targetElement) return;
-        if (!record || !window.Plotly) {
-            targetElement.innerHTML = '<div class="text-sm text-gray-500">No recording selected.</div>';
-            return;
-        }
-
-        const beatsSel = document.getElementById('prosody-beats-select');
-        const effectiveBeats = (beatsSel && beatsSel.value !== 'auto')
-            ? parseInt(beatsSel.value, 10)
-            : detectBeatsPerBar(record.summary?.syllable_count || 0, record.summary?.duration_seconds || 0);
-
-        const chartData = buildMusicalScoreChart(record, {
-            locked: this.locked,
-            beatsPerBar: effectiveBeats,
-            zoomLevel: this.zoomLevel,
-        });
-        if (!chartData.traces.length) {
-            targetElement.innerHTML = '<div class="text-sm text-gray-500">No pitch data available.</div>';
-            return;
-        }
-        const config = { responsive: true, displayModeBar: true, displaylogo: false, scrollZoom: true };
-        window.Plotly.newPlot(targetElement, chartData.traces, chartData.layout, config);
-    }
 }
 
 function initializeProsodyLab() {
@@ -1144,43 +837,6 @@ function initializeProsodyLab() {
 
     window.prosodyLabRecorder?.destroy?.();
     window.prosodyLabRecorder = new ProsodyLabRecorder();
-    const recorder = window.prosodyLabRecorder;
-
-    const lockBtn = document.getElementById('prosody-lock-btn');
-    const beatsSelect = document.getElementById('prosody-beats-select');
-    const zoomSlider = document.getElementById('prosody-zoom-slider');
-    const zoomLabel = document.getElementById('prosody-zoom-label');
-
-    if (lockBtn) {
-        listen(recorder, lockBtn, 'click', () => {
-            if (!window.prosodyLabRecorder) return;
-            window.prosodyLabRecorder.locked = !window.prosodyLabRecorder.locked;
-            lockBtn.classList.toggle('bg-blue-600', window.prosodyLabRecorder.locked);
-            lockBtn.classList.toggle('text-white', window.prosodyLabRecorder.locked);
-            lockBtn.classList.toggle('bg-white', !window.prosodyLabRecorder.locked);
-            window.prosodyLabRecorder.renderFromStorage();
-        });
-    }
-
-    if (beatsSelect) {
-        listen(recorder, beatsSelect, 'change', () => {
-            if (!window.prosodyLabRecorder) return;
-            const val = beatsSelect.value;
-            if (val !== 'auto') {
-                window.prosodyLabRecorder.beatsPerBar = parseInt(val, 10);
-            }
-            window.prosodyLabRecorder.renderFromStorage();
-        });
-    }
-
-    if (zoomSlider && zoomLabel) {
-        listen(recorder, zoomSlider, 'input', () => {
-            if (!window.prosodyLabRecorder) return;
-            window.prosodyLabRecorder.zoomLevel = parseFloat(zoomSlider.value);
-            zoomLabel.textContent = `${window.prosodyLabRecorder.zoomLevel.toFixed(2)}x`;
-            window.prosodyLabRecorder.renderFromStorage();
-        });
-    }
 }
 
 if (typeof document !== 'undefined') {
@@ -1193,8 +849,6 @@ if (typeof document !== 'undefined') {
 
 if (typeof window !== 'undefined') {
     window.ProsodyLabRecorder = ProsodyLabRecorder;
-    window.trimProsodyHistory = trimProsodyHistory;
-    window.midiToNoteName = midiToNoteName;
 }
 
-export { ProsodyLabRecorder, trimProsodyHistory, midiToNoteName, buildMusicalScoreChart };
+export { ProsodyLabRecorder };

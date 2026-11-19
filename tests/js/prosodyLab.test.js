@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { ProsodyLabRecorder, midiToNoteName, trimProsodyHistory, buildMusicalScoreChart } from '../../static/js/prosody_lab.js';
+import { ProsodyLabRecorder } from '../../static/js/prosody_lab.js';
+import { trimProsodyHistory } from '../../static/js/prosody_history.js';
 import {
     renderVocAlignTetherDiagnosticSVG,
     renderFlowMatrixTrainerSVG,
     alignRecordPairToTetherItems,
-    computeVocalicNpvi,
 } from '../../static/js/prosody_rhythm_views.js';
 
 describe('Prosody Lab helpers', () => {
@@ -24,33 +24,6 @@ describe('Prosody Lab helpers', () => {
         const trimmed = trimProsodyHistory(history, 3);
         expect(trimmed).toHaveLength(3);
         expect(trimmed.map((item) => item.recording_id)).toEqual(['1', '2', '3']);
-    });
-
-    it('converts midi values to note names', () => {
-        expect(midiToNoteName(60)).toBe('C4');
-        expect(midiToNoteName(69)).toBe('A4');
-    });
-
-    it('builds a musical score chart with pitch and syllable markers', () => {
-        const result = buildMusicalScoreChart(
-            {
-                summary: { mean_midi: 60, mean_note: 'C4', syllable_count: 2, duration_seconds: 0.5 },
-                pitch_track: [
-                    { time: 0, midi: 60, f0_hz: 261.6, note: 'C4', confidence: 0.9 },
-                    { time: 0.5, midi: 62, f0_hz: 293.7, note: 'D4', confidence: 0.8 },
-                ],
-                syllable_onsets: [0.1, 0.4],
-                syllable_p_centers: [0.09, 0.39],
-                syllable_details: [
-                    { index: 0, nucleus_time: 0.1, p_center_time: 0.09, consonant_onset_time: 0.05, pre_duration: 0.04, vowel_duration: 0.16, prominence: 0.85, is_stressed: true },
-                    { index: 1, nucleus_time: 0.4, p_center_time: 0.39, consonant_onset_time: 0.37, pre_duration: 0.02, vowel_duration: 0.08, prominence: 0.25, is_stressed: false },
-                ],
-            },
-            { locked: false, beatsPerBar: 4, zoomLevel: 1.0 },
-        );
-
-        expect(result.traces.length).toBeGreaterThan(0);
-        expect(result.layout.title.text).toBe('Musical Score');
     });
 
     it('renders Goal 1 VocAlign Elastic Tether & Beat Bin SVG for presets and recorded pairs', () => {
@@ -94,7 +67,6 @@ describe('Prosody Lab helpers', () => {
             studentRecord,
         });
         expect(pairSvg).toContain('data-source-mode="recorded_pair"');
-        expect(computeVocalicNpvi([0.22, 0.07, 0.28])).toBeGreaterThan(40);
     });
 
     it('renders Goal 2 Stationary 16-Slot Prosodic Flow Matrix SVG', () => {

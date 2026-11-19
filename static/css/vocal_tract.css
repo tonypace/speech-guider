@@ -44,20 +44,6 @@ body:has(#tab-panel-comparison.comparison-expanded) {
     min-width: 0;
 }
 
-/* Tooltip Styles */
-.tooltip {
-    position: relative;
-    cursor: help;
-    padding: 0.1rem 0.3rem;
-    border-radius: 3px;
-    color: #0066cc;
-    font-weight: 500;
-}
-
-.tooltip:hover {
-    background-color: #e7f1ff;
-}
-
 /* Intercom Recorder Styles */
 .recorder-status {
     text-align: center;

@@ -1,70 +1,13 @@
-import { SvgArticulatoryRenderer } from './svg_articulatory_renderer.js';
+import { SvgArticulatoryRenderer, DEFAULT_STATE } from './svg_articulatory_renderer.js';
 import './ipa_tooltips.js';
 import './recorder.js';
 import { releaseCapture } from './capture_resources.js';
 
-const DEFAULT_SVG_STATE = window.SvgArticulatoryDefaultState || {
-    lip_aperture: 0.25,
-    lip_protrusion: 0.71,
-    tongue_tip_constriction_location: 0.2,
-    tongue_tip_constriction_degree: 1,
-    lateral_tongue_drop: 0,
-    velic_aperture: 0,
-    tongue_body_constriction_location: 0.7,
-    tongue_body_constriction_degree: 1,
-    glottal_aperture: 0,
-};
-
 window.currentTab = 'analysis';
-window.currentAnimationParams = { left: { ...DEFAULT_SVG_STATE }, right: { ...DEFAULT_SVG_STATE } };
+window.currentAnimationParams = { left: { ...DEFAULT_STATE }, right: { ...DEFAULT_STATE } };
 window.currentHighlightParams = { zone: null };
 window.svgLeftRenderer = null;
 window.svgRightRenderer = null;
-
-function normalizeTongueDegree(value) {
-    const numericValue = Number(value);
-    if (!Number.isFinite(numericValue)) return 1;
-    return Math.max(0, Math.min(1, numericValue));
-}
-
-function normalizeScalar(value, fallback) {
-    const numericValue = Number(value);
-    if (!Number.isFinite(numericValue)) return fallback;
-    return Math.max(0, Math.min(1, numericValue));
-}
-
-function normalizeSvgState(state = {}) {
-    return {
-        ...DEFAULT_SVG_STATE,
-        ...state,
-        lip_aperture: normalizeScalar(
-            state.lip_aperture ?? DEFAULT_SVG_STATE.lip_aperture,
-            DEFAULT_SVG_STATE.lip_aperture,
-        ),
-        lip_protrusion: normalizeScalar(
-            state.lip_protrusion ?? DEFAULT_SVG_STATE.lip_protrusion,
-            DEFAULT_SVG_STATE.lip_protrusion,
-        ),
-        tongue_tip_constriction_degree: normalizeTongueDegree(
-            state.tongue_tip_constriction_degree ?? DEFAULT_SVG_STATE.tongue_tip_constriction_degree,
-        ),
-        velic_aperture: normalizeScalar(
-            state.velic_aperture ?? DEFAULT_SVG_STATE.velic_aperture,
-            DEFAULT_SVG_STATE.velic_aperture,
-        ),
-        tongue_body_constriction_degree: normalizeTongueDegree(
-            state.tongue_body_constriction_degree ?? DEFAULT_SVG_STATE.tongue_body_constriction_degree,
-        ),
-        lateral_tongue_drop: normalizeScalar(
-            state.lateral_tongue_drop ?? DEFAULT_SVG_STATE.lateral_tongue_drop,
-            DEFAULT_SVG_STATE.lateral_tongue_drop,
-        ),
-        glottal_aperture: normalizeScalar(
-            state.glottal_aperture ?? DEFAULT_SVG_STATE.glottal_aperture,
-            DEFAULT_SVG_STATE.glottal_aperture,
-        ),
-    };
-}
 
 function mountSvgRenderers() {
     const leftContainer = document.getElementById('svg-articulatory-left');
@@ -73,7 +16,7 @@ function mountSvgRenderers() {
     if (leftContainer && !window.svgLeftRenderer) {
         window.svgLeftRenderer = new SvgArticulatoryRenderer(leftContainer, {
             prefix: 'left',
-            state: DEFAULT_SVG_STATE,
+            state: DEFAULT_STATE,
         });
         window.svgLeftRenderer.mount();
     }
@@ -81,7 +24,7 @@ function mountSvgRenderers() {
     if (rightContainer && !window.svgRightRenderer) {
         window.svgRightRenderer = new SvgArticulatoryRenderer(rightContainer, {
             prefix: 'right',
-            state: DEFAULT_SVG_STATE,
+            state: DEFAULT_STATE,
         });
         window.svgRightRenderer.mount();
     }
@@ -164,8 +107,8 @@ window.updateVocalTractDescriptions = function updateVocalTractDescriptions(inco
     try {
         if (animationJson && typeof animationJson === 'string' && animationJson.trim()) {
             const params = JSON.parse(animationJson);
-            if (params?.left) window.currentAnimationParams.left = normalizeSvgState(params.left);
-            if (params?.right) window.currentAnimationParams.right = normalizeSvgState(params.right);
+            if (params?.left) window.currentAnimationParams.left = { ...DEFAULT_STATE, ...params.left };
+            if (params?.right) window.currentAnimationParams.right = { ...DEFAULT_STATE, ...params.right };
         }
     } catch (error) {
         console.error('[updateVocalTractDescriptions] Failed to parse animation JSON:', error);

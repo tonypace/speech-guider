@@ -14,52 +14,43 @@ from src.models.articulatory import (
     CONSONANT_TEMPLATES,
     VOWEL_TEMPLATES,
     ArticulatoryMapper,
-    ArticulatoryParameters,
     ArticulatoryState,
     PhonemeDescription,
     default_articulatory_state,
-    legacy_to_svg_state,
     normalize_svg_state,
     svg_state_to_dict,
 )
+from src.models.articulatory_calibration import CANONICAL_ARTICULATORY_FIELDS
 
 
-def test_articulatory_mapper_initialization():
+def test_articulatory_mapper_initialization() -> None:
     """Test that articulatory mapper can be initialized."""
     mapper = ArticulatoryMapper()
 
     assert mapper is not None
     assert hasattr(mapper, "_tooltip_definitions")
 
-    print("✓ ArticulatoryMapper initialization test passed")
 
-
-def test_phoneme_description():
+def test_phoneme_description() -> None:
     """Test phoneme description parsing with placeholder data."""
     mapper = ArticulatoryMapper()
 
-    # Test with a known IPA phoneme
     description = mapper.parse_phoneme("/θ/")
 
-    # We can't guarantee CLTS features without the package installed
-    # But we can test basic structure
     assert isinstance(description, PhonemeDescription)
-    assert "θ" in description.ipa_symbol  # Check if θ symbol is contained
+    assert "θ" in description.ipa_symbol
     assert hasattr(description, "features")
     assert hasattr(description, "tooltips")
 
-    print("✓ Phoneme description test passed")
-    print(f"  - IPA Symbol: {description.ipa_symbol}")
-    print(f"  - Technical Name: {description.technical_name}")
 
-
-def test_parameter_mapping():
-    """Test that phoneme description can be mapped to parameters."""
+def test_parameter_mapping() -> None:
+    """Test that phoneme description can be mapped to canonical 9-field parameters."""
     mapper = ArticulatoryMapper()
 
     svg_state = mapper.get_animation_params("/t/")
 
     assert isinstance(svg_state, dict)
+    assert set(svg_state.keys()) == set(CANONICAL_ARTICULATORY_FIELDS)
     assert "lip_aperture" in svg_state
     assert "tongue_tip_constriction_location" in svg_state
     assert "tongue_body_constriction_degree" in svg_state
@@ -67,12 +58,9 @@ def test_parameter_mapping():
     neutral = default_articulatory_state()
     assert neutral.lip_aperture == 0.25
 
-    print("✓ Parameter mapping test passed")
-    print(f"  SVG state keys: {list(svg_state.keys())}")
 
-
-def test_common_ipa_symbols():
-    """Test parsing of common IPA phonemes."""
+def test_common_ipa_symbols() -> None:
+    """Test parsing and mapping of common IPA phonemes."""
     mapper = ArticulatoryMapper()
 
     common_phonemes = [
@@ -91,29 +79,18 @@ def test_common_ipa_symbols():
         "/r/",
     ]
 
-    parsed_phonemes = []
     for phoneme in common_phonemes:
-        try:
-            description = mapper.parse_phoneme(phoneme)
-            parsed_phonemes.append(
-                (
-                    phoneme,
-                    description.technical_name,
-                    description.ipa_symbol,
-                )
-            )
-        except Exception:
-            pass
-
-    print("✓ Common IPA symbols test passed")
-    print(f"  Parsed {len(parsed_phonemes)}/{len(common_phonemes)} phonemes")
-
-    # Show a few examples
-    for phoneme, name, symbol in parsed_phonemes[:5]:
-        print(f"  - {phoneme}: {name} ({symbol})")
+        description = mapper.parse_phoneme(phoneme)
+        assert isinstance(description, PhonemeDescription)
+        assert description.ipa_symbol == phoneme.strip("/")
+        assert description.technical_name
+        svg_state = mapper.get_animation_params(phoneme)
+        assert set(svg_state.keys()) == set(CANONICAL_ARTICULATORY_FIELDS)
+        for val in svg_state.values():
+            assert 0.0 <= val <= 1.0
 
 
-def test_consonant_templates():
+def test_consonant_templates() -> None:
     """Test that all consonant templates have the required 9 SVG keys."""
     required_keys = {
         "lip_aperture",
@@ -135,15 +112,14 @@ def test_consonant_templates():
         assert 0 <= template["lip_protrusion"] <= 1, f"LP out of range for /{symbol}/"
         assert 0 <= template["ttcl"] <= 1, f"TTCL out of range for /{symbol}/"
         assert 0 <= template["ttcd"] <= 1, f"TTCD out of range for /{symbol}/"
-        assert 0 <= template["lat"] <= 40, f"LAT out of range for /{symbol}/"
+        assert 0 <= template["lat"] <= 1, f"LAT out of range for /{symbol}/"
         assert 0 <= template["vel"] <= 1, f"VEL out of range for /{symbol}/"
         assert 0 <= template["tbcl"] <= 1, f"TBCL out of range for /{symbol}/"
         assert 0 <= template["tbcd"] <= 1, f"TBCD out of range for /{symbol}/"
-        assert 0 <= template["glo"] <= 30, f"GLO out of range for /{symbol}/"
-    print(f"✓ {len(CONSONANT_TEMPLATES)} consonant templates validated")
+        assert 0 <= template["glo"] <= 1, f"GLO out of range for /{symbol}/"
 
 
-def test_vowel_templates():
+def test_vowel_templates() -> None:
     """Test that all vowel templates have the required 9 SVG keys."""
     required_keys = {
         "lip_aperture",
@@ -165,16 +141,15 @@ def test_vowel_templates():
         assert 0 <= template["lip_protrusion"] <= 1, f"LP out of range for /{symbol}/"
         assert 0 <= template["ttcl"] <= 1, f"TTCL out of range for /{symbol}/"
         assert 0 <= template["ttcd"] <= 1, f"TTCD out of range for /{symbol}/"
-        assert 0 <= template["lat"] <= 40, f"LAT out of range for /{symbol}/"
+        assert 0 <= template["lat"] <= 1, f"LAT out of range for /{symbol}/"
         assert 0 <= template["vel"] <= 1, f"VEL out of range for /{symbol}/"
         assert 0 <= template["tbcl"] <= 1, f"TBCL out of range for /{symbol}/"
         assert 0 <= template["tbcd"] <= 1, f"TBCD out of range for /{symbol}/"
-        assert 0 <= template["glo"] <= 30, f"GLO out of range for /{symbol}/"
+        assert 0 <= template["glo"] <= 1, f"GLO out of range for /{symbol}/"
         assert template["glo"] == 0, f"Vowel /{symbol}/ should have GLO=0 (voiced)"
-    print(f"✓ {len(VOWEL_TEMPLATES)} vowel templates validated")
 
 
-def test_template_lookup():
+def test_template_lookup() -> None:
     """Test _get_template returns correct templates for known phonemes."""
     mapper = ArticulatoryMapper()
 
@@ -189,10 +164,9 @@ def test_template_lookup():
         assert "lip_aperture" in t
 
     assert mapper._get_template("xyz") is None
-    print("✓ Template lookup test passed")
 
 
-def test_template_to_svg_state():
+def test_template_to_svg_state() -> None:
     """Test _template_to_svg_state converts template dict to ArticulatoryState."""
     mapper = ArticulatoryMapper()
     state = mapper._template_to_svg_state(CONSONANT_TEMPLATES["p"])
@@ -207,10 +181,9 @@ def test_template_to_svg_state():
     assert state.tongue_body_constriction_location == 0.55
     assert state.tongue_body_constriction_degree == 0.55
     assert state.glottal_aperture == 0.6
-    print("✓ _template_to_svg_state test passed")
 
 
-def test_get_animation_params_template_hit():
+def test_get_animation_params_template_hit() -> None:
     """Test get_animation_params uses template when available."""
     mapper = ArticulatoryMapper()
 
@@ -236,10 +209,9 @@ def test_get_animation_params_template_hit():
     result_u = mapper.get_animation_params("u")
     assert result_u["lip_aperture"] == 0.0
     assert result_u["lip_protrusion"] == 0.71
-    print("✓ Template hit path in get_animation_params passed")
 
 
-def test_svg_state_to_dict():
+def test_svg_state_to_dict() -> None:
     """Test svg_state_to_dict converts ArticulatoryState to flat dict."""
     state = ArticulatoryState(
         lip_aperture=0.125,
@@ -264,11 +236,10 @@ def test_svg_state_to_dict():
     assert d["tongue_body_constriction_location"] == 0.60
     assert d["tongue_body_constriction_degree"] == 0.7
     assert d["glottal_aperture"] == 0.5
-    print("✓ svg_state_to_dict test passed")
 
 
-def test_normalize_svg_state():
-    """Test normalize_svg_state normalizes both SVG and legacy formats."""
+def test_normalize_svg_state() -> None:
+    """Test normalize_svg_state normalizes and clamps all 9 canonical fields."""
     svg_input = {
         "lip_aperture": 0.20,
         "lip_protrusion": 0.21,
@@ -286,77 +257,62 @@ def test_normalize_svg_state():
     assert result["tongue_tip_constriction_degree"] == 1.0
     assert result["tongue_body_constriction_degree"] == 0.7
 
-    legacy_input = {
-        "tongueIndex": 0.5,
-        "tongueDiameter": 0.7,
-        "tongueCurl": 0.2,
-        "tongueRoot": 0.1,
-        "lipRounding": 0.8,
-        "lipClosure": 0.3,
-        "nasality": 0.5,
-        "voicing": 0.9,
-        "aspiration": 0.0,
-    }
-    result_legacy = normalize_svg_state(legacy_input)
-    assert "lip_aperture" in result_legacy
-    assert "glottal_aperture" in result_legacy
-    print("✓ normalize_svg_state test passed")
 
+def test_normalize_svg_state_clamps_non_normalized_svg_input() -> None:
+    """Test normalize_svg_state clamps all 9 SVG fields into [0.0, 1.0]."""
 
-def test_normalize_svg_state_clamps_non_normalized_svg_input():
-    """Test normalize_svg_state clamps SVG-shaped input into normalized range."""
-
-    legacy_svg_input = {
+    out_of_range_input = {
+        "lip_aperture": -0.5,
+        "lip_protrusion": 1.5,
+        "tongue_tip_constriction_location": -0.2,
         "tongue_tip_constriction_degree": 40,
+        "lateral_tongue_drop": 5.0,
+        "velic_aperture": -1.0,
+        "tongue_body_constriction_location": 2.4,
         "tongue_body_constriction_degree": 30,
+        "glottal_aperture": 12.0,
     }
-    result = normalize_svg_state(legacy_svg_input)
+    result = normalize_svg_state(out_of_range_input)
+    assert result["lip_aperture"] == 0.0
+    assert result["lip_protrusion"] == 1.0
+    assert result["tongue_tip_constriction_location"] == 0.0
     assert result["tongue_tip_constriction_degree"] == 1.0
+    assert result["lateral_tongue_drop"] == 1.0
+    assert result["velic_aperture"] == 0.0
+    assert result["tongue_body_constriction_location"] == 1.0
     assert result["tongue_body_constriction_degree"] == 1.0
+    assert result["glottal_aperture"] == 1.0
 
 
-def test_normalize_svg_state_partial_svg_input_uses_defaults():
-    """Test partial SVG-shaped input still takes the SVG normalization path."""
+def test_normalize_svg_state_partial_svg_input_uses_defaults() -> None:
+    """Test partial SVG-shaped input fills defaults and clamps values."""
 
     result = normalize_svg_state({"tongue_tip_constriction_degree": 40})
     assert result["tongue_tip_constriction_degree"] == 1.0
     assert result["tongue_body_constriction_degree"] == 1.0
 
 
-def test_legacy_to_svg_state():
-    """Test legacy_to_svg_state converts legacy params to SVG schema."""
-    legacy = {
-        "tongueIndex": 0.5,
-        "tongueDiameter": 0.7,
-        "tongueCurl": 0.0,
-        "tongueRoot": 0.0,
-        "lipRounding": 0.8,
-        "lipClosure": 0.0,
-        "nasality": 0.0,
-        "voicing": 0.0,
-        "aspiration": 0.0,
-    }
-    result = legacy_to_svg_state(legacy)
-    assert isinstance(result, dict)
-    assert "lip_aperture" in result
-    assert "glottal_aperture" in result
-    assert result["lip_aperture"] > 0
-    assert result["glottal_aperture"] > 0
-
-    params = ArticulatoryParameters(
-        tongueIndex=0.3,
-        tongueDiameter=0.5,
-        tongueCurl=0.0,
-        tongueRoot=0.0,
-        lipRounding=0.5,
-        lipClosure=0.0,
-        nasality=0.0,
-        voicing=1.0,
-        aspiration=0.0,
+def test_map_to_svg_state_feature_fallback() -> None:
+    """Test map_to_svg_state maps CLTS phoneme features directly into canonical 9-field state."""
+    mapper = ArticulatoryMapper()
+    desc = PhonemeDescription(
+        technical_name="Voiceless Retroflex Fricative",
+        ipa_symbol="ʂ",
+        features={
+            "place": "retroflex",
+            "manner": "fricative",
+            "voicing": "voiceless",
+            "rounding": "unrounded",
+        },
+        tooltips={},
     )
-    result2 = legacy_to_svg_state(params)
-    assert result2["glottal_aperture"] == 0
-    print("✓ legacy_to_svg_state test passed")
+    result = mapper.map_to_svg_state(desc)
+    assert set(result.keys()) == set(CANONICAL_ARTICULATORY_FIELDS)
+    assert result["lateral_tongue_drop"] == 0.25
+    assert result["glottal_aperture"] == 1.0
+    assert result["lip_protrusion"] == 0.0
+    for val in result.values():
+        assert 0.0 <= val <= 1.0
 
 
 def test_decode_aai_row_uses_documented_field_order():
@@ -537,7 +493,7 @@ def test_parse_aai_animation_payload_returns_canonical_state():
         assert 0.0 <= value <= 1.0
 
 
-def test_articulatory_state_dataclass():
+def test_articulatory_state_dataclass() -> None:
     """Test ArticulatoryState holds all 9 SVG parameters."""
     state = ArticulatoryState(
         lip_aperture=1.0,
@@ -553,10 +509,9 @@ def test_articulatory_state_dataclass():
     assert state.lip_aperture == 1.0
     assert state.glottal_aperture == 0.8
     assert state.lateral_tongue_drop == 0.5
-    print("✓ ArticulatoryState dataclass test passed")
 
 
-def test_default_articulatory_state():
+def test_default_articulatory_state() -> None:
     """Test default_articulatory_state returns sane defaults."""
     state = default_articulatory_state()
     assert isinstance(state, ArticulatoryState)
@@ -569,23 +524,3 @@ def test_default_articulatory_state():
     assert state.tongue_body_constriction_location == 0.70
     assert state.tongue_body_constriction_degree == 1.0
     assert state.glottal_aperture == 0.0
-    print("✓ default_articulatory_state test passed")
-
-
-if __name__ == "__main__":
-    test_articulatory_mapper_initialization()
-    test_phoneme_description()
-    test_parameter_mapping()
-    test_common_ipa_symbols()
-    test_consonant_templates()
-    test_vowel_templates()
-    test_template_lookup()
-    test_template_to_svg_state()
-    test_get_animation_params_template_hit()
-    test_svg_state_to_dict()
-    test_normalize_svg_state()
-    test_normalize_svg_state_partial_svg_input_uses_defaults()
-    test_legacy_to_svg_state()
-    test_articulatory_state_dataclass()
-    test_default_articulatory_state()
-    print("\n✅ All articulatory mapping tests passed!")

@@ -24,14 +24,12 @@ from src.models.aai_adapter import (
 from src.models.ssl_common import (
     DEFAULT_SSL_FEATURE_CONFIG,
     clear_torch_device_cache,
+    get_best_torch_device,
 )
 from src.services.model_cache import get_ssl_predictor
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-
-# Cached device string for VRAM cleanup after inference
-_ssl_device: str | None = None
 
 
 class SSLAnalysisError(Exception):
@@ -64,11 +62,6 @@ def _ssl_aai_to_animation_state(
     except (FileNotFoundError, RuntimeError) as e:
         logger.exception("SSL predictor could not be loaded")
         raise SSLAnalysisError(f"SSL predictor could not be loaded: {e}") from e
-
-    global _ssl_device
-    device = getattr(predictor, "device", None)
-    if isinstance(device, str) and device:
-        _ssl_device = device
 
     metadata = SPEAKER_Z_METADATA
     try:
@@ -109,12 +102,12 @@ def try_primary_ssl_analysis(
     sample_rate: int,
     return_trajectory: bool = False,
     contact_enabled: bool = False,
-) -> tuple[dict[str, float] | None, list[dict[str, float]] | None, dict[str, Any]]:
+) -> tuple[dict[str, float], list[dict[str, float]] | None, dict[str, Any]]:
     """Run the SSL AAI analysis path.
 
     Returns:
         tuple: (animation_state, ssl_trajectory, ssl_meta)
-        - animation_state: canonical animation state dict or None
+        - animation_state: canonical animation state dict
         - ssl_trajectory: list of canonical frame dicts or None (if return_trajectory=True)
         - ssl_meta: integration metadata (decoder, device, layers, display clipping)
     """
@@ -188,13 +181,9 @@ async def _run_analysis_pipeline(
         ssl_animation_state, ssl_trajectory, ssl_meta = await run_blocking(
             try_primary_ssl_analysis, audio_tensor, sample_rate, True, contact_enabled
         )
-        if ssl_animation_state is not None:
-            logger.debug(
-                "[analyze] SSL AAI analysis succeeded, animation state and trajectory generated"
-            )
-        else:
-            ssl_error = "SSL AAI predictor unavailable or failed"
-            logger.warning(f"[analyze] {ssl_error}")
+        logger.debug(
+            "[analyze] SSL AAI analysis succeeded, animation state and trajectory generated"
+        )
     except SSLAnalysisError as e:
         ssl_error = str(e)
         logger.warning(f"[analyze] SSL AAI analysis failed: {e}")
@@ -203,9 +192,10 @@ async def _run_analysis_pipeline(
         logger.exception("Unexpected SSL analysis error for job %s", job_id)
     finally:
         meta_device = ssl_meta.get("device")
-        device = meta_device if isinstance(meta_device, str) and meta_device else _ssl_device
-        if device:
-            await run_blocking(clear_torch_device_cache, device)
+        device = (
+            meta_device if isinstance(meta_device, str) and meta_device else get_best_torch_device()
+        )
+        await run_blocking(clear_torch_device_cache, device)
 
     # Step 3: Extract prosody metrics
     await send_progress_update(job_id, 0.6, "Extracting prosody metrics...", "prosody")

@@ -29,11 +29,11 @@ hardware, and real-recording playback are separate validation steps.
 
 ## Offline frontend
 
-Tailwind 3.4.19 is compiled to static CSS; Plotly 2.32.0 ships locally. The lockfile,
+Tailwind 3.4.19 is compiled to static CSS. The lockfile,
 licenses and checksum manifest record provenance. Use `npm run assets:build` after
 changing UI classes and `npm run assets:check` to verify artifacts. The offline
 browser check blocks external requests and covers all tabs, saved presets, dynamic
-feedback styles and rendered plots. See [asset provenance](../static/vendor/README.md).
+feedback styles and rendered SVG visualizations. See [asset provenance](../static/vendor/README.md).
 
 ## Acoustic validation
 

@@ -206,18 +206,6 @@ def _lp_to_renderer(value: float, reference_extent: float) -> float:
     return _mm_to_unit_interval(max(0.0, value), reference_extent)
 
 
-def _glo_to_unit_interval(value: float) -> float:
-    """Normalize glottal aperture into canonical 0..1 range."""
-
-    return clamp_unit(value)
-
-
-def _lat_to_unit_interval(value: float) -> float:
-    """Normalize lateral tongue drop into canonical 0..1 range."""
-
-    return clamp_unit(value)
-
-
 def _reference_extent(mean: float, std: float) -> float:
     """Return a conservative positive reference extent from stats."""
 
@@ -359,13 +347,13 @@ def _resolved_aai_to_canonical_state(
             "tongue_tip_constriction_degree": _mm_to_unit_interval(
                 tract_variables.ttcd, ttcd_extent
             ),
-            "lateral_tongue_drop": _lat_to_unit_interval(tract_variables.lat),
+            "lateral_tongue_drop": clamp_unit(tract_variables.lat),
             "velic_aperture": _mm_to_unit_interval(tract_variables.vel, vel_extent),
             "tongue_body_constriction_location": clamp_unit(tract_variables.tbcl),
             "tongue_body_constriction_degree": _mm_to_unit_interval(
                 tract_variables.tbcd, tbcd_extent
             ),
-            "glottal_aperture": _glo_to_unit_interval(tract_variables.glo),
+            "glottal_aperture": clamp_unit(tract_variables.glo),
         }
 
         _apply_masked_field_fallbacks(candidate, metadata, fallback, defaults)

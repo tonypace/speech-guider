@@ -18,9 +18,8 @@ from app.services import state
 
 @pytest.fixture(autouse=True)
 def isolate_settings_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    presets_file = tmp_path / "presets.json"
-    monkeypatch.setattr(state, "PRESETS_FILE", presets_file)
-    return presets_file
+    monkeypatch.setattr(state, "DATA_DIR", tmp_path)
+    return tmp_path / "settings.json"
 
 
 def _extract_rendered_settings(html: str) -> dict[str, Any]:

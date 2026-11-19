@@ -4,7 +4,6 @@ import base64
 import io
 import json
 import logging
-from typing import Any
 
 import torch
 from fastapi import APIRouter, HTTPException
@@ -175,18 +174,3 @@ async def generate_reference_animation(
             status_code=500,
             detail="Failed to generate reference animation. Please check local model configuration.",
         ) from e
-
-
-@router.get("/api/comparison-cache/stats")
-async def get_cache_stats() -> dict[str, Any]:
-    """Get comparison cache statistics."""
-    cache = get_comparison_cache()
-    return cache.get_stats()
-
-
-@router.delete("/api/comparison-cache")
-async def clear_cache() -> dict[str, str]:
-    """Clear all cached reference assets."""
-    cache = get_comparison_cache()
-    cache.clear()
-    return {"status": "cleared"}

@@ -10,45 +10,9 @@ from typing import Mapping, Optional
 
 import pyclts
 
-from src.models.articulatory_calibration import CANONICAL_ARTICULATORY_FIELDS, clamp_unit
+from src.models.articulatory_calibration import clamp_unit
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class ArticulatoryParameters:
-    """Legacy articulatory parameters kept for preset normalization.
-
-    9 articulatory variables for comprehensive phoneme representation:
-    - tongueIndex: tongue horizontal position (back/front)
-    - tongueDiameter: tongue constriction degree
-    - tongueCurl: tongue tip retroflexion
-    - tongueRoot: tongue root retraction
-    - lipRounding: lip protrusion/rounding
-    - lipClosure: lip aperture
-    - nasality: velum opening
-    - voicing: vocal fold vibration
-    - aspiration: voice onset timing
-    """
-
-    # Tongue body position (0.0 = back/velar, 1.0 = front/alveolar)
-    tongueIndex: float  # noqa: N815 - serialized legacy animation field
-    # Tongue constriction (0.0 = open/low, 1.0 = closed/high)
-    tongueDiameter: float  # noqa: N815 - serialized legacy animation field
-    # Tongue tip retroflexion (0.0 = flat, 1.0 = curled back)
-    tongueCurl: float  # noqa: N815 - serialized legacy animation field
-    # Tongue root position (0.0 = advanced, 1.0 = retracted/pharyngeal)
-    tongueRoot: float  # noqa: N815 - serialized legacy animation field
-    # Lip rounding (0.0 = spread, 1.0 = rounded/protruded)
-    lipRounding: float  # noqa: N815 - serialized legacy animation field
-    # Lip aperture (0.0 = open, 1.0 = sealed/closed)
-    lipClosure: float  # noqa: N815 - serialized legacy animation field
-    # Nasality (0.0 = oral/closed velum, 1.0 = nasal/open velum)
-    nasality: float
-    # Voicing (0.0 = voiceless, 1.0 = voiced)
-    voicing: float
-    # Aspiration (0.0 = unaspirated/immediate VOT, 1.0 = aspirated/delayed VOT)
-    aspiration: float
 
 
 @dataclass
@@ -549,18 +513,16 @@ class ArticulatoryMapper:
         Returns:
             PhonemeDescription with technical name, features, and tooltips
         """
+        clean_ipa = ipa_symbol.strip().strip("/")
         try:
             bipa = self._get_bipa()
         except Exception:
             return PhonemeDescription(
                 technical_name="Unknown",
-                ipa_symbol=ipa_symbol,
+                ipa_symbol=clean_ipa,
                 features={},
                 tooltips={},
             )
-
-        # Clean IPA symbol (remove slashes)
-        clean_ipa = ipa_symbol.strip().strip("/")
 
         try:
             # Get phoneme from CLTS
@@ -630,103 +592,78 @@ class ArticulatoryMapper:
 
         return " ".join(parts) if parts else "Unknown"
 
-    def map_to_parameters(self, phoneme_description: PhonemeDescription) -> ArticulatoryParameters:
-        """Map phoneme features to visualization parameters.
-
-        Args:
-            phoneme_description: Phoneme description with features
-
-        Returns:
-            ArticulatoryParameters for animation
-        """
-        # Default parameters (neutral position)
-        params = ArticulatoryParameters(
-            tongueIndex=0.5,
-            tongueDiameter=0.5,
-            tongueCurl=0.0,
-            tongueRoot=0.0,
-            lipRounding=0.5,
-            lipClosure=0.0,
-            nasality=0.0,
-            voicing=0.5,
-            aspiration=0.0,
-        )
-
+    def map_to_svg_state(self, phoneme_description: PhonemeDescription) -> dict[str, float]:
+        """Map phoneme features directly to the canonical 9-field SVG articulatory schema."""
         features = phoneme_description.features
 
-        # Map place of articulation to tongueIndex (0.0 = back, 1.0 = front)
-        if "place" in features:
-            place = features["place"]
-            place_mapping = {
-                "bilabial": 0.5,
-                "labiodental": 0.7,
-                "dental": 0.85,
-                "alveolar": 1.0,
-                "postalveolar": 0.9,
-                "retroflex": 0.85,
-                "palatal": 0.65,
-                "velar": 0.0,
-                "uvular": 0.05,
-                "pharyngeal": 0.0,
-                "glottal": 0.0,
-            }
-            params.tongueIndex = place_mapping.get(place, 0.5)
+        place_mapping = {
+            "bilabial": 0.5,
+            "labiodental": 0.7,
+            "dental": 0.85,
+            "alveolar": 1.0,
+            "postalveolar": 0.9,
+            "retroflex": 0.85,
+            "palatal": 0.65,
+            "velar": 0.0,
+            "uvular": 0.05,
+            "pharyngeal": 0.0,
+            "glottal": 0.0,
+        }
+        manner_mapping = {
+            "plosive": 1.0,
+            "affricate": 0.9,
+            "fricative": 0.75,
+            "nasal": 0.7,
+            "flap": 0.6,
+            "tap": 0.6,
+            "trill": 0.55,
+            "approximant": 0.5,
+            "glide": 0.4,
+            "vowel": 0.0,
+        }
 
-            # Set retroflex curling for retroflex sounds
-            if place == "retroflex":
-                params.tongueCurl = 1.0
+        place = features.get("place", "")
+        manner = features.get("manner", "")
+        rounding = features.get("rounding", "")
+        voicing_feat = features.get("voicing", "")
 
-            # Set tongue root retraction for pharyngeal/uvular
-            if place in ["pharyngeal", "uvular"]:
-                params.tongueRoot = 1.0
+        tongue_index = place_mapping.get(place, 0.5)
+        tongue_degree = manner_mapping.get(manner, 0.5)
+        tongue_front_back = clamp_unit((1.0 - tongue_index) * 0.85)
+        tongue_body_location = clamp_unit(0.25 + tongue_front_back)
+        if place in ("pharyngeal", "uvular"):
+            tongue_body_location = max(tongue_body_location, 0.65)
 
-        # Map manner of articulation to tongueDiameter (0.0 = open/vowel, 1.0 = closed/plosive)
-        if "manner" in features:
-            manner = features["manner"]
-            manner_mapping = {
-                "plosive": 1.0,
-                "affricate": 0.9,
-                "fricative": 0.75,
-                "nasal": 0.7,
-                "flap": 0.6,
-                "tap": 0.6,
-                "trill": 0.55,
-                "approximant": 0.5,
-                "glide": 0.4,
-                "vowel": 0.0,
-            }
-            params.tongueDiameter = manner_mapping.get(manner, 0.5)
+        if rounding == "rounded":
+            lip_protrusion = 1.0
+        elif rounding == "unrounded":
+            lip_protrusion = 0.0
+        else:
+            lip_protrusion = 0.5
 
-            # Set nasality for nasal sounds
-            if manner == "nasal":
-                params.nasality = 1.0
+        lip_closure = 1.0 if (place == "bilabial" and manner == "plosive") else 0.0
+        lip_aperture = clamp_unit((1.0 - lip_closure) * (1.0 - 0.45 * lip_protrusion))
+        lateral_drop = 0.25 if place == "retroflex" else 0.0
+        velic_aperture = 1.0 if manner == "nasal" else 0.0
 
-        # Map lip rounding to lipRounding (0.0 = spread, 1.0 = rounded)
-        if "rounding" in features:
-            rounding = features["rounding"]
-            if rounding == "rounded":
-                params.lipRounding = 1.0
-            elif rounding == "unrounded":
-                params.lipRounding = 0.0
-            else:
-                params.lipRounding = 0.5
+        if voicing_feat == "voiced":
+            glottal_aperture = 0.0
+        elif voicing_feat == "voiceless":
+            glottal_aperture = 1.0
+        else:
+            glottal_aperture = 0.5
 
-        # Set lip closure for labial stops
-        if "place" in features and features["place"] == "bilabial":
-            if "manner" in features and features["manner"] == "plosive":
-                params.lipClosure = 1.0
-
-        # Map voicing to voicing parameter (0.0 = voiceless, 1.0 = voiced)
-        if "voicing" in features:
-            voicing = features["voicing"]
-            if voicing == "voiced":
-                params.voicing = 1.0
-            elif voicing == "voiceless":
-                params.voicing = 0.0
-            else:
-                params.voicing = 0.5
-
-        return params
+        return {
+            "lip_aperture": lip_aperture,
+            "lip_protrusion": lip_protrusion,
+            "tongue_tip_constriction_location": tongue_front_back,
+            "tongue_tip_constriction_degree": tongue_degree,
+            "lateral_tongue_drop": lateral_drop,
+            "velic_aperture": velic_aperture,
+            "tongue_body_constriction_location": tongue_body_location,
+            "tongue_body_constriction_degree": tongue_degree,
+            "glottal_aperture": glottal_aperture,
+        }
 
     def _template_to_svg_state(self, template: dict[str, float]) -> ArticulatoryState:
         """Convert a template dict to ArticulatoryState.
@@ -749,12 +686,6 @@ class ArticulatoryMapper:
             tongue_body_constriction_degree=template["tbcd"],
             glottal_aperture=clamp_unit(float(template["glo"])),
         )
-
-    def map_to_svg_state(self, phoneme_description: PhonemeDescription) -> dict[str, float]:
-        """Map phoneme features to the SVG articulatory schema."""
-
-        legacy = self.map_to_parameters(phoneme_description)
-        return legacy_to_svg_state(legacy)
 
     def _get_template(self, ipa_symbol: str) -> Optional[dict[str, float]]:
         """Look up a phoneme in the consonant or vowel template tables.
@@ -837,138 +768,53 @@ def svg_state_to_dict(state: ArticulatoryState) -> dict[str, float]:
     }
 
 
-def _normalize_tongue_degree(value: float) -> float:
-    """Normalize tongue constriction degree to the 0..1 SVG contract."""
-    return clamp_unit(value)
-
-
-def _normalize_scalar(value: float) -> float:
-    """Normalize scalar articulatory controls to the 0..1 SVG contract."""
-    return clamp_unit(value)
-
-
 def normalize_svg_state(params: Mapping[str, float | int]) -> dict[str, float]:
-    """Normalize dictionaries into the SVG articulatory schema."""
-    if any(key in params for key in CANONICAL_ARTICULATORY_FIELDS):
-        defaults = svg_state_to_dict(default_articulatory_state())
-        return {
-            "lip_aperture": float(
-                _normalize_scalar(
-                    float(params.get("lip_aperture", defaults["lip_aperture"])),
-                )
-            ),
-            "lip_protrusion": float(
-                _normalize_scalar(
-                    float(params.get("lip_protrusion", defaults["lip_protrusion"])),
-                )
-            ),
-            "tongue_tip_constriction_location": float(
+    """Normalize dictionaries into the canonical 9-field SVG articulatory schema."""
+    defaults = svg_state_to_dict(default_articulatory_state())
+    return {
+        "lip_aperture": float(clamp_unit(params.get("lip_aperture", defaults["lip_aperture"]))),
+        "lip_protrusion": float(
+            clamp_unit(params.get("lip_protrusion", defaults["lip_protrusion"]))
+        ),
+        "tongue_tip_constriction_location": float(
+            clamp_unit(
                 params.get(
                     "tongue_tip_constriction_location",
                     defaults["tongue_tip_constriction_location"],
                 )
-            ),
-            "tongue_tip_constriction_degree": float(
-                _normalize_tongue_degree(
-                    float(
-                        params.get(
-                            "tongue_tip_constriction_degree",
-                            defaults["tongue_tip_constriction_degree"],
-                        )
-                    ),
+            )
+        ),
+        "tongue_tip_constriction_degree": float(
+            clamp_unit(
+                params.get(
+                    "tongue_tip_constriction_degree",
+                    defaults["tongue_tip_constriction_degree"],
                 )
-            ),
-            "lateral_tongue_drop": float(
-                clamp_unit(params.get("lateral_tongue_drop", defaults["lateral_tongue_drop"]))
-            ),
-            "velic_aperture": float(
-                _normalize_scalar(
-                    float(params.get("velic_aperture", defaults["velic_aperture"])),
-                )
-            ),
-            "tongue_body_constriction_location": float(
+            )
+        ),
+        "lateral_tongue_drop": float(
+            clamp_unit(params.get("lateral_tongue_drop", defaults["lateral_tongue_drop"]))
+        ),
+        "velic_aperture": float(
+            clamp_unit(params.get("velic_aperture", defaults["velic_aperture"]))
+        ),
+        "tongue_body_constriction_location": float(
+            clamp_unit(
                 params.get(
                     "tongue_body_constriction_location",
                     defaults["tongue_body_constriction_location"],
                 )
-            ),
-            "tongue_body_constriction_degree": float(
-                _normalize_tongue_degree(
-                    float(
-                        params.get(
-                            "tongue_body_constriction_degree",
-                            defaults["tongue_body_constriction_degree"],
-                        )
-                    ),
+            )
+        ),
+        "tongue_body_constriction_degree": float(
+            clamp_unit(
+                params.get(
+                    "tongue_body_constriction_degree",
+                    defaults["tongue_body_constriction_degree"],
                 )
-            ),
-            "glottal_aperture": float(
-                clamp_unit(params.get("glottal_aperture", defaults["glottal_aperture"]))
-            ),
-        }
-
-    legacy = {
-        "tongueIndex": params.get("tongueIndex", 0.5),
-        "tongueDiameter": params.get("tongueDiameter", 0.5),
-        "tongueCurl": params.get("tongueCurl", 0.0),
-        "tongueRoot": params.get("tongueRoot", 0.0),
-        "lipRounding": params.get("lipRounding", 0.5),
-        "lipClosure": params.get("lipClosure", 0.0),
-        "nasality": params.get("nasality", 0.0),
-        "voicing": params.get("voicing", 0.5),
-        "aspiration": params.get("aspiration", 0.0),
-    }
-    return legacy_to_svg_state(legacy)
-
-
-def legacy_to_svg_state(params: dict[str, float] | ArticulatoryParameters) -> dict[str, float]:
-    """Convert legacy articulatory parameters to the SVG schema."""
-
-    if isinstance(params, ArticulatoryParameters):
-        legacy = {
-            "tongueIndex": params.tongueIndex,
-            "tongueDiameter": params.tongueDiameter,
-            "tongueCurl": params.tongueCurl,
-            "tongueRoot": params.tongueRoot,
-            "lipRounding": params.lipRounding,
-            "lipClosure": params.lipClosure,
-            "nasality": params.nasality,
-            "voicing": params.voicing,
-            "aspiration": params.aspiration,
-        }
-    else:
-        legacy = params
-
-    tongue_index = float(legacy.get("tongueIndex", 0.5))
-    tongue_diameter = float(legacy.get("tongueDiameter", 0.5))
-    tongue_curl = float(legacy.get("tongueCurl", 0.0))
-    tongue_root = float(legacy.get("tongueRoot", 0.0))
-    lip_rounding = float(legacy.get("lipRounding", 0.5))
-    lip_closure = float(legacy.get("lipClosure", 0.0))
-    nasality = float(legacy.get("nasality", 0.0))
-    voicing = float(legacy.get("voicing", 0.5))
-    aspiration = float(legacy.get("aspiration", 0.0))
-
-    tongue_front_back = max(0.0, min(1.0, (1.0 - tongue_index) * 0.85))
-    tongue_body_location = max(0.0, min(1.0, 0.25 + tongue_front_back))
-    lip_aperture = max(0.0, min(1.0, (1.0 - lip_closure) * (1.0 - 0.45 * lip_rounding)))
-    lip_protrusion = max(0.0, min(1.0, lip_rounding))
-    tongue_degree = max(0.0, min(1.0, tongue_diameter))
-    lateral_drop = max(0.0, min(1.0, tongue_curl * 0.25))
-    velic_aperture = max(0.0, min(1.0, nasality))
-    glottal_aperture = max(0.0, min(1.0, (1.0 - voicing) + aspiration * 0.5))
-
-    if tongue_root > 0.5:
-        tongue_body_location = max(tongue_body_location, 0.65)
-
-    return {
-        "lip_aperture": lip_aperture,
-        "lip_protrusion": lip_protrusion,
-        "tongue_tip_constriction_location": tongue_front_back,
-        "tongue_tip_constriction_degree": tongue_degree,
-        "lateral_tongue_drop": lateral_drop,
-        "velic_aperture": velic_aperture,
-        "tongue_body_constriction_location": tongue_body_location,
-        "tongue_body_constriction_degree": tongue_degree,
-        "glottal_aperture": glottal_aperture,
+            )
+        ),
+        "glottal_aperture": float(
+            clamp_unit(params.get("glottal_aperture", defaults["glottal_aperture"]))
+        ),
     }

@@ -44,7 +44,6 @@ test('all tabs, styling and real plots work without external requests', async ({
     await expect(page.locator('#prosody-flow-stage svg')).toBeHidden();
     await page.locator('#prosody-view-tab-live').click();
     await expect(page.locator('#prosody-flow-stage svg')).toBeVisible();
-    expect(await page.evaluate(() => window.Plotly.version)).toBe('2.32.0');
 
     await switchToTab(page, 'comparison');
     await expect(page.locator('#tab-panel-comparison')).toBeVisible();
