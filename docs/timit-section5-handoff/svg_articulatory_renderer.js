@@ -13,6 +13,12 @@
 
     const TIP_DOMAIN_END = 0.25;
     const BODY_DOMAIN_START = 0.35;
+    // This fraction is the hard palate endpoint on the original fixed track.
+    const SOFT_PALATE_START = 0.5628632913010034;
+    const PHARYNX_START = 0.86;
+    const TEETH = [[50, 265], [53, 256], [56, 247], [60, 239]];
+    const ALVEOLAR_RIDGE = [[60, 239], [75, 225], [95, 205], [122, 192]];
+    const HARD_PALATE = [[122, 192], [155, 172], [205, 172], [240, 190]];
     const TONGUE_TIP_REST_DISTANCE = 32;
     const TONGUE_BODY_REST_DISTANCE = 36;
     const LIP_APERTURE_MAX = 40;
@@ -63,13 +69,25 @@
       };
     }
 
-    function quadraticPoint(p0, p1, p2, t) {
-      const mt = 1 - t;
-      return {
-        x: (mt ** 2) * p0.x + 2 * mt * t * p1.x + (t ** 2) * p2.x,
-        y: (mt ** 2) * p0.y + 2 * mt * t * p1.y + (t ** 2) * p2.y,
-      };
+    function cubicPath([, first, second, end]) {
+      return `C ${first.join(' ')}, ${second.join(' ')}, ${end.join(' ')}`;
     }
+
+    function sampleRoofSection(curves, steps, start, end) {
+      const samples = [];
+      let length = 0;
+      for (const curve of curves) {
+        const [p0, p1, p2, p3] = curve.map(([x, y]) => ({x, y}));
+        for (let index = 0; index <= steps; index += 1) {
+          const point = cubicPoint(p0, p1, p2, p3, index / steps);
+          if (samples.length) length += distance(samples[samples.length - 1], point);
+          samples.push({...point, length});
+        }
+      }
+      return samples.map(point => ({...point, position: lerp(start, end, point.length / length)}));
+    }
+
+    const ANTERIOR_ROOF = sampleRoofSection([TEETH, ALVEOLAR_RIDGE, HARD_PALATE], 70, 0, SOFT_PALATE_START);
 
     function distance(a, b) {
       return Math.hypot(b.x - a.x, b.y - a.y);
@@ -279,71 +297,13 @@
         this._renderVoicing(performance.now());
       }
 
-      _buildRoofTrack() {
-        const roofEnd = { x: 300, y: 350 };
-        const segments = [
-          {
-            type: 'cubic',
-            p0: { x: 50, y: 265 },
-            p1: { x: 53, y: 256 },
-            p2: { x: 56, y: 247 },
-            p3: { x: 60, y: 239 },
-          },
-          {
-            type: 'cubic',
-            p0: { x: 60, y: 239 },
-            p1: { x: 75, y: 225 },
-            p2: { x: 95, y: 205 },
-            p3: { x: 122, y: 192 },
-          },
-          {
-            type: 'cubic',
-            p0: { x: 122, y: 192 },
-            p1: { x: 155, y: 172 },
-            p2: { x: 205, y: 172 },
-            p3: { x: 240, y: 190 },
-          },
-          {
-            type: 'cubic',
-            p0: { x: 240, y: 190 },
-            p1: { x: 264, y: 206 },
-            p2: { x: 282, y: 236 },
-            p3: { x: 292, y: 272 },
-          },
-          {
-            type: 'quadratic',
-            p0: { x: 292, y: 272 },
-            p1: { x: 300, y: 310 },
-            p2: roofEnd,
-          },
-        ];
-
-        const samples = [];
-        let totalLength = 0;
-        let previous = null;
-        segments.forEach((segment) => {
-          const steps = segment.type === 'quadratic' ? 50 : 70;
-          for (let i = 0; i <= steps; i += 1) {
-            const t = i / steps;
-            const point = segment.type === 'quadratic'
-              ? quadraticPoint(segment.p0, segment.p1, segment.p2, t)
-              : cubicPoint(segment.p0, segment.p1, segment.p2, segment.p3, t);
-            if (previous) totalLength += distance(previous, point);
-            samples.push({ ...point, length: totalLength });
-            previous = point;
-          }
-        });
-
-        const path = [
-          'M 50 265',
-          'C 53 256, 56 247, 60 239',
-          'C 75 225, 95 205, 122 192',
-          'C 155 172, 205 172, 240 190',
-          'C 264 206, 282 236, 292 272',
-          'Q 300 310 300 350',
-        ].join(' ');
-
-        return { path, samples, totalLength, end: roofEnd };
+      _buildRoofTrack(geometry = this._buildVisiblePalateGeometry(this.state.velic_aperture * VELIC_APERTURE_MAX)) {
+        const softPalate = sampleRoofSection([geometry.softPalate], 128, SOFT_PALATE_START, PHARYNX_START);
+        const throat = sampleRoofSection([geometry.throat], 128, PHARYNX_START, 1);
+        return {
+          path: `M ${TEETH[0].join(' ')} ${cubicPath(TEETH)} ${geometry.palateCurves} ${geometry.throatClosure}`,
+          samples: [...ANTERIOR_ROOF, ...softPalate.slice(1), ...throat.slice(1)],
+        };
       }
 
       _buildVisiblePalateGeometry(vel) {
@@ -364,18 +324,21 @@
         const throatCurveControl2X = lerp(300, 290, velFactor);
         const throatCurveControl2Y = lerp(320, 320, velFactor);
 
-        const path = [
-          'M 60 239',
-          'C 75 225, 95 205, 122 192',
-          'C 155 172, 205 172, 240 190',
-          `C ${softPalateControl1X} ${softPalateControl1Y}, ${softPalateControl2X} ${softPalateControl2Y}, ${velumEndX} ${velumEndY}`,
-        ].join(' ');
-
-        const throatClosure = `C ${throatCurveControl1X} ${throatCurveControl1Y}, ${throatCurveControl2X} ${throatCurveControl2Y}, 300 350`;
-
+        const softPalate = [
+          HARD_PALATE[3], [softPalateControl1X, softPalateControl1Y],
+          [softPalateControl2X, softPalateControl2Y], [velumEndX, velumEndY],
+        ];
+        const throat = [
+          softPalate[3], [throatCurveControl1X, throatCurveControl1Y],
+          [throatCurveControl2X, throatCurveControl2Y], [300, 350],
+        ];
+        const palateCurves = [ALVEOLAR_RIDGE, HARD_PALATE, softPalate].map(cubicPath).join(' ');
         return {
-          path,
-          throatClosure,
+          path: `M ${ALVEOLAR_RIDGE[0].join(' ')} ${palateCurves}`,
+          palateCurves,
+          throatClosure: cubicPath(throat),
+          softPalate,
+          throat,
           velumEndX,
           velumEndY,
           throatCurveControl1X,
@@ -410,23 +373,18 @@
       }
 
       _sampleRoofTrack(roofTrack, s) {
-        const targetLength = clamp(s, 0, 1) * roofTrack.totalLength;
+        const position = clamp(s, 0, 1);
         const samples = roofTrack.samples;
-        if (!samples.length) {
-          return {
-            anchorX: 0,
-            anchorY: 0,
-            inwardNormalX: 0,
-            inwardNormalY: 1,
-          };
-        }
-        let index = samples.findIndex((sample) => sample.length >= targetLength);
-        if (index < 0) index = samples.length - 1;
-        const current = samples[index];
-        const prev = samples[Math.max(0, index - 1)];
+        const index = samples.findIndex(sample => sample.position >= position);
+        const upper = samples[index];
+        const lower = samples[Math.max(0, index - 1)];
         const next = samples[Math.min(samples.length - 1, index + 1)];
-        const tangentX = next.x - prev.x;
-        const tangentY = next.y - prev.y;
+        const interpolate = position > TIP_DOMAIN_END && upper.position > lower.position;
+        const weight = interpolate ? (position - lower.position) / (upper.position - lower.position) : 1;
+        const current = {x: lerp(lower.x, upper.x, weight), y: lerp(lower.y, upper.y, weight)};
+        const previous = samples[Math.max(0, index - 2)];
+        const tangentX = lerp(upper.x - previous.x, next.x - lower.x, weight);
+        const tangentY = lerp(upper.y - previous.y, next.y - lower.y, weight);
         let normalX = -tangentY;
         let normalY = tangentX;
         const normalLength = Math.hypot(normalX, normalY) || 1;
@@ -457,8 +415,8 @@
         const value = clamp(position, 0, 1);
         if (value < 0.035) return 'upper_teeth';
         if (value < 0.25) return 'alveolar_ridge';
-        if (value < 0.65) return 'hard_palate';
-        if (value < 0.86) return 'velum';
+        if (value < SOFT_PALATE_START) return 'hard_palate';
+        if (value < PHARYNX_START) return 'velum';
         return 'pharynx';
       }
 
@@ -682,8 +640,8 @@
         const tbcl = clamp(s.tongue_body_constriction_location, 0, 1);
         const tbcd = eff.tbcd;
         const glo = s.glottal_aperture * 30;
-        const roofTrack = this._buildRoofTrack();
         const visiblePalateGeometry = this._buildVisiblePalateGeometry(vel);
+        const roofTrack = this._buildRoofTrack(visiblePalateGeometry);
         const {
           path: visiblePalatePath,
           throatClosure,
