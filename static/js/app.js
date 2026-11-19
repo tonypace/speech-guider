@@ -1,7 +1,6 @@
 import { SvgArticulatoryRenderer, DEFAULT_STATE } from './svg_articulatory_renderer.js';
 import './ipa_tooltips.js';
 import './recorder.js';
-import { releaseCapture } from './capture_resources.js';
 
 window.currentTab = 'analysis';
 window.currentAnimationParams = { left: { ...DEFAULT_STATE }, right: { ...DEFAULT_STATE } };
@@ -60,32 +59,29 @@ window.switchTab = function switchTab(tabName) {
     }
 
     if (previousTab === 'analysis' && tabName !== 'analysis') {
-        void resetRecorderInput(window.recorder, 'analysis');
+        window.svgLeftRenderer?.stopAnimation();
+        window.svgRightRenderer?.stopAnimation();
+        void resetRecorderInput(window.recorder);
     }
     if (previousTab === 'prosody' && tabName !== 'prosody') {
-        void resetRecorderInput(window.prosodyLabRecorder, 'prosody');
+        window.prosodyLabRecorder?.stopAllAudio();
+        window.prosodyLabRecorder?.stopFlowLoop();
+        void resetRecorderInput(window.prosodyLabRecorder);
     }
     window.dispatchEvent(new CustomEvent('speechguider:tabchange', { detail: tabName }));
 };
 
-async function resetRecorderInput(recorder, tab) {
+async function resetRecorderInput(recorder) {
     if (!recorder || recorder.destroyed) return;
-    recorder.stopRecording();
-    const pending = recorder.initPromise;
-    recorder.permissionRequestId++;
-    releaseCapture(recorder);
-    recorder.mediaRecorder = null;
-    await pending;
-    if (recorder.initPromise === pending) recorder.initPromise = null;
-    if (window.currentTab === tab) await recorder.init();
+    await recorder.resetInput?.();
 }
 
 window.addEventListener('speechguider:settingschange', ({ detail: { previous, next } }) => {
     if (previous.microphone_enabled !== next.microphone_enabled ||
         previous.microphone_device_id !== next.microphone_device_id ||
         previous.microphone_label !== next.microphone_label) {
-        void resetRecorderInput(window.recorder, 'analysis');
-        void resetRecorderInput(window.prosodyLabRecorder, 'prosody');
+        void resetRecorderInput(window.recorder);
+        void resetRecorderInput(window.prosodyLabRecorder);
         if (next.microphone_enabled === false) window.comparisonLab?.stopRecording();
     }
 });

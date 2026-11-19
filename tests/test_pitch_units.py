@@ -8,14 +8,21 @@ import pytest
 import soundfile as sf
 
 from app.api.analyze import serialize_prosody
-from src.audio.processor import AudioContext, PitchContour, ProsodyAnalyzer, ProsodyMetrics
+from src.audio.processor import (
+    AudioContext,
+    PitchContour,
+    ProsodyAnalyzer,
+    ProsodyMetrics,
+    RhythmMetrics,
+)
 
 
 @pytest.mark.parametrize("base", [100.0, 200.0])
 def test_coaching_uses_frequency_ratio_and_keeps_hz_payload(base: float) -> None:
     pitch = PitchContour([0.0, base, base * 2, float("nan")], base, base * 1.5, 1.0)
     assert pitch.range_semitones == pytest.approx(12.0)
-    payload = serialize_prosody(ProsodyMetrics(pitch=pitch, rhythm=None, stress=None))
+    rhythm = RhythmMetrics(npvi=None, vowel_durations=[], classification="insufficient_data")
+    payload = serialize_prosody(ProsodyMetrics(pitch=pitch, rhythm=rhythm, stress=None))
     assert payload["pitch_range"] == base
     assert payload["pitch_range_semitones"] == pytest.approx(12.0)
     assert payload["pitch_range_label"] == "measured pitch range"

@@ -179,6 +179,18 @@ class IntercomRecorder {
         }
     }
 
+    async resetInput() {
+        if (this.destroyed) return;
+        this.stopRecording();
+        const pending = this.initPromise;
+        this.permissionRequestId += 1;
+        releaseCapture(this);
+        this.mediaRecorder = null;
+        await pending;
+        if (this.initPromise === pending) this.initPromise = null;
+        if (window.currentTab === 'analysis') await this.init();
+    }
+
     destroy() {
         this.disposeTrajectory?.();
         this.disposeTrajectory = null;
@@ -411,6 +423,11 @@ class IntercomRecorder {
         try {
             const wavBlob = await this.convertToWav(audioBlob);
             if (!this.destroyed) await this.submitAudioBlob(wavBlob, 'recording.wav');
+        } catch (error) {
+            console.error('Audio conversion failed:', error);
+            if (!this.destroyed) {
+                alert('Failed to process recorded audio: ' + error.message);
+            }
         } finally {
             if (this.recTimer) {
                 this.recTimer.textContent = '00:00';
@@ -448,7 +465,8 @@ class IntercomRecorder {
             });
 
             if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                const payload = await response.json().catch(() => null);
+                throw new Error(payload?.detail || payload?.error || `HTTP ${response.status}: ${response.statusText}`);
             }
 
             const result = await response.json();
@@ -540,12 +558,18 @@ class IntercomRecorder {
         this.disposeTrajectory = showAnalysisTrajectory(feedbackContainer, result.ssl_trajectory, blob);
 
         // Show articulatory section if there are errors
-        if (result.errors && result.errors.length > 0) {
-            const artSection = document.getElementById('articulatory-section');
+        const artSection = document.getElementById('articulatory-section');
+        if (Array.isArray(result.errors) && result.errors.length > 0) {
             if (artSection) {
                 artSection.classList.remove('hidden');
                 this.populateErrors(result.errors);
             }
+        } else {
+            artSection?.classList.add('hidden');
+            document.getElementById('error-list')?.replaceChildren();
+            window.currentErrors = [];
+            window.svgLeftRenderer?.stopAnimation();
+            window.svgRightRenderer?.stopAnimation();
         }
     }
 

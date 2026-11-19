@@ -888,6 +888,29 @@ export class ProsodyAudioPlayer {
         }
     }
 
+    destroy() {
+        this.stop();
+        if (this.ctx) {
+            try {
+                void this.ctx.close?.();
+            } catch {
+                // Ignore AudioContext close error
+            }
+            this.ctx = null;
+        }
+    }
+
+    _pruneNodes(...nodes) {
+        this.activeNodes = this.activeNodes.filter((n) => !nodes.includes(n));
+        nodes.forEach((node) => {
+            try {
+                node.disconnect?.();
+            } catch {
+                // Ignore disconnect error
+            }
+        });
+    }
+
     playBase64Audio(base64, mimeType = 'audio/wav') {
         this.stop();
         if (!base64 || typeof Audio === 'undefined') return false;
@@ -926,6 +949,7 @@ export class ProsodyAudioPlayer {
         gain.gain.exponentialRampToValueAtTime(0.0001, whenSec + 0.055);
         osc.connect(gain);
         gain.connect(ctx.destination);
+        osc.onended = () => this._pruneNodes(osc, gain);
         osc.start(whenSec);
         osc.stop(whenSec + 0.06);
         this.activeNodes.push(osc, gain);
@@ -972,6 +996,7 @@ export class ProsodyAudioPlayer {
             osc.connect(filter);
             filter.connect(gain);
             gain.connect(ctx.destination);
+            osc.onended = () => this._pruneNodes(osc, filter, gain);
             osc.start(startSec);
             osc.stop(startSec + durSec + 0.01);
             this.activeNodes.push(osc, filter, gain);

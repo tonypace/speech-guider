@@ -3,20 +3,31 @@ import { TauriController } from '../../static/js/tauri_controller.js';
 
 describe('TauriController', () => {
     let addedDocumentListeners;
+    let addedWindowListeners;
     let origAddEventListener;
+    let origWinAddEventListener;
 
     beforeEach(() => {
         addedDocumentListeners = [];
+        addedWindowListeners = [];
         origAddEventListener = document.addEventListener.bind(document);
+        origWinAddEventListener = window.addEventListener.bind(window);
         vi.spyOn(document, 'addEventListener').mockImplementation((type, handler, options) => {
             addedDocumentListeners.push([type, handler, options]);
             return origAddEventListener(type, handler, options);
+        });
+        vi.spyOn(window, 'addEventListener').mockImplementation((type, handler, options) => {
+            addedWindowListeners.push([type, handler, options]);
+            return origWinAddEventListener(type, handler, options);
         });
     });
 
     afterEach(() => {
         addedDocumentListeners.forEach(([type, handler, options]) => {
             document.removeEventListener(type, handler, options);
+        });
+        addedWindowListeners.forEach(([type, handler, options]) => {
+            window.removeEventListener(type, handler, options);
         });
         delete window.__SPEECH_GUIDER_TAURI__;
         delete window.__TAURI__;
@@ -99,6 +110,7 @@ describe('TauriController', () => {
             window.switchTab = vi.fn();
             const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
             const controller = new TauriController();
+            controller.currentMode = null;
 
             controller.handleLaunch('animation');
             controller.handleLaunch('unknown');
@@ -106,6 +118,22 @@ describe('TauriController', () => {
             expect(controller.currentMode).toBeNull();
             expect(window.switchTab).not.toHaveBeenCalled();
             expect(warnSpy).toHaveBeenCalledTimes(2);
+        });
+
+        it('syncs currentMode with active tab on startup and speechguider:tabchange events', () => {
+            window.__SPEECH_GUIDER_TAURI__ = true;
+            window.currentTab = 'analysis';
+            const controller = new TauriController();
+            expect(controller.currentMode).toBe('pronunciation');
+
+            window.dispatchEvent(new CustomEvent('speechguider:tabchange', { detail: 'prosody' }));
+            expect(controller.currentMode).toBe('prosody');
+
+            window.dispatchEvent(new CustomEvent('speechguider:tabchange', { detail: 'comparison' }));
+            expect(controller.currentMode).toBeNull();
+
+            window.dispatchEvent(new CustomEvent('speechguider:tabchange', { detail: 'analysis' }));
+            expect(controller.currentMode).toBe('pronunciation');
         });
     });
 
@@ -162,6 +190,7 @@ describe('TauriController', () => {
 
         it('does not intercept clicker keys in comparison mode or when no mode is active', () => {
             window.__SPEECH_GUIDER_TAURI__ = true;
+            window.currentTab = 'settings';
             window.selectError = vi.fn();
             window.currentErrors = [{ id: 0 }];
             const controller = new TauriController();
@@ -178,10 +207,57 @@ describe('TauriController', () => {
             expect(comparisonEvent.defaultPrevented).toBe(false);
             expect(window.selectError).not.toHaveBeenCalled();
         });
+
+        it('ignores clicker and Tab shortcuts when an input/textarea/select is focused or modifier keys are pressed', () => {
+            window.__SPEECH_GUIDER_TAURI__ = true;
+            window.currentTab = 'analysis';
+            window.selectError = vi.fn();
+            window.currentErrors = [{ id: 0 }, { id: 1 }];
+            window.recorder = {
+                startRecording: vi.fn(),
+                stopRecording: vi.fn(),
+            };
+
+            const controller = new TauriController();
+            controller.handleLaunch('pronunciation');
+
+            const input = document.createElement('input');
+            document.body.appendChild(input);
+
+            const arrowInInput = new KeyboardEvent('keydown', {
+                key: 'ArrowRight',
+                bubbles: true,
+                cancelable: true,
+            });
+            input.dispatchEvent(arrowInInput);
+            expect(arrowInInput.defaultPrevented).toBe(false);
+            expect(window.selectError).not.toHaveBeenCalled();
+
+            const tabInInput = new KeyboardEvent('keydown', {
+                key: 'Tab',
+                bubbles: true,
+                cancelable: true,
+            });
+            input.dispatchEvent(tabInInput);
+            expect(tabInInput.defaultPrevented).toBe(false);
+            expect(window.recorder.startRecording).not.toHaveBeenCalled();
+
+            const shiftTab = new KeyboardEvent('keydown', {
+                key: 'Tab',
+                shiftKey: true,
+                bubbles: true,
+                cancelable: true,
+            });
+            document.dispatchEvent(shiftTab);
+            expect(shiftTab.defaultPrevented).toBe(false);
+            expect(window.recorder.startRecording).not.toHaveBeenCalled();
+
+            input.remove();
+        });
     });
 
     describe('Tab hold/release recording', () => {
-        it('starts pronunciation recording on Tab keydown and stops on release >= 200ms', () => {
+        it('starts pronunciation recording on Tab keydown, stops on release >= 200ms, and reads window.currentErrors dynamically', () => {
             vi.useFakeTimers();
             window.__SPEECH_GUIDER_TAURI__ = true;
             window.currentTab = 'analysis';
@@ -189,6 +265,7 @@ describe('TauriController', () => {
                 startRecording: vi.fn(),
                 stopRecording: vi.fn(),
             };
+            window.selectError = vi.fn();
             window.currentErrors = [];
 
             const controller = new TauriController();
@@ -209,10 +286,11 @@ describe('TauriController', () => {
             expect(controller.isRecording).toBe(false);
             expect(window.recorder.stopRecording).toHaveBeenCalledOnce();
 
+            // Dynamic read without waiting 2000ms
             window.currentErrors = [{ word_context: 'hot' }];
-            vi.advanceTimersByTime(2000);
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', cancelable: true }));
+            expect(window.selectError).toHaveBeenCalledWith(0);
             expect(controller.pronunciationErrors).toEqual([{ word_context: 'hot' }]);
-            expect(controller.currentErrorIndex).toBe(-1);
         });
 
         it('starts and stops prosody recording on Tab hold/release', () => {
@@ -237,7 +315,7 @@ describe('TauriController', () => {
             expect(window.prosodyLabRecorder.stopRecording).toHaveBeenCalledOnce();
         });
 
-        it('routes short Tab tap (< 200ms) to handlePrimaryAction instead of handleRecordRelease', () => {
+        it('stops recording and resets isRecording on short Tab tap (< 200ms) while also calling handlePrimaryAction', () => {
             vi.useFakeTimers();
             window.__SPEECH_GUIDER_TAURI__ = true;
             window.currentTab = 'analysis';
@@ -249,12 +327,14 @@ describe('TauriController', () => {
             controller.handleLaunch('pronunciation');
 
             document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', cancelable: true }));
+            expect(controller.isRecording).toBe(true);
             vi.advanceTimersByTime(50);
             document.dispatchEvent(new KeyboardEvent('keyup', { key: 'Tab', cancelable: true }));
 
+            expect(controller.isRecording).toBe(false);
+            expect(releaseSpy).toHaveBeenCalledOnce();
+            expect(window.recorder.stopRecording).toHaveBeenCalledOnce();
             expect(primarySpy).toHaveBeenCalledOnce();
-            expect(releaseSpy).not.toHaveBeenCalled();
-            expect(window.recorder.stopRecording).not.toHaveBeenCalled();
         });
     });
 });

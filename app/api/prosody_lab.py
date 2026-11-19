@@ -13,7 +13,7 @@ from app.models.schemas import (
     ProsodyLabReferenceResponse,
 )
 from app.services.concurrency import run_inference
-from app.utils.audio import cleanup_temp_file, save_upload_to_temp
+from app.utils.audio import AudioConversionError, cleanup_temp_file, save_upload_to_temp
 from src.audio.prosody_lab import analyze_prosody_recording, generate_prosody_reference
 
 router = APIRouter()
@@ -26,13 +26,17 @@ async def analyze_prosody_lab(
 ) -> JSONResponse:
     """Analyze a short recording for rhythm and intonation feedback."""
 
-    temp_path = await save_upload_to_temp(audio)
+    temp_path: str | None = None
     try:
+        temp_path = await save_upload_to_temp(audio)
         analysis = await run_inference(analyze_prosody_recording, temp_path)
         payload = ProsodyLabAnalysisResponse(**analysis).model_dump(mode="json")
         return JSONResponse(content=payload)
     except HTTPException:
         raise
+    except AudioConversionError as exc:
+        status_code = 413 if "maximum size" in str(exc).lower() else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
@@ -41,7 +45,8 @@ async def analyze_prosody_lab(
             status_code=500, detail="Prosody analysis failed. Please try another recording."
         ) from exc
     finally:
-        cleanup_temp_file(temp_path)
+        if temp_path is not None:
+            cleanup_temp_file(temp_path)
 
 
 @router.post("/api/prosody-lab/reference", response_model=ProsodyLabReferenceResponse)
@@ -52,7 +57,7 @@ async def create_prosody_lab_reference(
 
     try:
         result = await run_inference(generate_prosody_reference, request.target_text)
-        payload = ProsodyLabReferenceResponse(**result).model_dump(mode="json")
+        payload = ProsodyLabReferenceResponse(**result).model_dump(mode="json", by_alias=True)
         return JSONResponse(content=payload)
     except HTTPException:
         raise

@@ -131,6 +131,7 @@ fn install_tray(app: &App, port: Arc<AtomicU16>) -> tauri::Result<()> {
         true,
         None::<&str>,
     )?;
+    let prosody = MenuItem::with_id(app, "launch_prosody", "Prosody Lab", true, None::<&str>)?;
     let comparison = MenuItem::with_id(app, "comparison", "Comparison Lab", true, None::<&str>)?;
     let first_separator = PredefinedMenuItem::separator(app)?;
     let second_separator = PredefinedMenuItem::separator(app)?;
@@ -141,6 +142,7 @@ fn install_tray(app: &App, port: Arc<AtomicU16>) -> tauri::Result<()> {
             &open,
             &first_separator,
             &pronunciation,
+            &prosody,
             &comparison,
             &second_separator,
             &quit,
@@ -158,6 +160,7 @@ fn install_tray(app: &App, port: Arc<AtomicU16>) -> tauri::Result<()> {
                 }
                 "open" => None,
                 "pronunciation" => Some("pronunciation"),
+                "launch_prosody" | "prosody" => Some("prosody"),
                 "comparison" => Some("comparison"),
                 _ => return,
             };

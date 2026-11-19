@@ -38,11 +38,30 @@ class TestAnalyzeEndpointFailureModes:
         assert response.status_code == 422
 
     @patch("app.api.analyze._load_and_preprocess_audio")
-    def test_audio_load_failure_returns_500(
+    def test_audio_load_value_error_returns_400(
         self, mock_load: MagicMock, dummy_wav_factory: Callable[..., Path]
     ) -> None:
-        """Audio load failure should return 500 with proper error details."""
+        """Invalid audio ValueError should return 400 Bad Request."""
         mock_load.side_effect = ValueError("Invalid audio format")
+
+        wav_path = dummy_wav_factory(duration=0.5, frequency=440.0)
+
+        with open(wav_path, "rb") as f:
+            response = client.post(
+                "/api/analyze",
+                files={"audio": ("test.wav", f, "audio/wav")},
+                data={"target_text": "hello world"},
+            )
+
+        assert response.status_code == 400
+        assert "Invalid audio format" in response.json()["detail"]
+
+    @patch("app.api.analyze._load_and_preprocess_audio")
+    def test_unexpected_runtime_failure_returns_500(
+        self, mock_load: MagicMock, dummy_wav_factory: Callable[..., Path]
+    ) -> None:
+        """Unexpected runtime failure should return 500 with sanitized error details."""
+        mock_load.side_effect = RuntimeError("Internal decoder crash")
 
         wav_path = dummy_wav_factory(duration=0.5, frequency=440.0)
 
@@ -58,7 +77,7 @@ class TestAnalyzeEndpointFailureModes:
         assert data["success"] is False
         assert "error" in data
         assert "traceback" not in data
-        assert "Invalid audio format" not in data["error"]
+        assert "Internal decoder crash" not in data["error"]
 
     def test_load_and_preprocess_audio_reuses_audio_context(
         self, dummy_wav_factory: Callable[..., Path]
@@ -127,24 +146,24 @@ class TestAnalysisPipelineExceptions:
 
     @patch("app.api.analyze._load_and_preprocess_audio")
     @patch("app.api.analyze.get_ssl_predictor")
-    def test_unexpected_error_propagates_with_cause(self, mock_get_predictor, mock_load_audio):
-        """Unexpected errors should propagate with exception cause preserved."""
+    def test_unexpected_error_propagates_with_cause(
+        self,
+        mock_get_predictor: MagicMock,
+        mock_load_audio: MagicMock,
+        dummy_wav_factory: Callable[..., Path],
+    ) -> None:
+        """Unexpected errors from _load_and_preprocess_audio should propagate."""
         import asyncio
 
         from app.api.analyze import _run_analysis_pipeline
 
         mock_load_audio.side_effect = ValueError("Unexpected audio error")
+        wav_path = dummy_wav_factory(duration=0.5, frequency=440.0)
 
-        # The pipeline is now async, so we need to run it in an event loop
-        # Note: The mock may not apply inside threads, so we check for any ValueError
-        with pytest.raises(ValueError) as exc_info:
-            asyncio.run(_run_analysis_pipeline("/fake/path.wav", "hello", "job-123"))
+        with pytest.raises(ValueError, match="Unexpected audio error"):
+            asyncio.run(_run_analysis_pipeline(str(wav_path), "hello", "job-123"))
 
-        # Error could be from mocked _load_and_preprocess_audio or from AudioContext
-        # Both are ValueError subclasses, so the test should pass
-        assert "audio" in str(exc_info.value).lower() or "Unexpected audio error" in str(
-            exc_info.value
-        )
+        mock_load_audio.assert_called_once()
 
 
 class TestExceptionCausePreservation:

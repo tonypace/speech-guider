@@ -12,7 +12,12 @@ from app.api.settings import load_settings
 from app.api.sse import create_job_id, send_progress_update
 from app.services.concurrency import run_blocking, run_with_semaphore
 from app.services.jobs import claim_job, finish_job
-from app.utils.audio import cleanup_temp_file, load_audio_tensor, save_upload_to_temp
+from app.utils.audio import (
+    AudioConversionError,
+    cleanup_temp_file,
+    load_audio_tensor,
+    save_upload_to_temp,
+)
 from src.audio import processor
 from src.models.aai_adapter import (
     SPEAKER_Z_METADATA,
@@ -445,6 +450,13 @@ async def analyze_audio(
     except asyncio.CancelledError:
         finish_job(job, "cancelled", "Analysis request cancelled")
         raise
+    except AudioConversionError as exc:
+        status_code = 413 if "maximum size" in str(exc).lower() else 400
+        finish_job(job, "failed", str(exc))
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+    except ValueError as exc:
+        finish_job(job, "failed", str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except HTTPException:
         finish_job(job, "failed", "Analysis could not be started")
         raise

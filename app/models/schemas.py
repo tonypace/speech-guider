@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ProsodyLabPitchPoint(BaseModel):
@@ -12,7 +12,9 @@ class ProsodyLabPitchPoint(BaseModel):
     f0_hz: float | None = None
     midi: float | None = None
     note: str | None = None
+    cents_offset: float | None = None
     confidence: float = 0.0
+    voiced: bool = False
 
 
 class ProsodyLabPauseSpan(BaseModel):
@@ -76,13 +78,65 @@ class ProsodyLabReferenceRequest(BaseModel):
     target_text: str = Field(..., min_length=1, max_length=240)
 
 
+class ProsodyLabPauseGate(BaseModel):
+    """Thought-group pause gate interval in beats."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    start_beat: float = Field(alias="startBeat")
+    end_beat: float = Field(alias="endBeat")
+    label: str
+
+
+class ProsodyLabFoot(BaseModel):
+    """Stress-foot span in beats."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    label: str
+    start_beat: float = Field(alias="startBeat")
+    end_beat: float = Field(alias="endBeat")
+
+
+class ProsodyLabPhraseSyllable(BaseModel):
+    """Beat-mapped syllable entry in a Prosody Lab phrase."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    index: int
+    text: str
+    pre: str
+    pre_dur: float = Field(alias="preDur")
+    vowel: str
+    beat: float
+    dur: float
+    stress: float
+    pitch_st: float = Field(alias="pitchST")
+    is_ghost: bool = Field(alias="isGhost")
+    is_final: bool = Field(alias="isFinal")
+
+
+class ProsodyLabPhrase(BaseModel):
+    """Beat-aligned Prosody Lab phrase model."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str
+    title: str
+    vibe_label: str = Field(alias="vibeLabel")
+    bpm: int
+    pause_gate: ProsodyLabPauseGate | None = Field(default=None, alias="pauseGate")
+    feet: list[ProsodyLabFoot] = Field(default_factory=list)
+    syllables: list[ProsodyLabPhraseSyllable] = Field(default_factory=list)
+
+
 class ProsodyLabReferenceResponse(BaseModel):
     """Response containing synthesized reference audio, prosody analysis, and beat-mapped phrase."""
 
     target_text: str
     audio_base64: str
     mime_type: str
-    phrase: dict[str, Any]
+    phrase: ProsodyLabPhrase
     analysis: ProsodyLabAnalysisResponse
     synthesis_source: str = "synthetic_fallback"
 

@@ -237,4 +237,46 @@ describe('reference failure explanation', () => {
         fetchMock.mockRestore();
         lab.destroy();
     });
+
+    it('enables loop In/Out buttons once a track is loaded and displays active loop bounds', () => {
+        document.body.innerHTML = `
+            <input type="checkbox" id="comparison-loop" disabled>
+            <button id="comparison-loop-in" disabled>In</button>
+            <button id="comparison-loop-out" disabled>Out</button>
+            <span id="comparison-loop-range"></span>
+        `;
+        const lab = new ComparisonLab();
+        lab.init();
+
+        const loopToggle = document.getElementById('comparison-loop');
+        const loopInBtn = document.getElementById('comparison-loop-in');
+        const loopOutBtn = document.getElementById('comparison-loop-out');
+        const loopRange = document.getElementById('comparison-loop-range');
+
+        expect(loopInBtn.disabled).toBe(true);
+        expect(loopOutBtn.disabled).toBe(true);
+
+        lab.referenceLoaded = true;
+        lab.controller.getDuration = vi.fn(() => 4.0);
+        lab.updateUIState();
+
+        expect(loopInBtn.disabled).toBe(false);
+        expect(loopOutBtn.disabled).toBe(false);
+
+        lab.controller.referenceTime = 0.5;
+        loopInBtn.click();
+        lab.controller.referenceTime = 2.25;
+        loopOutBtn.click();
+
+        expect(lab.controller.loopRegion.start).toBe(0.5);
+        expect(lab.controller.loopRegion.end).toBe(2.25);
+        expect(loopRange.textContent).toContain('0:00.50 – 0:02.25');
+
+        loopToggle.checked = true;
+        loopToggle.dispatchEvent(new Event('change'));
+        expect(lab.controller.loopRegion.enabled).toBe(true);
+        expect(loopRange.textContent).toContain('(Active)');
+
+        lab.destroy();
+    });
 });

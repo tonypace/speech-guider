@@ -428,12 +428,15 @@ class ComparisonLab {
         if (!this.controller) return;
         const enabled = event.target.checked;
         if (enabled) {
-            // Set default loop region to full duration if not set
-            const refDuration = this.controller.getDuration('reference');
-            this.controller.setLoopRegion(0, refDuration * 0.5, true);
+            const currentLoop = this.controller.loopRegion || { start: 0, end: 0 };
+            const refDuration = this.controller.getDuration('reference') || this.controller.getDuration('student') || 0;
+            const start = currentLoop.start || 0;
+            const end = currentLoop.end > start ? currentLoop.end : refDuration * 0.5;
+            this.controller.setLoopRegion(start, end, true);
         } else {
             this.controller.setLoopRegion(0, 0, false);
         }
+        this.updateLoopDisplay();
     }
 
     /**
@@ -442,11 +445,15 @@ class ComparisonLab {
     setLoopIn() {
         if (!this.controller) return;
         const currentLoop = this.controller.loopRegion;
+        const duration = this.controller.getDuration('reference') || this.controller.getDuration('student') || 0;
+        const start = this.controller.referenceTime;
+        const end = currentLoop.end > start ? currentLoop.end : Math.max(start, duration);
         this.controller.setLoopRegion(
-            this.controller.referenceTime,
-            currentLoop.end,
+            start,
+            end,
             currentLoop.enabled
         );
+        this.updateLoopDisplay();
     }
 
     /**
@@ -460,6 +467,34 @@ class ComparisonLab {
             this.controller.referenceTime,
             currentLoop.enabled
         );
+        this.updateLoopDisplay();
+    }
+
+    /**
+   * Update active loop bounds display and button state
+   */
+    updateLoopDisplay() {
+        const rangeEl = document.getElementById('comparison-loop-range');
+        const loopInBtn = document.getElementById('comparison-loop-in');
+        const loopOutBtn = document.getElementById('comparison-loop-out');
+        const loop = this.controller?.loopRegion || { start: 0, end: 0, enabled: false };
+        const hasBounds = loop.enabled || loop.start > 0 || loop.end > 0;
+
+        if (rangeEl) {
+            rangeEl.textContent = hasBounds
+                ? `${this.formatTime(loop.start)} – ${this.formatTime(loop.end)}${loop.enabled ? ' (Active)' : ''}`
+                : '';
+        }
+        if (loopInBtn) {
+            loopInBtn.classList.toggle('bg-blue-100', hasBounds);
+            loopInBtn.classList.toggle('text-blue-700', hasBounds);
+            loopInBtn.classList.toggle('bg-gray-200', !hasBounds);
+        }
+        if (loopOutBtn) {
+            loopOutBtn.classList.toggle('bg-blue-100', hasBounds);
+            loopOutBtn.classList.toggle('text-blue-700', hasBounds);
+            loopOutBtn.classList.toggle('bg-gray-200', !hasBounds);
+        }
     }
 
     /**
@@ -705,6 +740,8 @@ class ComparisonLab {
             'comparison-student-scrub',
             'comparison-speed',
             'comparison-loop',
+            'comparison-loop-in',
+            'comparison-loop-out',
             'comparison-link',
         ];
 
@@ -717,6 +754,7 @@ class ComparisonLab {
                 el.disabled = !canUse || this.isRecording || this.isStartingRecording;
             }
         });
+        this.updateLoopDisplay();
 
         // Record button needs reference
         const recordBtn = document.getElementById('comparison-record-btn');

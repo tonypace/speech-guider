@@ -1,13 +1,17 @@
 """Desktop asset discovery, local origin, and persistence contracts."""
 
+import asyncio
+import json
+import os
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.desktop_backend import _SameOrigin
+from app.desktop_backend import _parent_exited, _publish_ready, _SameOrigin, _watch_parent
 from app.main import app
 from app.services import state
 from src.audio.reference_tts import OmniVoiceTTSProvider
@@ -116,3 +120,29 @@ def test_desktop_blocks_cross_origin_and_allows_owned_webview() -> None:
             client.get("/health", headers={"Origin": "https://example.invalid"}).status_code == 403
         )
         assert client.get("/health", headers={"Sec-Fetch-Site": "cross-site"}).status_code == 403
+
+
+def test_desktop_publish_ready_writes_port_and_pid(tmp_path: Path) -> None:
+    ready_file = tmp_path / "ready.json"
+    _publish_ready(ready_file, 49123)
+    data = json.loads(ready_file.read_text(encoding="utf-8"))
+    assert data == {"port": 49123, "pid": os.getpid()}
+
+
+def test_desktop_parent_exited_checks_ppid(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(os, "getppid", lambda: 5000)
+    assert _parent_exited(None) is False
+    assert _parent_exited(5000) is False
+    assert _parent_exited(4999) is True
+
+
+def test_desktop_watch_parent_triggers_shutdown_on_parent_exit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server: Any = SimpleNamespace(should_exit=False)
+    monkeypatch.setattr(os, "getppid", lambda: 1)
+    # Prevent os.killpg from firing against the test runner process group.
+    monkeypatch.setattr(os, "getpgrp", lambda: -1)
+
+    asyncio.run(_watch_parent(server, parent_pid=99999))
+    assert server.should_exit is True

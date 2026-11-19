@@ -206,3 +206,52 @@ def test_prosody_lab_reference_endpoint_returns_custom_phrase(
     assert payload["phrase"]["id"] == "custom"
     assert len(payload["phrase"]["syllables"]) == 9
     assert payload["analysis"]["summary"]["syllable_count"] >= 1
+
+
+def test_prosody_lab_analyze_endpoint_accepts_wav(
+    dummy_wav_factory: Callable[..., Path],
+) -> None:
+    wav_path = dummy_wav_factory("prosody_endpoint.wav", duration=0.5, frequency=220.0)
+    client = TestClient(app)
+    with open(wav_path, "rb") as audio_file:
+        response = client.post(
+            "/api/prosody-lab/analyze",
+            files={"audio": ("sample.wav", audio_file, "audio/wav")},
+        )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert payload["recording_id"]
+    assert payload["summary"]["duration_seconds"] > 0
+    assert isinstance(payload["pitch_track"], list)
+    assert isinstance(payload["syllable_onsets"], list)
+
+
+def test_prosody_lab_analyze_endpoint_maps_conversion_and_size_errors(
+    monkeypatch: object,
+) -> None:
+    from app.utils.audio import AudioConversionError
+
+    client = TestClient(app)
+
+    async def raise_conversion(_upload: object) -> str:
+        raise AudioConversionError("Could not convert .mp3 audio.")
+
+    monkeypatch.setattr("app.api.prosody_lab.save_upload_to_temp", raise_conversion)  # type: ignore[attr-defined]
+    bad_resp = client.post(
+        "/api/prosody-lab/analyze",
+        files={"audio": ("bad.mp3", b"not-audio", "audio/mpeg")},
+    )
+    assert bad_resp.status_code == 400
+    assert "convert" in bad_resp.json()["detail"].lower()
+
+    async def raise_oversized(_upload: object) -> str:
+        raise AudioConversionError("Uploaded file exceeds maximum size of 25 MB.")
+
+    monkeypatch.setattr("app.api.prosody_lab.save_upload_to_temp", raise_oversized)  # type: ignore[attr-defined]
+    big_resp = client.post(
+        "/api/prosody-lab/analyze",
+        files={"audio": ("big.wav", b"0" * 16, "audio/wav")},
+    )
+    assert big_resp.status_code == 413
+    assert "maximum size" in big_resp.json()["detail"].lower()

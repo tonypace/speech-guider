@@ -6,9 +6,7 @@ import base64
 import io
 import logging
 import re
-import tempfile
 import uuid
-from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
@@ -229,10 +227,27 @@ def _compute_vocalic_npvi(durations: list[float]) -> float | None:
     return round(float(100.0 * sum(diffs) / len(diffs)), 2)
 
 
+def _build_praat_pitch(sound: parselmouth.Sound) -> parselmouth.Pitch:
+    """Extract Praat autocorrelation pitch object with Prosody Lab settings."""
+    return sound.to_pitch_ac(
+        time_step=0.008,
+        pitch_floor=65.0,
+        max_number_of_candidates=15,
+        very_accurate=False,
+        silence_threshold=0.02,
+        voicing_threshold=0.33,
+        octave_cost=0.01,
+        octave_jump_cost=0.35,
+        voiced_unvoiced_cost=0.14,
+        pitch_ceiling=500.0,
+    )
+
+
 def detect_syllables_and_pcenters(
     y: np.ndarray,
     sr: int,
     sound: parselmouth.Sound | None = None,
+    pitch: parselmouth.Pitch | None = None,
 ) -> dict[str, Any]:
     """Detect syllable nuclei, perceptual centers (V_onset), consonant onsets, and durations.
 
@@ -301,18 +316,8 @@ def detect_syllables_and_pcenters(
             "syllable_details": [],
         }
 
-    pitch = sound.to_pitch_ac(
-        time_step=0.008,
-        pitch_floor=65.0,
-        max_number_of_candidates=15,
-        very_accurate=False,
-        silence_threshold=0.02,
-        voicing_threshold=0.33,
-        octave_cost=0.01,
-        octave_jump_cost=0.35,
-        voiced_unvoiced_cost=0.14,
-        pitch_ceiling=500.0,
-    )
+    if pitch is None:
+        pitch = _build_praat_pitch(sound)
     f0_track = np.array([pitch.get_value_at_time(float(t)) for t in times], dtype=np.float64)
     q98_voc = float(np.percentile(voc_db, 98))
     silence_thresh_db = q98_voc - 19.5
@@ -543,76 +548,72 @@ def detect_syllables_and_pcenters(
     }
 
 
-def _compute_pitch_track(y: np.ndarray, sr: int) -> dict[str, Any]:
-    """Compute pitch contour and quantize it into musical note data."""
+def _compute_pitch_track(
+    y: np.ndarray,
+    sr: int,
+    sound: parselmouth.Sound | None = None,
+    pitch: parselmouth.Pitch | None = None,
+) -> dict[str, Any]:
+    """Compute pitch contour from Praat autocorrelation pitch and quantize into musical note data."""
+    if y.size == 0 or sr <= 0:
+        return {
+            "pitch_track": [],
+            "mean_f0_hz": 0.0,
+            "mean_midi": None,
+            "mean_note": None,
+            "pitch_range_hz": 0.0,
+        }
 
-    frame_length = 2048
-    hop_length = 256
-    padded = np.pad(y, (0, max(0, frame_length - len(y))), mode="constant")
-    frames = np.lib.stride_tricks.sliding_window_view(padded, frame_length)[::hop_length]
-    window = np.hanning(frame_length)
-    fmin, fmax = 65.0, 1046.0
-    freq_axis = np.fft.rfftfreq(frame_length, d=1.0 / sr)
-    search_mask = (freq_axis >= fmin) & (freq_axis <= fmax)
+    if sound is None:
+        sound = parselmouth.Sound(y.astype(np.float64), sampling_frequency=float(sr))
+    if pitch is None:
+        pitch = _build_praat_pitch(sound)
 
-    f0_values: list[float] = []
-    voiced_flags: list[bool] = []
-    confidences: list[float] = []
-
-    for frame in frames:
-        spectrum = np.abs(np.fft.rfft(frame * window))
-        if not np.any(search_mask):
-            peak_frequency, confidence = np.nan, 0.0
-        else:
-            band = spectrum[search_mask]
-            band_frequencies = freq_axis[search_mask]
-            peak_index = int(np.argmax(band)) if band.size else 0
-            peak_frequency = float(band_frequencies[peak_index]) if band.size else np.nan
-            confidence = (
-                float(band[peak_index] / np.sum(band)) if band.size and np.sum(band) > 0 else 0.0
-            )
-        voiced = bool(np.isfinite(peak_frequency) and confidence > 0.08)
-        f0_values.append(float(peak_frequency) if voiced else np.nan)
-        voiced_flags.append(voiced)
-        confidences.append(confidence if voiced else 0.0)
-
-    f0 = np.array(f0_values, dtype=float)
-    voiced_flag = np.array(voiced_flags, dtype=bool)
-    voiced_prob = np.array(confidences, dtype=float)
-    times = np.arange(len(f0), dtype=float) * hop_length / sr
-    midi = np.where(np.isnan(f0), np.nan, 69.0 + 12.0 * np.log2(f0 / 440.0))
+    selected = pitch.selected_array
+    f0 = np.asarray(selected["frequency"], dtype=np.float64)
+    strength = np.asarray(selected["strength"], dtype=np.float64)
+    times = np.asarray(pitch.xs(), dtype=np.float64)
 
     pitch_track: list[dict[str, Any]] = []
+    voiced_f0_list: list[float] = []
+    voiced_midi_list: list[float] = []
+
     for idx, t in enumerate(times):
-        f0_v = None if np.isnan(f0[idx]) else float(f0[idx])
-        midi_v = None if np.isnan(midi[idx]) else float(midi[idx])
-        note = None
+        raw_f0 = float(f0[idx]) if idx < len(f0) else 0.0
+        voiced = bool(np.isfinite(raw_f0) and raw_f0 > 0.0)
+        f0_v: float | None = raw_f0 if voiced else None
+        midi_v: float | None = None
+        note: str | None = None
+        cents_offset: float | None = None
         if f0_v is not None:
-            try:
-                note = _hz_to_note_name(f0_v)
-            except ValueError:
-                note = None
+            midi_v = _hz_to_midi_value(f0_v)
+            note = _midi_to_note_name(midi_v)
+            cents_offset = round(float((midi_v - round(midi_v)) * 100.0), 2)
+            voiced_f0_list.append(f0_v)
+            voiced_midi_list.append(midi_v)
+
+        conf = (
+            float(np.clip(strength[idx], 0.0, 1.0))
+            if (voiced and idx < len(strength) and np.isfinite(strength[idx]))
+            else 0.0
+        )
         pitch_track.append(
             {
                 "time": float(t),
                 "f0_hz": f0_v,
                 "midi": midi_v,
                 "note": note,
-                "confidence": float(voiced_prob[idx]) if idx < len(voiced_prob) else 0.0,
-                "voiced": bool(voiced_flag[idx]) if idx < len(voiced_flag) else False,
+                "cents_offset": cents_offset,
+                "confidence": conf,
+                "voiced": voiced,
             }
         )
 
-    voiced_f0 = f0[~np.isnan(f0)]
-    voiced_midi = midi[~np.isnan(midi)]
+    voiced_f0 = np.asarray(voiced_f0_list, dtype=np.float64)
+    voiced_midi = np.asarray(voiced_midi_list, dtype=np.float64)
     mean_f0 = float(np.mean(voiced_f0)) if voiced_f0.size else 0.0
     mean_midi = float(np.mean(voiced_midi)) if voiced_midi.size else None
-    mean_note = None
-    if mean_f0 > 0:
-        try:
-            mean_note = _hz_to_note_name(mean_f0)
-        except ValueError:
-            mean_note = None
+    mean_note = _hz_to_note_name(mean_f0) if mean_f0 > 0.0 else None
 
     return {
         "pitch_track": pitch_track,
@@ -623,12 +624,21 @@ def _compute_pitch_track(y: np.ndarray, sr: int) -> dict[str, Any]:
     }
 
 
-def _load_audio_samples(audio_path: str, sample_rate: int) -> tuple[np.ndarray, int]:
-    """Load audio using soundfile or scipy fallback."""
+def _decode_audio_source(
+    audio_source: str | bytes | io.BytesIO, sample_rate: int
+) -> tuple[np.ndarray, int]:
+    """Decode audio from a filepath, raw bytes, or BytesIO into a mono float32 array."""
+    source_obj: str | io.BytesIO
+    if isinstance(audio_source, bytes):
+        source_obj = io.BytesIO(audio_source)
+    else:
+        source_obj = audio_source
 
     if sf is not None:
         try:
-            y, sr = sf.read(audio_path, always_2d=False)
+            if isinstance(source_obj, io.BytesIO):
+                source_obj.seek(0)
+            y, sr = sf.read(source_obj, always_2d=False)
             if y.ndim > 1:
                 y = np.mean(y, axis=1)
             if sr != sample_rate:
@@ -636,9 +646,14 @@ def _load_audio_samples(audio_path: str, sample_rate: int) -> tuple[np.ndarray, 
                 sr = sample_rate
             return np.asarray(y, dtype=np.float32), int(sr)
         except (ValueError, RuntimeError) as e:
-            logger.warning("[_load_audio_samples] soundfile load failed: %s, trying scipy", e)
+            logger.warning("[_decode_audio_source] soundfile load failed: %s, trying scipy", e)
 
-    sr, y = scipy_wavfile.read(audio_path)
+    if isinstance(source_obj, io.BytesIO):
+        source_obj.seek(0)
+    try:
+        sr, y = scipy_wavfile.read(source_obj)
+    except Exception as exc:
+        raise ValueError(f"Could not read audio file: {exc}") from exc
     if y.ndim > 1:
         y = np.mean(y, axis=1)
     if y.dtype.kind in {"i", "u"}:
@@ -651,16 +666,29 @@ def _load_audio_samples(audio_path: str, sample_rate: int) -> tuple[np.ndarray, 
     return y, int(sr)
 
 
-def analyze_prosody_recording(audio_path: str) -> dict[str, Any]:
-    """Analyze a recording for Prosody Lab visualization."""
+def _load_audio_samples(audio_path: str, sample_rate: int) -> tuple[np.ndarray, int]:
+    """Load audio from path using soundfile or scipy fallback."""
+    return _decode_audio_source(audio_path, sample_rate)
 
-    recording_id = uuid.uuid4().hex
-    pitch_y, pitch_sr = _load_audio_samples(audio_path, 22050)
-    if pitch_y.size == 0:
+
+def _analyze_prosody_waveform(samples: np.ndarray, sample_rate: int) -> dict[str, Any]:
+    """Analyze an in-memory waveform for Prosody Lab visualization."""
+    if samples.size == 0 or sample_rate <= 0:
         raise ValueError("Audio file is empty")
 
-    pitch = _compute_pitch_track(pitch_y, pitch_sr)
-    syllable_data = detect_syllables_and_pcenters(pitch_y, pitch_sr)
+    pitch_y = np.asarray(samples, dtype=np.float32)
+    if pitch_y.ndim > 1:
+        pitch_y = np.mean(pitch_y, axis=1)
+    pitch_sr = int(sample_rate)
+    if pitch_sr != 22050:
+        pitch_y = np.asarray(resample_poly(pitch_y, 22050, pitch_sr), dtype=np.float32)
+        pitch_sr = 22050
+
+    recording_id = uuid.uuid4().hex
+    sound = parselmouth.Sound(pitch_y.astype(np.float64), sampling_frequency=float(pitch_sr))
+    praat_pitch = _build_praat_pitch(sound)
+    pitch = _compute_pitch_track(pitch_y, pitch_sr, sound=sound, pitch=praat_pitch)
+    syllable_data = detect_syllables_and_pcenters(pitch_y, pitch_sr, sound=sound, pitch=praat_pitch)
     markers = syllable_data["nuclei_times"]
     p_centers = syllable_data["p_center_times"] or markers
     syllable_details = syllable_data["syllable_details"]
@@ -709,6 +737,12 @@ def analyze_prosody_recording(audio_path: str) -> dict[str, Any]:
         "raw_feedback": "",
         "analysis_source": "heuristic",
     }
+
+
+def analyze_prosody_recording(audio_path: str) -> dict[str, Any]:
+    """Analyze a recording for Prosody Lab visualization."""
+    pitch_y, pitch_sr = _load_audio_samples(audio_path, 22050)
+    return _analyze_prosody_waveform(pitch_y, pitch_sr)
 
 
 def _find_vowel_runs(word: str) -> list[tuple[int, int]]:
@@ -1154,7 +1188,7 @@ def _synthesize_fallback_prosody_wav(
 
 
 def generate_prosody_reference(target_text: str) -> dict[str, Any]:
-    """Synthesize reference audio for target_text, analyze prosody, and build a beat-aligned phrase."""
+    """Synthesize reference audio for target_text, analyze prosody in memory, and build a beat-aligned phrase."""
     clean_text = target_text.strip()
     if not clean_text:
         raise ValueError("Target sentence cannot be empty")
@@ -1163,38 +1197,27 @@ def generate_prosody_reference(target_text: str) -> dict[str, Any]:
     mime_type: str
     synthesis_source: str
 
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_wav:
-        temp_wav_path = tmp_wav.name
-
     try:
-        try:
-            provider = OmniVoiceTTSProvider()
-            ref_audio = provider.synthesize(clean_text, output_sample_rate=16000)
-            audio_bytes = ref_audio.audio_bytes
-            mime_type = "audio/ogg" if ref_audio.format == "ogg" else "audio/wav"
-            synthesis_source = "omnivoice"
-            if sf is not None:
-                decoded, sr = sf.read(io.BytesIO(audio_bytes), dtype="float32")
-                sf.write(temp_wav_path, decoded, sr, format="WAV", subtype="PCM_16")
-            else:
-                Path(temp_wav_path).write_bytes(audio_bytes)
-        except (ValueError, FileNotFoundError, RuntimeError) as exc:
-            logger.info("[generate_prosody_reference] Using synthetic prosody fallback: %s", exc)
-            audio_bytes = _synthesize_fallback_prosody_wav(clean_text, sample_rate=16000)
-            mime_type = "audio/wav"
-            synthesis_source = "synthetic_fallback"
-            Path(temp_wav_path).write_bytes(audio_bytes)
+        provider = OmniVoiceTTSProvider()
+        ref_audio = provider.synthesize(clean_text, output_sample_rate=16000)
+        audio_bytes = ref_audio.audio_bytes
+        mime_type = "audio/ogg" if ref_audio.format == "ogg" else "audio/wav"
+        synthesis_source = "omnivoice"
+    except (ValueError, FileNotFoundError, RuntimeError) as exc:
+        logger.info("[generate_prosody_reference] Using synthetic prosody fallback: %s", exc)
+        audio_bytes = _synthesize_fallback_prosody_wav(clean_text, sample_rate=16000)
+        mime_type = "audio/wav"
+        synthesis_source = "synthetic_fallback"
 
-        analysis = analyze_prosody_recording(temp_wav_path)
-        phrase = build_prosody_phrase_from_text_and_analysis(clean_text, analysis)
+    samples, sr = _decode_audio_source(audio_bytes, 22050)
+    analysis = _analyze_prosody_waveform(samples, sr)
+    phrase = build_prosody_phrase_from_text_and_analysis(clean_text, analysis)
 
-        return {
-            "target_text": clean_text,
-            "audio_base64": base64.b64encode(audio_bytes).decode("ascii"),
-            "mime_type": mime_type,
-            "phrase": phrase,
-            "analysis": analysis,
-            "synthesis_source": synthesis_source,
-        }
-    finally:
-        Path(temp_wav_path).unlink(missing_ok=True)
+    return {
+        "target_text": clean_text,
+        "audio_base64": base64.b64encode(audio_bytes).decode("ascii"),
+        "mime_type": mime_type,
+        "phrase": phrase,
+        "analysis": analysis,
+        "synthesis_source": synthesis_source,
+    }

@@ -1,13 +1,16 @@
 """Provider and model revisions must partition generated reference assets."""
 
+import base64
 from pathlib import Path
 from unittest.mock import Mock, patch
 
 import torch
+from fastapi.testclient import TestClient
 
 from app.api.comparison import _generate_reference_asset
+from app.main import app
 from src.audio.reference_tts import OmniVoiceTTSProvider
-from src.services.comparison_cache import ComparisonCache
+from src.services.comparison_cache import ComparisonCache, ReferenceAsset
 
 
 def test_provider_file_and_language_identity_changes(tmp_path: Path) -> None:
@@ -61,3 +64,48 @@ def test_reference_cache_partitions_provider_and_model_revisions() -> None:
             assert provider.synthesize.call_count == 5
     finally:
         cache.clear()
+
+
+def test_reference_animation_endpoint_validates_and_returns_frames() -> None:
+    client = TestClient(app)
+
+    blank = client.post("/api/reference-animation", json={"target_text": "   "})
+    assert blank.status_code == 400
+    assert "reference text" in blank.json()["detail"].lower()
+
+    sample_frame = {
+        "lip_aperture": 0.2,
+        "lip_protrusion": 0.1,
+        "tongue_tip_constriction_location": 0.5,
+        "tongue_tip_constriction_degree": 0.3,
+        "lateral_tongue_drop": 0.0,
+        "velic_aperture": 0.0,
+        "tongue_body_constriction_location": 0.4,
+        "tongue_body_constriction_degree": 0.35,
+        "glottal_aperture": 0.1,
+    }
+    asset = ReferenceAsset(
+        text_key="hello world",
+        audio_bytes=b"OGG_DATA",
+        audio_sample_rate=8000,
+        audio_duration=0.4,
+        audio_format="ogg",
+        frame_rate=50,
+        frames=[sample_frame],
+        frame_count=1,
+        created_at=1.0,
+    )
+    with patch("app.api.comparison._generate_reference_asset", return_value=(asset, True)):
+        resp = client.post(
+            "/api/reference-animation",
+            json={"target_text": "Hello world", "tts_provider": "omnivoice"},
+        )
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert base64.b64decode(payload["audio_base64"]) == b"OGG_DATA"
+    assert payload["audio_sample_rate"] == 8000
+    assert payload["audio_format"] == "ogg"
+    assert payload["frame_count"] == 1
+    assert payload["cached"] is True
+    assert payload["frames"][0]["lip_aperture"] == 0.2

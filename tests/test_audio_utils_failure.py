@@ -1,10 +1,10 @@
 """Regression tests for audio utility failure paths and exception handling."""
 
+from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-import scipy.io.wavfile as wavfile
 
 
 class TestAudioConversionFailureModes:
@@ -137,32 +137,28 @@ class TestSaveUploadToTemp:
                 await audio_utils.save_upload_to_temp(upload)
 
     @pytest.mark.asyncio
-    async def test_wav_file_skips_conversion(self, tmp_path):
+    async def test_wav_file_skips_conversion(self, dummy_wav_factory: Callable[..., Path]) -> None:
         """WAV files should not trigger conversion."""
         import io
 
         from fastapi import UploadFile
 
-        from app.utils.audio import save_upload_to_temp
+        from app.utils.audio import cleanup_temp_file, save_upload_to_temp
 
-        # Create a real WAV file
-        wav_path = tmp_path / "test.wav"
-        sample_rate = 16000
-        duration = 0.1
-        t = __import__("numpy").linspace(0, duration, int(sample_rate * duration))
-        waveform = __import__("numpy").sin(2 * __import__("numpy").pi * 440 * t)
-        wavfile.write(
-            str(wav_path), sample_rate, (waveform * 32767).astype(__import__("numpy").int16)
-        )
-
+        wav_path = dummy_wav_factory("test.wav", duration=0.1, sample_rate=16000, frequency=440.0)
         with open(wav_path, "rb") as f:
             upload = UploadFile(filename="test.wav", file=io.BytesIO(f.read()))
 
-        with patch("app.utils.audio._convert_to_wav") as mock_convert:
-            result = await save_upload_to_temp(upload)
-            # Should not call conversion for WAV
-            mock_convert.assert_not_called()
-            assert result.endswith(".wav")
+        result: str | None = None
+        try:
+            with patch("app.utils.audio._convert_to_wav") as mock_convert:
+                result = await save_upload_to_temp(upload)
+                # Should not call conversion for WAV
+                mock_convert.assert_not_called()
+                assert result.endswith(".wav")
+        finally:
+            if result is not None:
+                cleanup_temp_file(result)
 
 
 class TestCleanupTempFile:

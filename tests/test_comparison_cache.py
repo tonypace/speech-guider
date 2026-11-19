@@ -19,9 +19,13 @@ def test_cache_instances_own_independent_audio_files(tmp_path: Path) -> None:
     _put(first, b"first")
     _put(second, b"second")
 
-    assert first.get("hello").audio_bytes == b"first"
+    first_asset = first.get("hello")
+    assert first_asset is not None
+    assert first_asset.audio_bytes == b"first"
     first.clear()
-    assert second.get("hello").audio_bytes == b"second"
+    second_asset = second.get("hello")
+    assert second_asset is not None
+    assert second_asset.audio_bytes == b"second"
     second.clear()
     assert not list(tmp_path.iterdir())
 
@@ -32,7 +36,9 @@ def test_failed_replacement_uses_new_memory_audio(tmp_path: Path) -> None:
     with patch.object(Path, "write_bytes", side_effect=OSError("disk full")):
         _put(cache, b"new")
 
-    assert cache.get("hello").audio_bytes == b"new"
+    replaced = cache.get("hello")
+    assert replaced is not None
+    assert replaced.audio_bytes == b"new"
     assert cache.get_stats()["temp_files"] == 0
 
 
@@ -57,9 +63,12 @@ def test_cache_identity_preserves_exact_text_and_supports_namespace() -> None:
     cache.put("hello", b"lower", 8000, 1.0, "ogg", 50, [])
     cache.put("hello", b"other", 8000, 1.0, "ogg", 50, [], namespace="provider/model-b")
 
-    assert cache.get("Hello").audio_bytes == b"upper"
-    assert cache.get("hello").audio_bytes == b"lower"
-    assert cache.get("hello", namespace="provider/model-b").audio_bytes == b"other"
+    upper = cache.get("Hello")
+    lower = cache.get("hello")
+    other = cache.get("hello", namespace="provider/model-b")
+    assert upper is not None and upper.audio_bytes == b"upper"
+    assert lower is not None and lower.audio_bytes == b"lower"
+    assert other is not None and other.audio_bytes == b"other"
     assert cache.get("hello", namespace="provider/model-a") is None
 
 
@@ -75,10 +84,13 @@ def test_put_and_get_return_independent_snapshots(tmp_path: Path, use_temp_files
     returned.audio_bytes = b"changed"
 
     cached = cache.get("hello")
+    assert cached is not None
     assert cached.audio_bytes == b"audio"
     assert cached.frames == [{"tract": {"tongue": 1}}]
     cached.frames[0]["tract"]["tongue"] = 4
-    assert cache.get("hello").frames == [{"tract": {"tongue": 1}}]
+    refetched = cache.get("hello")
+    assert refetched is not None
+    assert refetched.frames == [{"tract": {"tongue": 1}}]
     if use_temp_files:
         assert cache._cache[cache._normalize_text("hello")].audio_bytes == b""
 

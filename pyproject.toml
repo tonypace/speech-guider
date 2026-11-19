@@ -52,7 +52,7 @@ exclude = [
 ]
 warn_return_any = true
 warn_unused_configs = true
-strict_optional = false
+strict_optional = true
 
 # Targeted overrides for packages without type stubs
 [[tool.mypy.overrides]]

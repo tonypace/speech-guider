@@ -1,6 +1,6 @@
 import { loadHistory, storeRecord, getRoleId, setRoleId, createDesktopHistoryStorage } from './prosody_history.js';
 import { listen, releaseCapture } from './capture_resources.js';
-import { microphoneError, openMicrophone } from './microphone.js';
+import { getSettings, microphoneError, openMicrophone } from './microphone.js';
 import { convertAudioToWav, encodePcmWav } from './audio_conversion.js';
 import { escapeHtml } from './ipa_tooltips.js';
 import {
@@ -23,7 +23,7 @@ function formatMetricValue(value, suffix = '') {
 }
 
 class ProsodyLabRecorder {
-    constructor() {
+    constructor(options = {}) {
         this.mediaRecorder = null;
         this.audioChunks = [];
         this.isRecording = false;
@@ -35,6 +35,7 @@ class ProsodyLabRecorder {
         this.dataArray = null;
         this.animationId = null;
         this.maxDuration = 30;
+        this.location = options.location || window.location;
         this.historyStorage = window.__SPEECH_GUIDER_DESKTOP__
             ? createDesktopHistoryStorage(window.__DESKTOP_HISTORY__)
             : undefined;
@@ -239,8 +240,21 @@ class ProsodyLabRecorder {
     }
 
     async _initialize() {
+        if (this.recordBtn) this.recordBtn.disabled = getSettings().microphone_enabled === false;
+        if (getSettings().microphone_enabled === false) {
+            this.setStatus('Microphone is off in Settings.', true);
+            this.initPromise = null;
+            return;
+        }
         if (!navigator.mediaDevices?.getUserMedia) {
             this.setStatus('Microphone recording is not supported in this browser.', true);
+            this.initPromise = null;
+            return;
+        }
+        const isLocalhost = this.location.hostname === 'localhost' || this.location.hostname === '127.0.0.1';
+        const isHttps = this.location.protocol === 'https:';
+        if (!isHttps && !isLocalhost) {
+            this.setStatus('Microphone access requires HTTPS or localhost.', true);
             this.initPromise = null;
             return;
         }
@@ -269,6 +283,18 @@ class ProsodyLabRecorder {
         }
     }
 
+    async resetInput() {
+        if (this.destroyed) return;
+        this.stopRecording();
+        const pending = this.initPromise;
+        this.permissionRequestId += 1;
+        releaseCapture(this);
+        this.mediaRecorder = null;
+        await pending;
+        if (this.initPromise === pending) this.initPromise = null;
+        if (window.currentTab === 'prosody') await this.init();
+    }
+
     destroy() {
         if (this.destroyed) return;
         this.destroyed = true;
@@ -278,6 +304,7 @@ class ProsodyLabRecorder {
         this.isRecording = false;
         this.stopAllAudio();
         this.stopFlowLoop();
+        this.audioPlayer?.destroy();
         if (this.latestRecordedBlobUrl && typeof URL?.revokeObjectURL === 'function') {
             URL.revokeObjectURL(this.latestRecordedBlobUrl);
             this.latestRecordedBlobUrl = null;
@@ -429,7 +456,8 @@ class ProsodyLabRecorder {
 
             const response = await fetch('/api/prosody-lab/analyze', { method: 'POST', body: formData });
             if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                const payload = await response.json().catch(() => null);
+                throw new Error(payload?.detail || payload?.error || `HTTP ${response.status}: ${response.statusText}`);
             }
 
             const result = await response.json();
@@ -469,7 +497,8 @@ class ProsodyLabRecorder {
                 body: JSON.stringify({ target_text: rawText }),
             });
             if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                const payload = await response.json().catch(() => null);
+                throw new Error(payload?.detail || payload?.error || `HTTP ${response.status}: ${response.statusText}`);
             }
             const data = await response.json();
             if (this.destroyed) return;

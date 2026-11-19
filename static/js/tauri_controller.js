@@ -8,7 +8,7 @@
 class TauriController {
     constructor() {
         this.isTauri = this.detectTauri();
-        this.currentMode = null;
+        this.currentMode = this.modeForTab(typeof window !== 'undefined' ? (window.currentTab || 'analysis') : 'analysis');
         this.pronunciationErrors = [];
         this.currentErrorIndex = -1;
         this.prosodySamples = [];
@@ -18,6 +18,15 @@ class TauriController {
         if (this.isTauri) {
             this.init();
         }
+    }
+
+    /**
+   * Map UI tab name to clicker mode
+   */
+    modeForTab(tabName) {
+        if (tabName === 'analysis') return 'pronunciation';
+        if (tabName === 'prosody') return 'prosody';
+        return null;
     }
 
     /**
@@ -33,6 +42,11 @@ class TauriController {
    */
     init() {
         console.log('[TauriController] Initializing in Tauri mode');
+
+        this.currentMode = this.modeForTab(window.currentTab || 'analysis');
+        window.addEventListener('speechguider:tabchange', (event) => {
+            this.currentMode = this.modeForTab(event.detail);
+        });
 
         // Set up clicker input
         this.setupClickerInput();
@@ -93,6 +107,16 @@ class TauriController {
     }
 
     /**
+   * Check whether keyboard/clicker shortcuts should be ignored for this event
+   */
+    shouldIgnoreKeyEvent(event) {
+        if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) {
+            return true;
+        }
+        return Boolean(event.target?.closest?.('input, textarea, select, [contenteditable="true"]'));
+    }
+
+    /**
    * Set up clicker input (Left, Right, Tab)
    */
     setupClickerInput() {
@@ -101,6 +125,7 @@ class TauriController {
 
         document.addEventListener('keydown', (event) => {
             if (!this.currentMode || window.currentTab === 'comparison') return;
+            if (this.shouldIgnoreKeyEvent(event)) return;
 
             switch (event.key) {
                 case 'ArrowLeft':
@@ -127,13 +152,12 @@ class TauriController {
             if (!this.currentMode || window.currentTab === 'comparison') return;
 
             if (event.key === 'Tab' && this.isRecording) {
-                const holdDuration = Date.now() - tabDownTime;
+                const holdDuration = tabDownTime !== null ? (Date.now() - tabDownTime) : TAB_HOLD_THRESHOLD;
                 tabDownTime = null;
 
-                if (holdDuration >= TAB_HOLD_THRESHOLD) {
-                    this.handleRecordRelease();
-                } else {
-                    // Short tap - treat as primary action for non-recording modes
+                this.handleRecordRelease();
+                if (holdDuration < TAB_HOLD_THRESHOLD) {
+                    // Short tap - also notify primary action handler after stopping recording cleanly
                     this.handlePrimaryAction();
                 }
             }
@@ -219,28 +243,38 @@ class TauriController {
 
     // ========== PRONUNCIATION MODE ==========
 
+    getPronunciationErrors() {
+        if (Array.isArray(window.currentErrors)) {
+            this.pronunciationErrors = window.currentErrors;
+            return window.currentErrors;
+        }
+        return this.pronunciationErrors || [];
+    }
+
     previousPronunciationError() {
-        if (!this.pronunciationErrors || this.pronunciationErrors.length === 0) {
+        const errors = this.getPronunciationErrors();
+        if (!errors || errors.length === 0) {
             console.log('[TauriController] No pronunciation errors available');
             return;
         }
 
         this.currentErrorIndex--;
         if (this.currentErrorIndex < 0) {
-            this.currentErrorIndex = this.pronunciationErrors.length - 1;
+            this.currentErrorIndex = errors.length - 1;
         }
 
         this.selectPronunciationError(this.currentErrorIndex);
     }
 
     nextPronunciationError() {
-        if (!this.pronunciationErrors || this.pronunciationErrors.length === 0) {
+        const errors = this.getPronunciationErrors();
+        if (!errors || errors.length === 0) {
             console.log('[TauriController] No pronunciation errors available');
             return;
         }
 
         this.currentErrorIndex++;
-        if (this.currentErrorIndex >= this.pronunciationErrors.length) {
+        if (this.currentErrorIndex >= errors.length) {
             this.currentErrorIndex = 0;
         }
 
@@ -263,12 +297,7 @@ class TauriController {
         if (window.recorder?.stopRecording) {
             window.recorder.stopRecording();
         }
-
-        // After recording, refresh error list
-        setTimeout(() => {
-            this.pronunciationErrors = window.currentErrors || [];
-            this.currentErrorIndex = -1;
-        }, 2000);
+        this.currentErrorIndex = -1;
     }
 
     // ========== PROSODY MODE ==========
