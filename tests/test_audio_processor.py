@@ -1,5 +1,6 @@
 """Test audio processor module for prosody analysis."""
 
+import math
 from collections.abc import Callable
 from pathlib import Path
 
@@ -132,6 +133,8 @@ def test_voice_quality_analysis(dummy_wav_factory: Callable[..., Path]) -> None:
     assert isinstance(vq.jitter_local, float)
     assert isinstance(vq.shimmer_local, float)
     assert isinstance(vq.cpps, float)
+    assert math.isfinite(vq.cpps)
+    assert vq.cpps > 0.0
     assert isinstance(vq.spectral_tilt, float)
     assert vq.jitter_local >= 0
     assert vq.shimmer_local >= 0

@@ -17,6 +17,23 @@ from scipy import signal
 
 logger = logging.getLogger(__name__)
 
+# Maryn & Weenink (2015) / Praat PowerCepstrogram: Get CPPS parameters (units: dB).
+CPPS_PITCH_FLOOR_HZ: float = 60.0
+CPPS_TIME_STEP_S: float = 0.002
+CPPS_MAX_FREQUENCY_HZ: float = 5000.0
+CPPS_PRE_EMPHASIS_HZ: float = 50.0
+CPPS_SUBTRACT_TILT_BEFORE_SMOOTHING: bool = False
+CPPS_TIME_AVERAGING_WINDOW_S: float = 0.02
+CPPS_QUEFRENCY_AVERAGING_WINDOW_S: float = 0.0005
+CPPS_PEAK_SEARCH_PITCH_MIN_HZ: float = 60.0
+CPPS_PEAK_SEARCH_PITCH_MAX_HZ: float = 330.0
+CPPS_TOLERANCE: float = 0.05
+CPPS_INTERPOLATION: str = "Parabolic"
+CPPS_TILT_QUEFRENCY_MIN_S: float = 0.001
+CPPS_TILT_QUEFRENCY_MAX_S: float = 0.0
+CPPS_LINE_TYPE: str = "Straight"
+CPPS_FIT_METHOD: str = "Robust"
+
 
 def to_mono_float32(audio_data: np.ndarray) -> np.ndarray:
     """Convert multi-channel `(samples, channels)` audio to mono float32."""
@@ -268,29 +285,44 @@ class ProsodyAnalyzer:
         return (jitter, shimmer)
 
     def _compute_cpps(self, sound: parselmouth.Sound) -> float:
-        """Compute Cepstral Peak Prominence Smoothed (roughness measure)."""
+        """Compute Cepstral Peak Prominence Smoothed (dB) via Praat PowerCepstrogram."""
         try:
-            samples = sound.values.flatten()
-            sr = int(sound.sampling_frequency)
-            fl = int(0.03 * sr)
-            hl = int(0.01 * sr)
-            peaks = []
-            for start in range(0, len(samples) - fl, hl):
-                frame = samples[start : start + fl] * np.hanning(fl)
-                cepstrum_mag = np.abs(np.fft.rfft(np.log(np.abs(np.fft.rfft(frame)) + 1e-10)))
-                quef = np.fft.rfftfreq(fl, d=1.0 / sr)
-                lo, hi = (
-                    max(1, int(np.searchsorted(quef, 1.0 / 500.0))),
-                    min(len(cepstrum_mag), int(np.searchsorted(quef, 1.0 / 60.0))),
+            samples = sound.values
+            if samples.size == 0 or not np.all(np.isfinite(samples)):
+                return 0.0
+
+            mono_sound = sound.convert_to_mono() if sound.n_channels > 1 else sound
+            mono_samples = mono_sound.values
+            if float(np.ptp(mono_samples)) == 0.0:
+                return 0.0
+
+            cepstrogram = parselmouth.praat.call(
+                mono_sound,
+                "To PowerCepstrogram",
+                CPPS_PITCH_FLOOR_HZ,
+                CPPS_TIME_STEP_S,
+                CPPS_MAX_FREQUENCY_HZ,
+                CPPS_PRE_EMPHASIS_HZ,
+            )
+            cpps = float(
+                parselmouth.praat.call(
+                    cepstrogram,
+                    "Get CPPS",
+                    CPPS_SUBTRACT_TILT_BEFORE_SMOOTHING,
+                    CPPS_TIME_AVERAGING_WINDOW_S,
+                    CPPS_QUEFRENCY_AVERAGING_WINDOW_S,
+                    CPPS_PEAK_SEARCH_PITCH_MIN_HZ,
+                    CPPS_PEAK_SEARCH_PITCH_MAX_HZ,
+                    CPPS_TOLERANCE,
+                    CPPS_INTERPOLATION,
+                    CPPS_TILT_QUEFRENCY_MIN_S,
+                    CPPS_TILT_QUEFRENCY_MAX_S,
+                    CPPS_LINE_TYPE,
+                    CPPS_FIT_METHOD,
                 )
-                if lo >= hi:
-                    continue
-                pk = int(np.argmax(cepstrum_mag[lo:hi])) + lo
-                c = np.arange(len(cepstrum_mag), dtype=float)
-                baseline = np.polyval(np.polyfit(c, cepstrum_mag, 1), c[pk])
-                peaks.append(float(cepstrum_mag[pk] - baseline))
-            return float(np.mean(peaks)) if peaks else 0.0
-        except Exception:
+            )
+            return cpps if math.isfinite(cpps) else 0.0
+        except (parselmouth.PraatError, RuntimeError, ValueError):
             logger.debug("CPPS computation failed", exc_info=True)
             return 0.0
 

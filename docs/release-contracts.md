@@ -44,8 +44,7 @@ Tests use exact octave pairs at different base frequencies plus a generated,
 integrated 120–240 Hz sweep tracked by Praat. They establish unit consistency and
 basic tracking, not universal coaching-threshold suitability.
 
-Voice-quality CPPS and spectral tilt remain heuristic approximations. Changing
-those algorithms requires a reference suite beyond generated sine waves:
+CPPS is computed via Praat `PowerCepstrogram: Get CPPS` (Maryn & Weenink 2015 parameters, dB units) and verified against the versioned reference script `tests/fixtures/praat/cpps_maryn_weenink_2015.praat` across synthetic waveforms (periodic harmonics, jittered/noisy/mixed signals, AM/clipping, multi-rate, stereo, and edge cases) and the `tests/e2e/fixtures/test-audio.wav` fixture. Spectral tilt, jitter, and shimmer remain heuristic metrics, and perceptual/clinical coaching thresholds still require licensed multi-speaker corpus validation before surfacing diagnostic claims:
 
 - Version Praat scripts/settings and results for voiced/unvoiced speech, jittered
   periodic signals, amplitude modulation, noise, and mixtures.
@@ -55,4 +54,4 @@ those algorithms requires a reference suite beyond generated sine waves:
 - Validate with licensed recorded speech covering speakers and recording setups.
 
 Until those checks exist, voice-quality outputs must not be treated as calibrated
-clinical or diagnostic measurements. This refactor leaves their formulas intact.
+clinical or diagnostic measurements.
