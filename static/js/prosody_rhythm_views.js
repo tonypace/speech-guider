@@ -348,11 +348,12 @@ export function alignRecordPairToTetherItems(teacherRecord, studentRecord, phras
     }
 
     const rawStudentSyls = recordToSyllableItems(studentRecord, 4.0);
-    const rawTeacherSyls = teacherRecord
-        ? recordToSyllableItems(teacherRecord, 4.0)
+    const teacherSylsFromRecord = teacherRecord ? recordToSyllableItems(teacherRecord, 4.0) : [];
+    const rawTeacherSyls = (teacherSylsFromRecord.length >= 2 || base.syllables.length < 2)
+        ? (teacherSylsFromRecord.length > 0 ? teacherSylsFromRecord : base.syllables)
         : base.syllables;
 
-    const count = Math.max(1, Math.min(rawTeacherSyls.length, rawStudentSyls.length));
+    const count = Math.max(1, rawTeacherSyls.length);
     const natSyls = rawTeacherSyls.slice(0, count).map((s, idx) => ({
         ...s,
         index: idx,
@@ -361,23 +362,60 @@ export function alignRecordPairToTetherItems(teacherRecord, studentRecord, phras
         vowel: base.syllables[idx]?.vowel || s.vowel || `S${idx + 1}`,
     }));
 
+    if (rawStudentSyls.length === 0) {
+        return {
+            phrase: base,
+            natSyls,
+            lrnSyls: natSyls.map((nat) => ({
+                ...nat,
+                rawBeat: nat.beat,
+                normBeat: nat.beat,
+                isMissing: true,
+                hasBlockBefore: false,
+                blockMs: 0,
+                isProlonged: false,
+                isClipped: false,
+                crashedPause: false,
+                isStuttered: false,
+            })),
+            sourceMode: teacherSylsFromRecord.length >= 2 ? 'recorded_pair' : 'student_record',
+        };
+    }
+
     const studentDur = Math.max(0.4, Number(studentRecord.summary?.duration_seconds) || 2.0);
     const teacherDur = Math.max(0.4, Number(teacherRecord?.summary?.duration_seconds) || (60 / base.bpm) * 4.0);
     const rateRatio = teacherDur / studentDur;
 
+    const alignedCount = Math.min(count, rawStudentSyls.length);
     const firstNat = natSyls[0].beat;
-    const lastNat = natSyls[count - 1].beat;
+    const lastNat = natSyls[alignedCount - 1].beat;
     const firstStu = rawStudentSyls[0].beat;
-    const lastStu = rawStudentSyls[count - 1].beat;
+    const lastStu = rawStudentSyls[alignedCount - 1].beat;
     const natSpan = Math.max(0.25, lastNat - firstNat);
     const stuSpan = Math.max(0.25, lastStu - firstStu);
 
-    const lrnSyls = rawStudentSyls.slice(0, count).map((stu, idx) => {
-        const nat = natSyls[idx];
-        const normBeat = count === 1
+    const lrnSyls = natSyls.map((nat, idx) => {
+        const stu = rawStudentSyls[idx];
+        if (!stu) {
+            return {
+                ...nat,
+                rawBeat: nat.beat,
+                normBeat: nat.beat,
+                dur: Math.max(0.08, nat.dur * 0.55),
+                stress: 0.15,
+                isMissing: true,
+                hasBlockBefore: false,
+                blockMs: 0,
+                isProlonged: false,
+                isClipped: false,
+                crashedPause: false,
+                isStuttered: false,
+            };
+        }
+        const normBeat = alignedCount === 1
             ? nat.beat
             : Number((firstNat + ((stu.beat - firstStu) / stuSpan) * natSpan).toFixed(3));
-        const rawBeat = Number(Math.max(0.08, Math.min(4.6, normBeat / Math.max(0.55, Math.min(1.5, rateRatio)))).toFixed(3));
+        const rawBeat = Number(Math.max(0.08, Math.min(4.6, normBeat / Math.max(0.5, Math.min(2.0, rateRatio)))).toFixed(3));
         const durRatio = stu.dur / Math.max(0.05, nat.dur);
         const prevStuEnd = idx > 0 ? rawStudentSyls[idx - 1].beat + rawStudentSyls[idx - 1].dur : 0;
         const prevNatEnd = idx > 0 ? natSyls[idx - 1].beat + natSyls[idx - 1].dur : 0;
@@ -395,6 +433,7 @@ export function alignRecordPairToTetherItems(teacherRecord, studentRecord, phras
             dur: stu.dur,
             stress: stu.stress,
             pitchST: stu.pitchST,
+            isMissing: false,
             hasBlockBefore,
             blockMs,
             isProlonged,
@@ -443,7 +482,10 @@ export function renderVocAlignTetherDiagnosticSVG({
         let strokeColor = '#10b981';
         let ribbonFill = 'rgba(16, 185, 129, 0.22)';
 
-        if (lrn.hasBlockBefore) {
+        if (lrn.isMissing) {
+            strokeColor = '#64748b';
+            ribbonFill = 'rgba(100, 116, 139, 0.14)';
+        } else if (lrn.hasBlockBefore) {
             strokeColor = '#f43f5e';
             ribbonFill = 'rgba(244, 63, 94, 0.30)';
         } else if (lrn.isStuttered) {
@@ -562,12 +604,14 @@ export function renderVocAlignTetherDiagnosticSVG({
             `;
         }
 
-        // Elastic Tether Ribbon
-        svg += `
-          <polygon points="${nx},${natBot} ${nx + nw},${natBot} ${lx + lw},${lrnTop} ${lx},${lrnTop}" fill="${it.ribbonFill}" />
-          <line x1="${nx}" y1="${natBot}" x2="${lx}" y2="${lrnTop}" stroke="${it.strokeColor}" stroke-width="2.2" />
-          <line x1="${nx + nw}" y1="${natBot}" x2="${lx + lw}" y2="${lrnTop}" stroke="${it.strokeColor}" stroke-width="1.4" stroke-dasharray="3 2" />
-        `;
+        if (!it.lrn.isMissing) {
+            // Elastic Tether Ribbon
+            svg += `
+              <polygon points="${nx},${natBot} ${nx + nw},${natBot} ${lx + lw},${lrnTop} ${lx},${lrnTop}" fill="${it.ribbonFill}" />
+              <line x1="${nx}" y1="${natBot}" x2="${lx}" y2="${lrnTop}" stroke="${it.strokeColor}" stroke-width="2.2" />
+              <line x1="${nx + nw}" y1="${natBot}" x2="${lx + lw}" y2="${lrnTop}" stroke="${it.strokeColor}" stroke-width="1.4" stroke-dasharray="3 2" />
+            `;
+        }
 
         // Native Pre-Beat Consonant + Capsule + ♦ P-Center
         if (nPreW > 0 && !it.isGhost) {
@@ -924,11 +968,33 @@ export class ProsodyAudioPlayer {
         }
     }
 
-    playBlobUrl(blobUrl) {
+    playBlobUrl(blobUrl, { playbackRate = 1.0, trimStart = 0, trimEnd = null } = {}) {
         this.stop();
         if (!blobUrl || typeof Audio === 'undefined') return false;
         try {
             const audio = new Audio(blobUrl);
+            if ('preservesPitch' in audio) audio.preservesPitch = true;
+            if ('mozPreservesPitch' in audio) audio.mozPreservesPitch = true;
+            if ('webkitPreservesPitch' in audio) audio.webkitPreservesPitch = true;
+            audio.playbackRate = Math.max(0.5, Math.min(2.0, Number(playbackRate) || 1.0));
+            if (trimStart > 0) {
+                const seekToStart = () => {
+                    try {
+                        audio.currentTime = trimStart;
+                    } catch {
+                        // Ignore seek error before metadata
+                    }
+                };
+                if (audio.readyState >= 1) seekToStart();
+                else audio.addEventListener('loadedmetadata', seekToStart, { once: true });
+            }
+            if (trimEnd !== null && Number.isFinite(trimEnd) && trimEnd > trimStart) {
+                audio.addEventListener('timeupdate', () => {
+                    if (audio.currentTime >= trimEnd) {
+                        audio.pause();
+                    }
+                });
+            }
             this.activeAudioEl = audio;
             void audio.play().catch(() => {});
             return true;
@@ -955,11 +1021,12 @@ export class ProsodyAudioPlayer {
         this.activeNodes.push(osc, gain);
     }
 
-    playSyllableSequence(syllables, bpm = 88, includeBeats = true) {
+    playSyllableSequence(syllables, bpm = 88, includeBeats = true, { normFactor = 1.0 } = {}) {
         this.stop();
         const ctx = this._ensureCtx();
         if (!ctx || !Array.isArray(syllables) || syllables.length === 0) return 0;
 
+        const nf = Math.max(0, Math.min(1, Number.isFinite(Number(normFactor)) ? Number(normFactor) : 1.0));
         const secPerBeat = 60 / Math.max(60, bpm);
         const now = ctx.currentTime + 0.03;
 
@@ -970,7 +1037,10 @@ export class ProsodyAudioPlayer {
         }
 
         syllables.forEach((s) => {
-            const beatPos = Number(s.normBeat ?? s.beat ?? 0);
+            if (s.isMissing) return;
+            const raw = s.rawBeat ?? s.beat ?? 0;
+            const norm = s.normBeat ?? s.beat ?? 0;
+            const beatPos = Number(raw) * (1 - nf) + Number(norm) * nf;
             const durSec = Math.max(0.05, Number(s.dur ?? 0.2) * secPerBeat);
             const startSec = now + beatPos * secPerBeat;
             const pitchST = Number(s.pitchST ?? (s.isGhost ? -1.5 : 3.0));

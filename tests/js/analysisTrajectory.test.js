@@ -20,4 +20,19 @@ describe('analysis trajectory', () => {
         dispose();
         expect(container.children).toHaveLength(0);
     });
+
+    it('prepends articulatory estimate above feedback with tongue contact highlight', () => {
+        const container = document.createElement('div');
+        const feedback = document.createElement('div');
+        feedback.id = 'feedback-card';
+        container.appendChild(feedback);
+        const dispose = showAnalysisTrajectory(container, {
+            frame_rate: 50,
+            frames: [{ lip_aperture: 0.1, tongue_tip_constriction_degree: 0.0 }],
+        });
+        expect(container.firstElementChild.tagName).toBe('SECTION');
+        expect(container.firstElementChild.textContent).toContain('tongue contact enhanced');
+        expect(container.firstElementChild.className).toContain('min-h-');
+        dispose();
+    });
 });

@@ -284,6 +284,11 @@
                                 <option value="native_expressive">5. Fluent Expressive Speaker</option>
                                 <option value="recorded_take">6. Latest Recorded Take (Student)</option>
                             </select>
+                            <label class="text-xs font-semibold text-gray-700 flex items-center gap-1.5 ml-2" for="prosody-norm-slider">
+                                Match Duration:
+                                <input type="range" id="prosody-norm-slider" min="0" max="100" step="5" value="100" class="w-24 accent-blue-600">
+                                <span id="prosody-norm-value" class="font-mono text-gray-600 w-9">100%</span>
+                            </label>
                         </div>
 
                         <div class="flex flex-wrap items-center gap-2">

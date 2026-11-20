@@ -1,4 +1,5 @@
-import { loadHistory, storeRecord, getRoleId, setRoleId, createDesktopHistoryStorage } from './prosody_history.js';
+import { loadHistory, storeRecord, getRoleId, setRoleId, createDesktopHistoryStorage, formatRecordingLabel } from './prosody_history.js';
+import { measureSpeech } from './comparison_timing.js';
 import { listen, releaseCapture } from './capture_resources.js';
 import { getSettings, microphoneError, openMicrophone } from './microphone.js';
 import { convertAudioToWav, encodePcmWav } from './audio_conversion.js';
@@ -90,6 +91,10 @@ class ProsodyLabRecorder {
         this.customTextEl = document.getElementById('prosody-custom-text');
         this.customGenerateBtnEl = document.getElementById('prosody-custom-generate-btn');
         this.profileSelectEl = document.getElementById('prosody-profile-select');
+        this.normSliderEl = document.getElementById('prosody-norm-slider');
+        this.normValueEl = document.getElementById('prosody-norm-value');
+        this.normFactor = this.normSliderEl ? Number(this.normSliderEl.value) / 100 : 1.0;
+        this.latestRecordedSpeech = null;
         this.playRefBtnEl = document.getElementById('prosody-play-ref-btn');
         this.playLearnerBtnEl = document.getElementById('prosody-play-learner-btn');
         this.stopAudioBtnEl = document.getElementById('prosody-stop-audio-btn');
@@ -192,6 +197,14 @@ class ProsodyLabRecorder {
         if (this.profileSelectEl) {
             listen(this, this.profileSelectEl, 'change', () => {
                 this.profileKey = this.profileSelectEl.value || 'dysfluent_hesitation';
+                this.renderRhythmViews(this.loadHistory());
+            });
+        }
+        if (this.normSliderEl) {
+            listen(this, this.normSliderEl, 'input', () => {
+                const pct = Math.max(0, Math.min(100, Number(this.normSliderEl.value) || 0));
+                this.normFactor = pct / 100;
+                if (this.normValueEl) this.normValueEl.textContent = `${pct}%`;
                 this.renderRhythmViews(this.loadHistory());
             });
         }
@@ -458,6 +471,21 @@ class ProsodyLabRecorder {
         this.canvasCtx.stroke();
     }
 
+    async _measureWavSpeech(wavBlob) {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx || !wavBlob?.arrayBuffer) return null;
+        let ctx;
+        try {
+            ctx = new AudioCtx();
+            const buffer = await ctx.decodeAudioData(await wavBlob.arrayBuffer());
+            return measureSpeech(buffer);
+        } catch {
+            return null;
+        } finally {
+            void ctx?.close?.().catch(() => {});
+        }
+    }
+
     async sendForAnalysis() {
         if (!this.audioChunks.length) {
             this.setStatus('No audio recorded.', true);
@@ -467,6 +495,7 @@ class ProsodyLabRecorder {
         try {
             const wavBlob = await this.convertToWav(new Blob(this.audioChunks, { type: this.mediaRecorder?.mimeType || this.audioChunks[0]?.type }));
             if (this.destroyed) return;
+            this.latestRecordedSpeech = await this._measureWavSpeech(wavBlob);
             if (this.latestRecordedBlobUrl && typeof URL?.revokeObjectURL === 'function') {
                 URL.revokeObjectURL(this.latestRecordedBlobUrl);
             }
@@ -493,7 +522,12 @@ class ProsodyLabRecorder {
             if (this.performerSelectEl) {
                 this.performerSelectEl.value = 'recorded_take';
             }
-            await this.storeRecord(result);
+            const activePhrase = getPhraseById(this.phraseId);
+            await this.storeRecord({
+                ...result,
+                phrase_text: activePhrase?.title || '',
+                source: 'user',
+            });
             this.renderFromStorage(result.recording_id);
             this.setStatus('Analysis complete.');
         } catch (error) {
@@ -568,7 +602,16 @@ class ProsodyLabRecorder {
 
         if (this.audioMode === 'real_tts') {
             if (which === 'learner' && this.latestRecordedBlobUrl) {
-                this.audioPlayer.playBlobUrl(this.latestRecordedBlobUrl);
+                const speech = this.latestRecordedSpeech;
+                const refDur = Math.max(0.4, Number(teacherRecord?.summary?.duration_seconds) || (60 / bpm) * 4.0);
+                const stuDur = Math.max(0.4, speech?.span || Number(studentRecord?.summary?.duration_seconds) || refDur);
+                const matchRate = Math.max(0.5, Math.min(2.0, stuDur / refDur));
+                const playbackRate = 1 + (matchRate - 1) * (this.normFactor ?? 1.0);
+                this.audioPlayer.playBlobUrl(this.latestRecordedBlobUrl, {
+                    playbackRate,
+                    trimStart: speech?.start ?? 0,
+                    trimEnd: speech?.end ?? null,
+                });
             } else if (which === 'reference') {
                 let tts = phrase.audioBase64
                     ? { audioBase64: phrase.audioBase64, mimeType: phrase.mimeType || 'audio/wav' }
@@ -596,11 +639,13 @@ class ProsodyLabRecorder {
                     this.audioPlayer.playSyllableSequence(aligned.natSyls, bpm, false);
                 }
             } else {
-                this.audioPlayer.playSyllableSequence(aligned.lrnSyls, bpm, false);
+                this.audioPlayer.playSyllableSequence(aligned.lrnSyls, bpm, false, { normFactor: this.normFactor });
             }
         } else {
             const syls = which === 'reference' ? aligned.natSyls : aligned.lrnSyls;
-            this.audioPlayer.playSyllableSequence(syls, bpm, true);
+            this.audioPlayer.playSyllableSequence(syls, bpm, true, {
+                normFactor: which === 'learner' ? this.normFactor : 1.0,
+            });
         }
 
         this.startTetherPlayheadSweep(durationMs);
@@ -689,7 +734,10 @@ class ProsodyLabRecorder {
 
     renderCurrent(record) {
         if (this.currentLabelEl) {
-            this.currentLabelEl.textContent = record.recording_id ? `Recording ${record.recording_id.slice(0, 6)}` : 'Latest recording';
+            const phraseTitle = getPhraseById(this.phraseId)?.title || '';
+            this.currentLabelEl.textContent = record
+                ? formatRecordingLabel(record, phraseTitle, 1)
+                : 'Latest recording';
         }
 
         if (this.currentSummaryEl) {
@@ -740,16 +788,17 @@ class ProsodyLabRecorder {
         const studentId = this.getStudentId();
 
         this.historyEl.innerHTML = history
-            .map((record) => {
+            .map((record, index) => {
                 const isTeacher = record.recording_id === teacherId;
                 const isStudent = record.recording_id === studentId;
                 const createdAt = record.created_at ? new Date(record.created_at).toLocaleTimeString() : 'Just now';
                 const recordingId = escapeHtml(record.recording_id || '');
+                const label = formatRecordingLabel(record, getPhraseById(this.phraseId)?.title || '', history.length - index);
                 return `
           <div class="rounded-lg border border-gray-200 bg-white p-3 shadow-sm">
             <div class="flex items-start justify-between gap-3">
               <div>
-                <div class="font-medium text-gray-800">Recording ${escapeHtml(String(record.recording_id || '').slice(0, 6))}</div>
+                <div class="font-medium text-gray-800">${escapeHtml(label)}</div>
                 <div class="text-xs text-gray-500">${escapeHtml(createdAt)}</div>
                 <div class="mt-2 text-sm text-gray-700">
                   <span class="mr-3">Syllables: ${escapeHtml(record.summary?.syllable_count ?? '—')}</span>
@@ -809,6 +858,7 @@ class ProsodyLabRecorder {
                 profileKey: this.profileKey,
                 teacherRecord,
                 studentRecord,
+                normFactor: this.normFactor,
             });
         }
         this.renderFlowMatrixStage(history);

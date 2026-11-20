@@ -2,6 +2,23 @@
 const HISTORY_KEY = 'prosodyLabHistory';
 const ROLE_KEYS = { teacher: 'prosodyLabTeacherId', student: 'prosodyLabStudentId' };
 
+export function formatRecordingLabel(record, fallbackPhrase = '', indexHint = 1) {
+    const rawPhrase = record?.phrase_text || fallbackPhrase || '';
+    const cleaned = String(rawPhrase)
+        .replace(/^\d+\.\s*/, '')
+        .replace(/["'“”]/g, '')
+        .replace(/\.\.\./g, ' ')
+        .replace(/-/g, '')
+        .trim();
+    const words = cleaned.split(/\s+/).filter(Boolean).slice(0, 3);
+    const prefix = words.length > 0 ? words.join(' ') : 'Recording';
+    const num = Number.isFinite(Number(record?.take_number)) && Number(record.take_number) > 0
+        ? Number(record.take_number)
+        : Math.max(1, Number(indexHint) || 1);
+    const isAuto = record?.source === 'auto' || record?.is_auto === true;
+    return isAuto ? `${prefix} · ${num} · Auto` : `${prefix} · ${num}`;
+}
+
 export function trimProsodyHistory(history, maxItems = 3) {
     return history.slice(0, maxItems);
 }
@@ -33,10 +50,14 @@ export function setRoleId(role, id, storage = localStorage) {
 }
 
 export function storeRecord(record, storage = localStorage) {
-    const stored = { ...record, created_at: new Date().toISOString() };
-    const history = trimProsodyHistory([
-        stored, ...loadHistory(storage).filter((item) => item.recording_id !== stored.recording_id)
-    ]);
+    const existing = loadHistory(storage).filter((item) => item.recording_id !== record.recording_id);
+    const maxTake = existing.reduce((max, item) => Math.max(max, Number(item.take_number) || 0), 0);
+    const stored = {
+        ...record,
+        take_number: record.take_number ?? maxTake + 1,
+        created_at: new Date().toISOString(),
+    };
+    const history = trimProsodyHistory([stored, ...existing]);
     storage.setItem(HISTORY_KEY, JSON.stringify(history));
     for (const [role, fallbackIndex] of [['teacher', 1], ['student', 0]]) {
         if (!history.some((item) => item.recording_id === getRoleId(role, storage)) && history[fallbackIndex]) {

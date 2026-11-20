@@ -1,4 +1,5 @@
 import { SvgArticulatoryRenderer, DEFAULT_STATE } from './svg_articulatory_renderer.js';
+import { getSettings } from './microphone.js';
 import './ipa_tooltips.js';
 import './recorder.js';
 
@@ -11,11 +12,14 @@ window.svgRightRenderer = null;
 function mountSvgRenderers() {
     const leftContainer = document.getElementById('svg-articulatory-left');
     const rightContainer = document.getElementById('svg-articulatory-right');
+    const contactEnabled = getSettings().contact_enabled !== false;
+    const contactExaggeration = { enabled: contactEnabled, showContactHighlight: contactEnabled };
 
     if (leftContainer && !window.svgLeftRenderer) {
         window.svgLeftRenderer = new SvgArticulatoryRenderer(leftContainer, {
             prefix: 'left',
             state: DEFAULT_STATE,
+            contactExaggeration,
         });
         window.svgLeftRenderer.mount();
     }
@@ -24,6 +28,7 @@ function mountSvgRenderers() {
         window.svgRightRenderer = new SvgArticulatoryRenderer(rightContainer, {
             prefix: 'right',
             state: DEFAULT_STATE,
+            contactExaggeration,
         });
         window.svgRightRenderer.mount();
     }

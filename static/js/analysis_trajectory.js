@@ -1,17 +1,21 @@
 import { SvgArticulatoryRenderer } from './svg_articulatory_renderer.js';
+import { getSettings } from './microphone.js';
 
 /** Inspect estimated tract states on the recording's sample clock. */
 export function showAnalysisTrajectory(container, trajectory, blob) {
     const frames = trajectory?.frames;
     const rate = trajectory?.frame_rate;
     if (!container || !frames?.length || !(rate > 0)) return () => {};
+    const contactEnabled = getSettings().contact_enabled !== false;
     const section = document.createElement('section');
-    section.className = 'bg-white rounded-lg p-6 mt-4';
-    section.innerHTML = `<h3 class="text-lg font-semibold">Articulatory estimate</h3>
-        <p>Audio-based estimate, not measured tongue contact or pronunciation scoring.</p>
+    section.className = 'bg-white rounded-lg shadow-md p-6 mb-6 min-h-[calc(100vh-8rem)] flex flex-col';
+    section.innerHTML = `<div class="flex flex-wrap items-baseline justify-between gap-2">
+            <h3 class="text-xl font-semibold text-gray-800">Articulatory estimate</h3>
+            <p class="text-xs text-gray-500">Audio-based estimate${contactEnabled ? ' (tongue contact enhanced)' : ''}, not measured tongue contact or pronunciation scoring.</p>
+        </div>
         <div class="mt-3 flex flex-wrap items-center gap-3" data-playback>
             <audio controls preload="metadata" class="max-w-full"></audio>
-            <label>Playback speed
+            <label class="text-sm text-gray-700">Playback speed
                 <select class="rounded border px-2 py-1">
                     <option value="0.3">0.3×</option>
                     <option value="0.5" selected>0.5×</option>
@@ -24,14 +28,21 @@ export function showAnalysisTrajectory(container, trajectory, blob) {
             </label>
             <span data-speed-badge class="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800">Slow Motion (0.5x)</span>
         </div>
-        <div class="mt-3 max-w-xs">
-            <div data-tract></div>
-            <label class="block">Inspect frame <input type="range" min="0" step="1" value="0" class="block w-full"></label>
-            <output></output>
+        <div class="mt-4 flex-1 flex flex-col justify-center w-full max-w-3xl mx-auto">
+            <div data-tract class="w-full flex justify-center [&>svg]:max-h-[62vh] [&>svg]:w-auto"></div>
+            <label class="block mt-3 text-sm text-gray-700">Inspect frame <input type="range" min="0" step="1" value="0" class="block w-full mt-1"></label>
+            <output class="text-xs text-gray-600 mt-1"></output>
         </div>`;
-    container.appendChild(section);
-    const renderer = new SvgArticulatoryRenderer(section.querySelector('[data-tract]'), { prefix: 'analysis-estimate' });
+    container.prepend(section);
+    const renderer = new SvgArticulatoryRenderer(section.querySelector('[data-tract]'), {
+        prefix: 'analysis-estimate',
+        contactExaggeration: {
+            enabled: contactEnabled,
+            showContactHighlight: contactEnabled,
+        },
+    });
     renderer.mount();
+    section.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
     const slider = section.querySelector('input');
     slider.max = String(frames.length - 1);
     const audio = section.querySelector('audio');

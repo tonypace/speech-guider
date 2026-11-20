@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { loadHistory, storeRecord, getRoleId, setRoleId, createDesktopHistoryStorage } from '../../static/js/prosody_history.js';
+import { loadHistory, storeRecord, getRoleId, setRoleId, createDesktopHistoryStorage, formatRecordingLabel } from '../../static/js/prosody_history.js';
 
 const recording = id => ({ recording_id: id, summary: {}, pitch_track: [], syllable_onsets: [] });
 
@@ -20,6 +20,19 @@ describe('prosody history', () => {
         expect(loadHistory().map(item => item.recording_id)).toEqual(['4', '3', '2']);
         expect(getRoleId('teacher')).toBe('3');
         expect(getRoleId('student')).toBe('4');
+    });
+
+    it('formats recording labels with 3 phrase words, take number, and Auto tag', () => {
+        expect(formatRecordingLabel({
+            phrase_text: '1. "We NEED to focus on the CORE... PROBLEMs first"',
+            take_number: 2,
+            source: 'auto',
+        })).toBe('We NEED to · 2 · Auto');
+        expect(formatRecordingLabel({
+            phrase_text: 'We NEED to focus on the CORE',
+            take_number: 3,
+            source: 'user',
+        })).toBe('We NEED to · 3');
     });
 });
 

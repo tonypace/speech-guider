@@ -117,7 +117,7 @@ describe('SSL comparison playback lifecycle', () => {
 
     it.each([
         ['a truncated take', audioBuffer(3, [0.5, 1.5])],
-        ['an unusually long take', audioBuffer(3, [0.2, 2.8])],
+        ['an unusually long take', audioBuffer(6, [0.2, 4.5])],
         ['sparse speech with a similar span', audioBuffer(3, [0.5, 0.6], [2.4, 2.5])],
         ['a silent take', audioBuffer(3)],
         ['a click in silence', audioBuffer(3, [0.5, 0.51])],
@@ -129,6 +129,15 @@ describe('SSL comparison playback lifecycle', () => {
         controller.setDurationMatching(true);
         expect(controller.durationMatching).toBe(false);
         expect(controller.getDuration('student')).toBe(originalDuration);
+    });
+
+    it('matches takes within 0.5x-2.0x even with a central pause', async () => {
+        await load('reference', audioBuffer(3, [0.5, 2.5]));
+        await load('student', audioBuffer(5, [0.4, 1.4], [2.8, 3.8]));
+        const rate = controller.getMatchRate();
+        expect(rate).not.toBeNull();
+        expect(rate).toBeGreaterThanOrEqual(0.5);
+        expect(rate).toBeLessThanOrEqual(2.0);
     });
 
     it('advances frame-only playback and preserves the linked position at end of playback', () => {

@@ -88,7 +88,10 @@ function initializeSettings() {
         updateMicrophoneControls();
     });
     devices.addEventListener('change', closeTest);
-    refresh.addEventListener('click', async () => {
+    let refreshInFlight = false;
+    async function refreshMicrophones() {
+        if (!enabled.checked || refreshInFlight) return;
+        refreshInFlight = true;
         closeTest();
         const request = generation;
         refresh.disabled = true;
@@ -104,7 +107,15 @@ function initializeSettings() {
             if (request === generation) status.textContent = microphoneError(error);
         } finally {
             stream?.getTracks().forEach(track => track.stop());
+            refreshInFlight = false;
             updateMicrophoneControls();
+        }
+    }
+
+    refresh.addEventListener('click', refreshMicrophones);
+    window.addEventListener('speechguider:tabchange', (event) => {
+        if (event.detail === 'settings' && enabled.checked) {
+            void refreshMicrophones();
         }
     });
 
