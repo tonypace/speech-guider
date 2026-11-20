@@ -348,24 +348,23 @@ class ProsodyAnalyzer:
         if pitch_obj is None:
             pitch_obj = self.audio.to_pitch()
         pitch_values = pitch_obj.selected_array["frequency"]
-        pitch_dt = pitch_obj.time_step
+        pitch_times = pitch_obj.xs()
 
         intensity_obj = self.audio.to_intensity()
-        intensity_values = intensity_obj.values
-        intensity_dt = intensity_obj.time_step
-        intensity_t0 = intensity_obj.start_time
+        intensity_values = intensity_obj.values[0]
+        intensity_times = intensity_obj.xs()
 
         words_data: list[WordData] = []
 
         for word, start_time, end_time in word_timestamps:
-            pitch_start = int(start_time / pitch_dt)
-            pitch_end = int(end_time / pitch_dt)
-            word_pitch = pitch_values[pitch_start:pitch_end]
+            # Praat frames have a nonzero first center and intensity has a channel axis.
+            word_pitch = pitch_values[(pitch_times >= start_time) & (pitch_times < end_time)]
             voiced_pitch = word_pitch[word_pitch > 0]
 
-            intensity_start = int((start_time - intensity_t0) / intensity_dt)
-            intensity_end = int((end_time - intensity_t0) / intensity_dt)
-            word_intensity = intensity_values[intensity_start:intensity_end]
+            word_intensity = intensity_values[
+                (intensity_times >= start_time) & (intensity_times < end_time)
+            ]
+            word_intensity = word_intensity[np.isfinite(word_intensity)]
             mean_intensity = np.mean(word_intensity) if len(word_intensity) > 0 else 0.0
 
             if len(voiced_pitch) > 0:

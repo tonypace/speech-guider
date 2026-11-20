@@ -2,6 +2,22 @@ import { describe, expect, it, vi } from 'vitest';
 import { showAnalysisTrajectory } from '../../static/js/analysis_trajectory.js';
 
 describe('analysis trajectory', () => {
+    it('pauses hidden analysis playback and removes its tab listener on disposal', () => {
+        const container = document.createElement('div');
+        const dispose = showAnalysisTrajectory(container, { frame_rate: 50, frames: [{ lip_aperture: 0.1 }] });
+        const pause = vi.spyOn(container.querySelector('audio'), 'pause').mockImplementation(() => {});
+
+        window.dispatchEvent(new CustomEvent('speechguider:tabchange', { detail: 'analysis' }));
+        expect(pause).not.toHaveBeenCalled();
+        window.dispatchEvent(new CustomEvent('speechguider:tabchange', { detail: 'comparison' }));
+        expect(pause).toHaveBeenCalledOnce();
+
+        dispose();
+        pause.mockClear();
+        window.dispatchEvent(new CustomEvent('speechguider:tabchange', { detail: 'prosody' }));
+        expect(pause).not.toHaveBeenCalled();
+    });
+
     it('renders and seeks actual frames, then disposes view', () => {
         const container = document.createElement('div');
         const dispose = showAnalysisTrajectory(container, {

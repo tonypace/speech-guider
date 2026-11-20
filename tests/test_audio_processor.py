@@ -83,6 +83,24 @@ def test_stress_analysis(dummy_wav_factory: Callable[..., Path]) -> None:
     assert stress.prominence_score > 0.0
 
 
+def test_stress_uses_word_intensity_frames(dummy_wav_factory: Callable[..., Path]) -> None:
+    """Equal-pitch words should retain their local intensity difference."""
+    sample_rate = 16000
+    times = np.arange(2 * sample_rate) / sample_rate
+    waveform = np.sin(2 * np.pi * 200 * times) * np.where(times < 1.0, 0.04, 0.6)
+    path = dummy_wav_factory(sample_rate=sample_rate, waveform=waveform)
+    analyzer = ProsodyAnalyzer(AudioContext(str(path)))
+
+    soft = analyzer.analyze_stress([("soft", 0.2, 0.8)])
+    loud = analyzer.analyze_stress([("loud", 1.2, 1.8)])
+    assert soft is not None
+    assert loud is not None
+    assert loud.prominence_score - soft.prominence_score > 0.2
+    stress = analyzer.analyze_stress([("soft", 0.2, 0.8), ("loud", 1.2, 1.8)])
+    assert stress is not None
+    assert stress.primary_stress_word == "loud"
+
+
 def test_complete_prosody_analysis(dummy_wav_factory: Callable[..., Path]) -> None:
     """Test complete prosody analysis pipeline with voice quality."""
     wav_path = dummy_wav_factory(duration=2.0, frequency=200.0, modulated=True)

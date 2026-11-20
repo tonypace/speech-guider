@@ -466,11 +466,8 @@ def parse_aai_animation_payload(
         frames = payload.get("frames")
         if not isinstance(frames, Sequence):
             raise ValueError("AAI frames payload must be a sequence")
-        tract_variables = representative_aai_pose(
-            frames,
-            profile=profile,
-            normalization=metadata.normalization,
-        )
+        # Keep the median in input units; conversion below denormalizes exactly once.
+        tract_variables = representative_aai_pose(frames)
     else:
         values = payload.get("values")
         if not isinstance(values, Sequence):

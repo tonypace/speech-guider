@@ -14,6 +14,8 @@ class TauriController {
         this.prosodySamples = [];
         this.currentSampleIndex = -1;
         this.isRecording = false;
+        this.recordingMode = null;
+        this.tabDownTime = null;
 
         if (this.isTauri) {
             this.init();
@@ -45,7 +47,16 @@ class TauriController {
 
         this.currentMode = this.modeForTab(window.currentTab || 'analysis');
         window.addEventListener('speechguider:tabchange', (event) => {
-            this.currentMode = this.modeForTab(event.detail);
+            const mode = this.modeForTab(event.detail);
+            if (mode !== this.currentMode || (this.isRecording && mode !== this.recordingMode)) {
+                this.tabDownTime = null;
+                this.handleRecordRelease();
+            }
+            this.currentMode = mode;
+        });
+        window.addEventListener('blur', () => {
+            this.tabDownTime = null;
+            this.handleRecordRelease();
         });
 
         // Set up clicker input
@@ -120,7 +131,6 @@ class TauriController {
    * Set up clicker input (Left, Right, Tab)
    */
     setupClickerInput() {
-        let tabDownTime = null;
         const TAB_HOLD_THRESHOLD = 200; // ms
 
         document.addEventListener('keydown', (event) => {
@@ -140,8 +150,8 @@ class TauriController {
 
                 case 'Tab':
                     event.preventDefault();
-                    if (!this.isRecording && tabDownTime === null) {
-                        tabDownTime = Date.now();
+                    if (!this.isRecording && this.tabDownTime === null) {
+                        this.tabDownTime = Date.now();
                         this.handleRecordPress();
                     }
                     break;
@@ -149,11 +159,9 @@ class TauriController {
         });
 
         document.addEventListener('keyup', (event) => {
-            if (!this.currentMode || window.currentTab === 'comparison') return;
-
             if (event.key === 'Tab' && this.isRecording) {
-                const holdDuration = tabDownTime !== null ? (Date.now() - tabDownTime) : TAB_HOLD_THRESHOLD;
-                tabDownTime = null;
+                const holdDuration = this.tabDownTime !== null ? (Date.now() - this.tabDownTime) : TAB_HOLD_THRESHOLD;
+                this.tabDownTime = null;
 
                 this.handleRecordRelease();
                 if (holdDuration < TAB_HOLD_THRESHOLD) {
@@ -204,6 +212,7 @@ class TauriController {
 
         if (this.isRecording) return;
         this.isRecording = true;
+        this.recordingMode = this.currentMode;
 
         switch (this.currentMode) {
             case 'pronunciation':
@@ -223,8 +232,10 @@ class TauriController {
 
         if (!this.isRecording) return;
         this.isRecording = false;
+        const mode = this.recordingMode;
+        this.recordingMode = null;
 
-        switch (this.currentMode) {
+        switch (mode) {
             case 'pronunciation':
                 this.stopPronunciationRecording();
                 break;

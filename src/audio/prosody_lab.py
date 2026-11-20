@@ -229,6 +229,9 @@ def _compute_vocalic_npvi(durations: list[float]) -> float | None:
 
 def _build_praat_pitch(sound: parselmouth.Sound) -> parselmouth.Pitch:
     """Extract Praat autocorrelation pitch object with Prosody Lab settings."""
+    # Praat autocorrelation requires room for three periods at the pitch floor.
+    if sound.total_duration < 3.0 / 65.0:
+        raise ValueError("Recording is too short for pitch analysis; record at least 47 ms.")
     return sound.to_pitch_ac(
         time_step=0.008,
         pitch_floor=65.0,
@@ -694,7 +697,7 @@ def _analyze_prosody_waveform(samples: np.ndarray, sample_rate: int) -> dict[str
     syllable_details = syllable_data["syllable_details"]
     pause_spans = _heuristic_pause_spans(pitch_y, pitch_sr)
 
-    syllable_count = max(1, len(markers))
+    syllable_count = len(markers)
     pause_count = len(pause_spans)
 
     total_duration = len(pitch_y) / pitch_sr if pitch_sr else 0.0

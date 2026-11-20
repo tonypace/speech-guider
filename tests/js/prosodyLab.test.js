@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ProsodyLabRecorder } from '../../static/js/prosody_lab.js';
 import { trimProsodyHistory } from '../../static/js/prosody_history.js';
 import {
@@ -113,5 +113,75 @@ describe('Prosody Lab helpers', () => {
 
         expect(feedbackEl.querySelector('svg')).toBeNull();
         expect(feedbackEl.textContent).toContain(hostile);
+    });
+});
+
+describe('Prosody Lab pending audio ownership', () => {
+    let recorder;
+
+    beforeEach(() => {
+        document.body.innerHTML = '<select id="prosody-phrase-select"><option value="prepared">Prepared</option><option value="contrastive">Contrastive</option></select>';
+        recorder = new ProsodyLabRecorder();
+        recorder.audioMode = 'real_tts';
+        vi.spyOn(recorder.audioPlayer, 'playBase64Audio').mockReturnValue(true);
+        vi.spyOn(recorder.audioPlayer, 'playSyllableSequence').mockReturnValue(0);
+        vi.spyOn(recorder, 'startTetherPlayheadSweep').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+        recorder.destroy();
+        vi.restoreAllMocks();
+        vi.unstubAllGlobals();
+    });
+
+    it.each(['stop', 'destroy', 'phrase change'])('ignores pending reference playback after %s', async (action) => {
+        let resolve;
+        vi.stubGlobal('fetch', vi.fn(() => new Promise(done => { resolve = done; })));
+        const audition = recorder.auditionTimingTrack('reference');
+
+        if (action === 'stop') recorder.stopAllAudio();
+        if (action === 'destroy') recorder.destroy();
+        if (action === 'phrase change') {
+            recorder.phraseSelectEl.value = 'contrastive';
+            recorder.phraseSelectEl.dispatchEvent(new Event('change'));
+        }
+        resolve({ ok: true, json: async () => ({ audio_base64: 'old-reference' }) });
+        await audition;
+
+        expect(recorder.audioPlayer.playBase64Audio).not.toHaveBeenCalled();
+        expect(recorder.audioPlayer.playSyllableSequence).not.toHaveBeenCalled();
+        expect(recorder.startTetherPlayheadSweep).not.toHaveBeenCalled();
+        expect(recorder.referenceTtsCache.contrastive).toBeUndefined();
+    });
+
+    it('does not let an older reference request interrupt a newer learner audition', async () => {
+        let resolve;
+        vi.stubGlobal('fetch', vi.fn(() => new Promise(done => { resolve = done; })));
+        const reference = recorder.auditionTimingTrack('reference');
+        await recorder.auditionTimingTrack('learner');
+        resolve({ ok: true, json: async () => ({ audio_base64: 'old-reference' }) });
+        await reference;
+
+        expect(recorder.audioPlayer.playBase64Audio).not.toHaveBeenCalled();
+        expect(recorder.audioPlayer.playSyllableSequence).toHaveBeenCalledOnce();
+        expect(recorder.startTetherPlayheadSweep).toHaveBeenCalledOnce();
+    });
+
+    it('does not allocate a recording URL or submit after destruction during speech decoding', async () => {
+        let finishDecode;
+        recorder.audioChunks = [new Blob(['capture'])];
+        vi.spyOn(recorder, 'convertToWav').mockResolvedValue(new Blob(['wav']));
+        vi.spyOn(recorder, '_measureWavSpeech').mockImplementation(() => new Promise(resolve => { finishDecode = resolve; }));
+        const createUrl = vi.spyOn(URL, 'createObjectURL');
+        vi.stubGlobal('fetch', vi.fn());
+        const analysis = recorder.sendForAnalysis();
+        await vi.waitFor(() => expect(recorder._measureWavSpeech).toHaveBeenCalled());
+        recorder.destroy();
+        finishDecode({ start: 0, end: 1, span: 1 });
+        await analysis;
+
+        expect(createUrl).not.toHaveBeenCalled();
+        expect(fetch).not.toHaveBeenCalled();
+        expect(recorder.latestRecordedBlobUrl).toBeNull();
     });
 });

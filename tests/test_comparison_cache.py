@@ -5,7 +5,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from fastapi.testclient import TestClient
 
+from app.main import app
+from src.services import comparison_cache
 from src.services.comparison_cache import ComparisonCache
 
 
@@ -28,6 +31,23 @@ def test_cache_instances_own_independent_audio_files(tmp_path: Path) -> None:
     assert second_asset.audio_bytes == b"second"
     second.clear()
     assert not list(tmp_path.iterdir())
+
+
+def test_application_shutdown_removes_owned_reference_audio(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cache = ComparisonCache(temp_dir=tmp_path)
+    monkeypatch.setattr(comparison_cache, "_comparison_cache", cache)
+    unrelated = tmp_path / "unrelated.ogg"
+    unrelated.write_bytes(b"keep")
+
+    with TestClient(app):
+        _put(comparison_cache.get_comparison_cache())
+        assert cache.get_stats()["temp_files"] == 1
+
+    assert cache.get_stats()["temp_files"] == 0
+    assert list(tmp_path.iterdir()) == [unrelated]
+    assert comparison_cache._comparison_cache is None
 
 
 def test_failed_replacement_uses_new_memory_audio(tmp_path: Path) -> None:

@@ -98,6 +98,34 @@ def test_analyze_prosody_recording_returns_summary(
     assert len(result["syllable_details"]) == 2
 
 
+def test_silent_recording_has_no_syllables_or_speech_rate(
+    dummy_wav_factory: Callable[..., Path],
+) -> None:
+    path = dummy_wav_factory(duration=1.0, amplitude=0.0)
+    result = analyze_prosody_recording(str(path))
+    assert result["syllable_onsets"] == []
+    assert result["syllable_details"] == []
+    assert result["summary"]["syllable_count"] == 0
+    assert result["summary"]["speech_rate"] == 0.0
+    assert result["summary"]["articulation_rate"] == 0.0
+
+
+def test_prosody_rejects_recording_shorter_than_pitch_window(
+    dummy_wav_factory: Callable[..., Path],
+) -> None:
+    client = TestClient(app)
+    for duration, expected_status in [(0.046, 400), (0.047, 200)]:
+        path = dummy_wav_factory(duration=duration, frequency=220.0)
+        with path.open("rb") as audio_file:
+            response = client.post(
+                "/api/prosody-lab/analyze",
+                files={"audio": ("short.wav", audio_file, "audio/wav")},
+            )
+        assert response.status_code == expected_status
+        if expected_status == 400:
+            assert "too short" in response.json()["detail"].lower()
+
+
 def test_hybrid_pcenter_detector_ignores_unvoiced_sibilant_bursts(
     dummy_wav_factory: Callable[..., Path],
 ) -> None:

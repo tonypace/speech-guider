@@ -51,6 +51,7 @@ class ProsodyLabRecorder {
         this.flowResponseBar = false;
         this.flowAnimationId = null;
         this.playheadRafId = null;
+        this.playbackRequestId = 0;
         this.audioPlayer = new ProsodyAudioPlayer();
         this.latestRecordedBlobUrl = null;
         this.referenceTtsCache = {};
@@ -175,6 +176,8 @@ class ProsodyLabRecorder {
         }
         if (this.phraseSelectEl) {
             listen(this, this.phraseSelectEl, 'change', () => {
+                this.stopAllAudio();
+                this.stopFlowLoop();
                 this.phraseId = this.phraseSelectEl.value || 'prepared';
                 this.updateCustomSentenceBarVisibility();
                 const phrase = getPhraseById(this.phraseId);
@@ -496,6 +499,7 @@ class ProsodyLabRecorder {
             const wavBlob = await this.convertToWav(new Blob(this.audioChunks, { type: this.mediaRecorder?.mimeType || this.audioChunks[0]?.type }));
             if (this.destroyed) return;
             this.latestRecordedSpeech = await this._measureWavSpeech(wavBlob);
+            if (this.destroyed) return;
             if (this.latestRecordedBlobUrl && typeof URL?.revokeObjectURL === 'function') {
                 URL.revokeObjectURL(this.latestRecordedBlobUrl);
             }
@@ -563,6 +567,8 @@ class ProsodyLabRecorder {
             }
             const data = await response.json();
             if (this.destroyed) return;
+            this.stopAllAudio();
+            this.stopFlowLoop();
             setCustomPhrase({
                 ...data.phrase,
                 audioBase64: data.audio_base64,
@@ -591,7 +597,11 @@ class ProsodyLabRecorder {
     }
 
     async auditionTimingTrack(which = 'reference') {
+        if (this.destroyed) return;
         this.stopAllAudio();
+        const requestId = this.playbackRequestId;
+        const phraseId = this.phraseId;
+        const isCurrent = () => !this.destroyed && requestId === this.playbackRequestId;
         const history = this.loadHistory();
         const teacherRecord = history.find((item) => item.recording_id === this.getTeacherId()) || history[1] || null;
         const studentRecord = history.find((item) => item.recording_id === this.getStudentId()) || history[0] || null;
@@ -615,7 +625,7 @@ class ProsodyLabRecorder {
             } else if (which === 'reference') {
                 let tts = phrase.audioBase64
                     ? { audioBase64: phrase.audioBase64, mimeType: phrase.mimeType || 'audio/wav' }
-                    : this.referenceTtsCache[this.phraseId];
+                    : this.referenceTtsCache[phraseId];
                 if (!tts) {
                     try {
                         const cleanSentence = phrase.title.replace(/\.\.\./g, ',').replace(/-/g, '');
@@ -626,13 +636,15 @@ class ProsodyLabRecorder {
                         });
                         if (resp.ok) {
                             const payload = await resp.json();
+                            if (!isCurrent()) return;
                             tts = { audioBase64: payload.audio_base64, mimeType: payload.mime_type || 'audio/wav' };
-                            this.referenceTtsCache[this.phraseId] = tts;
+                            this.referenceTtsCache[phraseId] = tts;
                         }
                     } catch {
                         // Fall back to clean formant voice without beats
                     }
                 }
+                if (!isCurrent()) return;
                 if (tts?.audioBase64) {
                     this.audioPlayer.playBase64Audio(tts.audioBase64, tts.mimeType);
                 } else {
@@ -676,6 +688,7 @@ class ProsodyLabRecorder {
     }
 
     stopAllAudio() {
+        this.playbackRequestId += 1;
         this.audioPlayer.stop();
         if (this.playheadRafId) {
             cancelAnimationFrame(this.playheadRafId);

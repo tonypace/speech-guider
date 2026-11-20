@@ -36,6 +36,12 @@ This document is the permanent **ledger of implemented features and completed wo
 
 ## Completed refactors & stabilization milestones
 
+### 2026-11-20 — Project review: ten correctness and lifecycle repairs
+- **Details:** [Review findings and evidence](review-2026-11-20.md).
+- **Touched files:** `app/main.py`, `scripts/dev.sh`, `src/audio/processor.py`, `src/audio/prosody_lab.py`, `src/models/aai_adapter.py`, `static/js/analysis_trajectory.js`, `static/js/prosody_lab.js`, `static/js/tauri_controller.js`, `tests/js/analysisTrajectory.test.js`, `tests/js/prosodyLab.test.js`, `tests/js/tauriController.test.js`, `tests/test_articulatory.py`, `tests/test_audio_processor.py`, `tests/test_comparison_cache.py`, `tests/test_dev_lifecycle.py`, `tests/test_prosody_lab.py`, `docs/future_plans.md`, `docs/review-2026-11-20.md`, `docs/completed_tasks.md`.
+- **Summary:** Removed owned reference cache files on graceful application shutdown; bounded development process-group cleanup; corrected silent-recording syllable counts, too-short Prosody upload errors, local stress-frame selection, and double z-score denormalization; prevented stale Prosody auditions/cache writes and post-destruction recording submissions; paused hidden Analysis playback; reset Tauri clicker capture ownership on blur/tab changes. Recorded the separate CPPS transform/axis/unit defect as the next correctness repair in the working stack.
+- **Verification:** `npm run check` passed (assets, ESLint, Ruff lint/format, mypy; Vitest 177 passed; pytest 213 passed). Mocked Playwright 10 passed; real upload smoke Playwright 4 passed; Rust tests 5 passed. Shell syntax and `git diff --check` passed. Physical hardware/distribution and acoustic-threshold validation remain open.
+
 ### 2026-11-06 — Codebase review & prioritized refactor
 - **Details:** [Review and refactor report](review-refactor.md), [Backend review](review-backend.md), [Pipeline review](review-pipeline.md), [Frontend review](review-frontend.md).
 - **Summary:** Fixed Praat mono waveform channel selection, shared browser/server audio conversion and `AudioContext` cleanup, synchronized comparison playback and cache instance isolation, shared single-slot inference gate with cancellation drain, discoverable SSE progress jobs with bounded replay, XSS escaping on error/tooltip/history sinks, atomic/locked JSON preset storage, explicit semitone pitch labels, and offline Tailwind/Plotly packaging.

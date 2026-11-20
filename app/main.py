@@ -1,5 +1,7 @@
 """Main FastAPI application entry point."""
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -17,13 +19,25 @@ from app.api import (
     settings,
     sse,
 )
+from src.services.comparison_cache import reset_comparison_cache
 from src.services.desktop_assets import desktop_asset_dir, desktop_assets_missing
+
+
+@asynccontextmanager
+async def lifespan(application: FastAPI) -> AsyncIterator[None]:
+    """Remove owned reference audio before the process loses its cache namespace."""
+    try:
+        yield
+    finally:
+        reset_comparison_cache()
+
 
 # Create FastAPI app
 app = FastAPI(
     title="Pronunciation & Prosody Evaluator",
     description="Real-time pronunciation feedback with vocal tract visualization",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 # Get project root

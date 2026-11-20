@@ -410,6 +410,17 @@ def test_parse_aai_animation_payload_zscore_matches_single_step_conversion():
     assert parse_aai_animation_payload(payload) == expected
 
 
+def test_parse_aai_animation_frames_denormalize_once() -> None:
+    """Equivalent z-score trajectories and rows must yield the same pose."""
+    metadata = {
+        "normalization": "z_score",
+        "stats_reference": {"mean": [0.3] * 9, "std": [0.1] * 9},
+    }
+    row = parse_aai_animation_payload({**metadata, "values": [0.0] * 9})
+    frames = parse_aai_animation_payload({**metadata, "frames": [[0.0] * 9] * 3})
+    assert frames == row
+
+
 def test_aai_masked_channels_fall_back_to_existing_state():
     """Masked XRMB channels should fall back rather than pretending to be observed."""
 

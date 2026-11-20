@@ -32,16 +32,21 @@ from pathlib import Path
 root = Path.cwd()
 child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
 (root / "child_pid").write_text(str(child.pid))
+(root / "backend_pid").write_text(str(os.getpid()))
 def stop(*args):
     child.wait(timeout=5)
     (root / "backend_stopped").touch()
     sys.exit(0)
 signal.signal(signal.SIGTERM, stop)
+if os.environ["DEV_TEST_MODE"] == "stubborn":
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
 (root / "backend_ready").touch()
 if os.environ["DEV_TEST_MODE"] == "late_death":
     while not (root / "desktop_started").exists(): time.sleep(0.01)
     sys.exit(1)
-while True: time.sleep(0.1)
+while True:
+    child.poll()
+    time.sleep(0.1)
 """,
     )
     executable(
@@ -60,7 +65,7 @@ def stop(*args):
     Path("desktop_stopped").touch()
     sys.exit(0)
 signal.signal(signal.SIGTERM, stop)
-if os.environ["DEV_TEST_MODE"] == "success":
+if os.environ["DEV_TEST_MODE"] in {"success", "stubborn"}:
     time.sleep(0.1)
     sys.exit(0)
 while True: time.sleep(0.1)
@@ -100,3 +105,15 @@ def test_late_backend_death_stops_desktop(dev_project: Path) -> None:
     assert result.returncode == 1
     assert "FastAPI exited while desktop" in result.stderr
     assert (dev_project / "desktop_stopped").exists()
+
+
+def test_desktop_exit_kills_backend_ignoring_term(dev_project: Path) -> None:
+    result = run_dev(dev_project, "stubborn")
+    assert result.returncode == 0, result.stderr
+    assert (dev_project / "desktop_started").exists()
+    backend_pid = int((dev_project / "backend_pid").read_text())
+    with pytest.raises(ProcessLookupError):
+        os.kill(backend_pid, 0)
+    child_pid = int((dev_project / "child_pid").read_text())
+    with pytest.raises(ProcessLookupError):
+        os.kill(child_pid, 0)

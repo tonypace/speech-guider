@@ -14,11 +14,16 @@ This document is the active, priority-ordered **working stack** for cleanup, bug
 
 ## Stack status
 
-The initial codebase cleanup stack (`P0.1`–`P4.3`) was completed on **2026-11-17**, and the post-review cleanup, bug-fix, and UX refinement stack (`Section 1`–`Section 3`) was completed and logged in [completed tasks](completed_tasks.md) on **2026-11-19**. Remaining open work below tracks release/hardware validation and planned domain features.
+The initial codebase cleanup stack (`P0.1`–`P4.3`) was completed on **2026-11-17**, and the post-review cleanup, bug-fix, and UX refinement stack (`Section 1`–`Section 3`) was completed and logged in [completed tasks](completed_tasks.md) on **2026-11-19**. The **2026-11-20** project review fixed ten further correctness/lifecycle bugs and identified the CPPS repair below; see the [review report](review-2026-11-20.md). Remaining work tracks that repair, release/hardware validation, and planned domain features.
 
 ---
 
-## Priority 1 — Release & live-environment validation
+## Priority 1 — Correctness & release validation
+
+### Repair CPPS computation before acoustic threshold validation
+- **Finding:** P2, `src/audio/processor.py:281`; `_compute_cpps` constructs frequency bins in Hz and searches them with quefrency bounds in seconds. At 16 kHz with 30 ms frames, both search bounds resolve to index 1, so every frame is skipped and CPPS returns `0.0` even for a periodic harmonic signal.
+- **Scope:** Correct the cepstral transform, quefrency axis, and dB baseline together, using a documented Praat reference. An axis-only patch would leave the forward FFT magnitude and output units inconsistent with the CPPS label. Add deterministic periodic/noisy waveform regressions and reference-script comparisons; keep coaching-threshold calibration as the separate domain task below.
+- **Evidence:** [2026-11-20 review](review-2026-11-20.md).
 
 ### Desktop distribution and hardware validation
 - **References:** [Desktop release](desktop-release.md), [Release contracts](release-contracts.md), [Stabilization repair evidence](stabilization-2026-11-07.md)

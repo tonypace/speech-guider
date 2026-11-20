@@ -257,6 +257,31 @@ describe('TauriController', () => {
     });
 
     describe('Tab hold/release recording', () => {
+        it.each(['blur', 'comparison', 'prosody'])('releases the owning recorder on %s and accepts the next hold', (interruption) => {
+            window.__SPEECH_GUIDER_TAURI__ = true;
+            window.currentTab = 'analysis';
+            window.recorder = { startRecording: vi.fn(), stopRecording: vi.fn() };
+            window.prosodyLabRecorder = { startRecording: vi.fn(), stopRecording: vi.fn() };
+            const controller = new TauriController();
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab' }));
+
+            if (interruption === 'blur') window.dispatchEvent(new Event('blur'));
+            else {
+                window.currentTab = interruption;
+                window.dispatchEvent(new CustomEvent('speechguider:tabchange', { detail: interruption }));
+            }
+            expect(window.recorder.stopRecording).toHaveBeenCalledOnce();
+            expect(window.prosodyLabRecorder.stopRecording).not.toHaveBeenCalled();
+            expect(controller.isRecording).toBe(false);
+
+            window.currentTab = 'analysis';
+            window.dispatchEvent(new CustomEvent('speechguider:tabchange', { detail: 'analysis' }));
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab' }));
+            expect(window.recorder.startRecording).toHaveBeenCalledTimes(2);
+            document.dispatchEvent(new KeyboardEvent('keyup', { key: 'Tab' }));
+            expect(window.recorder.stopRecording).toHaveBeenCalledTimes(2);
+        });
+
         it('starts pronunciation recording on Tab keydown, stops on release >= 200ms, and reads window.currentErrors dynamically', () => {
             vi.useFakeTimers();
             window.__SPEECH_GUIDER_TAURI__ = true;

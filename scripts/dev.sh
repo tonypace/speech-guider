@@ -15,6 +15,24 @@ cleanup() {
     for process_id in "$TAURI_PID" "$FASTAPI_PID"; do
         if [ -n "$process_id" ]; then
             kill -- "-$process_id" 2>/dev/null || true
+        fi
+    done
+    # Inference or a descendant may ignore TERM; never wait forever on exit.
+    for ((attempt = 0; attempt < 40; attempt++)); do
+        pending=false
+        for process_id in "$TAURI_PID" "$FASTAPI_PID"; do
+            if [ -n "$process_id" ] && kill -0 -- "-$process_id" 2>/dev/null; then
+                pending=true
+            fi
+        done
+        if [ "$pending" = false ]; then
+            break
+        fi
+        sleep 0.05
+    done
+    for process_id in "$TAURI_PID" "$FASTAPI_PID"; do
+        if [ -n "$process_id" ]; then
+            kill -KILL -- "-$process_id" 2>/dev/null || true
             wait "$process_id" 2>/dev/null || true
         fi
     done

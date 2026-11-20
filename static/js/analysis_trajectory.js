@@ -89,6 +89,13 @@ export function showAnalysisTrajectory(container, trajectory, blob) {
     audio.onplay = () => { cancelAnimationFrame(animation); tick(); };
     audio.onpause = () => cancelAnimationFrame(animation);
     audio.onseeked = () => render(Math.floor(audio.currentTime * rate));
+    const onTabChange = (event) => {
+        if (event.detail !== 'analysis') {
+            audio.pause();
+            cancelAnimationFrame(animation);
+        }
+    };
+    window.addEventListener('speechguider:tabchange', onTabChange);
     slider.oninput = () => {
         const index = Number(slider.value);
         if (url) audio.currentTime = index / rate;
@@ -96,6 +103,7 @@ export function showAnalysisTrajectory(container, trajectory, blob) {
     };
     render(0);
     return () => {
+        window.removeEventListener('speechguider:tabchange', onTabChange);
         cancelAnimationFrame(animation);
         audio.pause();
         audio.removeAttribute('src');
