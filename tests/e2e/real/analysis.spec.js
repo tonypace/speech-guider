@@ -51,11 +51,22 @@ test.describe('Analysis — Real Backend Smoke', () => {
     test('submits real analysis via #audio upload and renders feedback without crashing', async ({ page }) => {
         await disableMicrophone(page);
         await openHome(page);
-        await uploadFixtureAudio(page, 'The weather is very hot today.');
+        const response = await uploadFixtureAudio(page, 'The weather is very hot today.');
+        const payload = await response.json();
 
         await expect(page.locator('#feedback-container')).not.toBeEmpty();
         await expect(page.locator('#progress-container')).toBeHidden();
         await expect(page.locator('#analyze-form')).toBeVisible();
+
+        if (payload.ssl_trajectory?.frames?.length) {
+            const svg = page.locator('#analysis-estimate-mouth-svg');
+            await expect(svg).toBeVisible();
+            await expectSvgHealthy(page, 'analysis-estimate');
+            const box = await svg.boundingBox();
+            expect(box).not.toBeNull();
+            expect(box.width).toBeGreaterThanOrEqual(200);
+            expect(box.height).toBeGreaterThanOrEqual(200);
+        }
     });
 
     test('analysis passes even when no pronunciation errors are detected', async ({ page }) => {

@@ -24,7 +24,7 @@ def test_predictor_initialization():
 
     predictor = SSLAAIPredictor()
 
-    expected_suffix = Path("external/R4 26-11-06/weights/r4.pt")
+    expected_suffix = Path("external/R4 final with hinting models/weights/r4.pt")
     assert predictor.checkpoint_path.is_absolute()
     assert predictor.checkpoint_path.parts[-4:] == expected_suffix.parts
     assert predictor.device in ["cpu", "cuda", "mps"]
@@ -44,7 +44,9 @@ def test_predictor_unloaded_raises():
 
 
 @pytest.mark.skipif(
-    not Path(Path(__file__).resolve().parents[1] / "external/R4 26-11-06/weights/r4.pt").exists(),
+    not Path(
+        Path(__file__).resolve().parents[1] / "external/R4 final with hinting models/weights/r4.pt"
+    ).exists(),
     reason="Checkpoint not available",
 )
 def test_predictor_loads_checkpoint():
@@ -65,7 +67,9 @@ def test_predictor_loads_checkpoint():
 
 
 @pytest.mark.skipif(
-    not Path(Path(__file__).resolve().parents[1] / "external/R4 26-11-06/weights/r4.pt").exists(),
+    not Path(
+        Path(__file__).resolve().parents[1] / "external/R4 final with hinting models/weights/r4.pt"
+    ).exists(),
     reason="Checkpoint not available",
 )
 def test_predictor_produces_valid_output(dummy_wav_factory: Callable[..., Path]) -> None:

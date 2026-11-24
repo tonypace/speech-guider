@@ -20,6 +20,12 @@ R4_FILES = (
     "configs/nine_channel_v12_100ms.yaml",
     "weights/r4.pt",
     "weights/contact.pt",
+    "weights/lip.json",
+    "weights/dental.json",
+    "weights/silence.joblib",
+    "configs/silence_reviewed.json",
+    "configs/silence_expanded.json",
+    "silence_fit.json",
     "weights/contentvec/config.json",
     "weights/contentvec/preprocessor_config.json",
     "weights/contentvec/model.safetensors",
@@ -64,7 +70,7 @@ def _stage_r4(source: Path, target: Path) -> None:
         hashes[name.removeprefix("*").removeprefix("./")] = digest
     for name in R4_FILES:
         _copy(source / name, target / name, hashes[name])
-    for name in ("LICENSE", "SOURCE_COMMIT", "CONTENTVEC_STATE_SHA256"):
+    for name in ("LICENSE", "CONTENTVEC_STATE_SHA256", "SHA256SUMS", "IMPLEMENTATION_NOTES.md"):
         _copy(source / name, target / name)
     _copy(ROOT / "docs/third-party/contentvec/LICENSE.txt", target / "ContentVec-LICENSE.txt")
 
@@ -202,7 +208,7 @@ def _make_product(app: Path, work: Path, output: Path, attributions: str) -> Non
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--app", type=Path, default=APP)
-    parser.add_argument("--r4", type=Path, default=ROOT / "external/R4 26-11-06")
+    parser.add_argument("--r4", type=Path, default=ROOT / "external/R4 final with hinting models")
     parser.add_argument("--omnivoice", type=Path, default=ROOT / "omnivoice-tts")
     parser.add_argument("--output", type=Path, default=OUTPUT)
     args = parser.parse_args()

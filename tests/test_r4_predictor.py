@@ -35,9 +35,12 @@ def test_replay_flushes_tail_without_padding_frames(
     replay_predictor: SSLAAIPredictor, samples: int
 ) -> None:
     result = replay_predictor.predict_with_metadata(torch.zeros(samples))
-    frames = (samples + 319) // 320
+    frames = (samples + 159) // 320
     assert result["tvs"].shape == (frames, 9)
     assert torch.equal(result["center_samples"], torch.arange(frames) * 320 + 160)
+    if not frames:
+        assert result["metadata"]["clip_fraction"] == 0.0
+        return
     assert result["tvs_raw"][0, 0] == pytest.approx(-0.1)
     assert result["tvs_raw"][0, 1] == pytest.approx(1.1)
     assert result["tvs"][0, 0] == 0.0
@@ -145,10 +148,12 @@ def real_predictor() -> Any:
 
 @pytest.mark.integration
 def test_contact_keeps_timing_and_other_channels(
-    real_predictor: SSLAAIPredictor, waveform: torch.Tensor
+    real_predictor: SSLAAIPredictor, waveform: torch.Tensor, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     if not (DEFAULT_R4_BUNDLE / "weights/contact.pt").is_file():
         pytest.skip("Local R4 contact checkpoint unavailable")
+    monkeypatch.setattr(real_predictor, "lip_enabled", False)
+    monkeypatch.setattr(real_predictor, "silence_mode", "off")
     enhanced = real_predictor.predict_with_metadata(waveform, contact_enabled=True)
     baseline = real_predictor.predict_with_metadata(waveform)
     repeated = real_predictor.predict_with_metadata(waveform, contact_enabled=True)
@@ -279,3 +284,63 @@ def test_reject_incompatible_bundle_contract(tmp_path: Path) -> None:
     predictor = SSLAAIPredictor(bundle_path=tmp_path, device="cpu")
     with pytest.raises(ValueError, match="streaming contract"):
         predictor._validate_contract()
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "dental,silence", [(False, "off"), (False, "reviewed"), (True, "expanded")]
+)
+def test_final_hints_match_bundled_replay(
+    real_predictor: SSLAAIPredictor,
+    waveform: torch.Tensor,
+    monkeypatch: pytest.MonkeyPatch,
+    dental: bool,
+    silence: str,
+) -> None:
+    """Compare contact, lips, dental, silence, timestamps and per-clip reset."""
+    if not (DEFAULT_R4_BUNDLE / "weights/lip.json").is_file():
+        pytest.skip("Final hint assets unavailable")
+    before = set(sys.modules)
+    monkeypatch.syspath_prepend(str(DEFAULT_R4_BUNDLE))
+    monkeypatch.setattr(real_predictor, "lip_enabled", True)
+    monkeypatch.setattr(real_predictor, "dental_enabled", dental)
+    monkeypatch.setattr(real_predictor, "silence_mode", silence)
+    # Load the selected gate independently of earlier parameterized runs.
+    monkeypatch.setattr(real_predictor, "_silence", None)
+    try:
+        reference = importlib.import_module("run_r4")
+        backend = reference.load_runtime("cpu", dental=dental)
+        samples = torch.cat(
+            (waveform[:4800], torch.zeros(19200), waveform[:4800], torch.zeros(613))
+        )
+        expected, centers, _, mask = reference.replay(
+            backend, samples.numpy(), None if silence == "off" else silence
+        )
+        actual = real_predictor.predict_with_metadata(samples, contact_enabled=True)
+        np.testing.assert_allclose(actual["tvs_raw"].numpy(), expected, atol=1e-5, rtol=1e-5)
+        np.testing.assert_array_equal(actual["center_samples"].numpy(), centers)
+        assert actual["metadata"]["lip_correction"] is True
+        assert actual["metadata"]["dental_correction"] is dental
+        assert actual["metadata"]["silence_hint"] == silence
+        assert actual["metadata"]["silence_settled_frames"] == int(mask.sum())
+        if silence != "off":
+            assert mask.any(), "Synthetic long pause must exercise settling"
+        # A second clip must not inherit tongue holds or lip momentum.
+        short = waveform[:321]
+        expected_short, centers_short, _, _ = reference.replay(
+            backend, short.numpy(), None if silence == "off" else silence
+        )
+        repeated = real_predictor.predict_with_metadata(short, contact_enabled=True)
+        np.testing.assert_allclose(
+            repeated["tvs_raw"].numpy(), expected_short, atol=1e-5, rtol=1e-5
+        )
+        np.testing.assert_array_equal(repeated["center_samples"].numpy(), centers_short)
+        baseline = real_predictor.predict_with_metadata(short, contact_enabled=False)
+        assert baseline["metadata"]["lip_correction"] is False
+        assert baseline["metadata"]["dental_correction"] is False
+        assert baseline["metadata"]["silence_hint"] == "off"
+    finally:
+        for name in set(sys.modules) - before:
+            module_file = getattr(sys.modules[name], "__file__", None)
+            if module_file and Path(module_file).is_relative_to(DEFAULT_R4_BUNDLE):
+                sys.modules.pop(name)

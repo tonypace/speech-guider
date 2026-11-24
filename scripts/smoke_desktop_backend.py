@@ -123,6 +123,19 @@ def smoke(executable: Path, r4_bundle: Path | None = None) -> None:
                         raise RuntimeError(
                             "Frozen Analysis did not enable the bundled contact decoder"
                         )
+                    metadata = analysis.get("integration_meta", {})
+                    if (r4_bundle / "weights/lip.json").is_file() and not metadata.get(
+                        "lip_correction"
+                    ):
+                        raise RuntimeError(
+                            "Frozen Analysis did not enable the bundled lip correction"
+                        )
+                    if (r4_bundle / "weights/silence.joblib").is_file() and metadata.get(
+                        "silence_hint"
+                    ) != "reviewed":
+                        raise RuntimeError(
+                            "Frozen Analysis did not enable reviewed silence settling"
+                        )
                     request = Request(
                         f"{base}/api/settings",
                         data=b'{"contact_enabled":false}',
@@ -142,6 +155,12 @@ def smoke(executable: Path, r4_bundle: Path | None = None) -> None:
                         != "disabled"
                     ):
                         raise RuntimeError("Frozen Analysis did not return to baseline R4")
+                    baseline_meta = baseline.get("integration_meta", {})
+                    if (
+                        baseline_meta.get("lip_correction")
+                        or baseline_meta.get("silence_hint") != "off"
+                    ):
+                        raise RuntimeError("Frozen baseline Analysis retained R4 hints")
         except (OSError, RuntimeError, ValueError):
             print(log.read_text(encoding="utf-8", errors="replace"))
             raise

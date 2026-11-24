@@ -32,6 +32,15 @@ def desktop_assets_missing() -> list[str]:
             bundle / "weights" / "contentvec" / "model.safetensors",
             bundle / "weights" / "contentvec" / "config.json",
             bundle / "weights" / "contentvec" / "preprocessor_config.json",
+            bundle / "weights" / "contact.pt",
+            bundle / "weights" / "lip.json",
+            bundle / "weights" / "dental.json",
+            bundle / "weights" / "silence.joblib",
+            bundle / "configs" / "silence_reviewed.json",
+            bundle / "configs" / "silence_expanded.json",
+            bundle / "silence_fit.json",
+            bundle / "CONTENTVEC_STATE_SHA256",
+            bundle / "SHA256SUMS",
         )
     ):
         missing.append("R4 / ContentVec (articulatory analysis): install the R4 bundle under r4/.")

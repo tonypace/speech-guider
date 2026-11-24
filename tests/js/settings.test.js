@@ -16,6 +16,29 @@ function renderSettingsDom() {
             <p id="settings-mic-status" role="status"></p>
             <audio id="settings-test-playback" controls hidden></audio>
             <input id="settings-contact" type="checkbox" checked>
+            <input id="settings-remote-enabled" type="checkbox" checked>
+            <select id="settings-remote-record-mode">
+                <option value="toggle">Toggle</option>
+                <option value="hold">Hold</option>
+            </select>
+            <span data-remote-binding="record">Not assigned</span>
+            <button type="button" data-remote-assign="record">Assign button</button>
+            <button type="button" data-remote-clear="record">Clear</button>
+            <span data-remote-binding="play_pause">Not assigned</span>
+            <button type="button" data-remote-assign="play_pause">Assign button</button>
+            <button type="button" data-remote-clear="play_pause">Clear</button>
+            <span data-remote-binding="speed_up">Not assigned</span>
+            <button type="button" data-remote-assign="speed_up">Assign button</button>
+            <button type="button" data-remote-clear="speed_up">Clear</button>
+            <span data-remote-binding="speed_down">Not assigned</span>
+            <button type="button" data-remote-assign="speed_down">Assign button</button>
+            <button type="button" data-remote-clear="speed_down">Clear</button>
+            <p id="settings-remote-status" role="status"></p>
+            <div id="settings-remote-macos-box" class="hidden">
+                <p id="settings-remote-permission-status"></p>
+                <button id="settings-remote-permission-btn" type="button">Enable</button>
+                <button id="settings-remote-permission-refresh" type="button">Re-check</button>
+            </div>
             <button id="settings-save" type="submit">Save settings</button>
             <p id="settings-save-status" role="status"></p>
         </form>
@@ -313,6 +336,14 @@ describe('settings panel behavior', () => {
                     microphone_enabled: true,
                     microphone_device_id: 'mic-usb',
                     microphone_label: 'USB Mic',
+                    remote_enabled: true,
+                    remote_record_mode: 'toggle',
+                    remote_bindings: {
+                        record: '',
+                        play_pause: '',
+                        speed_up: '',
+                        speed_down: '',
+                    },
                 }),
             });
             expect(window.__SPEECH_GUIDER_SETTINGS__).toEqual(savedPayload);
@@ -375,5 +406,66 @@ describe('settings panel behavior', () => {
         expect(pauseSpy).toHaveBeenCalledOnce();
         expect(revokeObjectURL).toHaveBeenCalledWith('blob:test-audio');
         expect(playback.hidden).toBe(true);
+    });
+
+    it('learns remote button presses, resolves conflicts, clears bindings, and saves remote config', async () => {
+        await mountSettings({
+            settings: {
+                contact_enabled: true,
+                microphone_enabled: true,
+                remote_enabled: true,
+                remote_record_mode: 'toggle',
+                remote_bindings: { record: 'PageDown', play_pause: '', speed_up: '', speed_down: '' },
+            },
+            devices: [],
+        });
+
+        expect(document.querySelector('[data-remote-binding="record"]').textContent).toBe('Page Down');
+
+        // Assign PageDown to play_pause: should move binding off record.
+        document.querySelector('[data-remote-assign="play_pause"]').click();
+        expect(document.querySelector('[data-remote-assign="play_pause"]').textContent).toBe('Press remote button…');
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageDown', bubbles: true, cancelable: true }));
+
+        expect(document.querySelector('[data-remote-binding="play_pause"]').textContent).toBe('Page Down');
+        expect(document.querySelector('[data-remote-binding="record"]').textContent).toBe('Not assigned');
+
+        // Assign record to F5 and switch to hold mode.
+        document.querySelector('[data-remote-assign="record"]').click();
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'F5', bubbles: true, cancelable: true }));
+        expect(document.querySelector('[data-remote-binding="record"]').textContent).toBe('F5');
+
+        // Clear play_pause.
+        document.querySelector('[data-remote-clear="play_pause"]').click();
+        expect(document.querySelector('[data-remote-binding="play_pause"]').textContent).toBe('Not assigned');
+
+        document.getElementById('settings-remote-record-mode').value = 'hold';
+
+        const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+            ok: true,
+            json: async () => ({
+                contact_enabled: true,
+                microphone_enabled: true,
+                microphone_device_id: '',
+                microphone_label: '',
+                remote_enabled: true,
+                remote_record_mode: 'hold',
+                remote_bindings: { record: 'F5', play_pause: '', speed_up: '', speed_down: '' },
+            }),
+        });
+
+        document.getElementById('settings-form').dispatchEvent(new Event('submit', { cancelable: true }));
+        await vi.waitFor(() => {
+            expect(document.getElementById('settings-save-status').textContent).toBe('Settings saved.');
+        });
+
+        const sentBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+        expect(sentBody.remote_record_mode).toBe('hold');
+        expect(sentBody.remote_bindings).toEqual({
+            record: 'F5',
+            play_pause: '',
+            speed_up: '',
+            speed_down: '',
+        });
     });
 });

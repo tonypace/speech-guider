@@ -555,12 +555,81 @@
                     <legend class="text-lg font-semibold mb-2">Articulation</legend>
                     <label class="flex items-center gap-2">
                         <input id="settings-contact" type="checkbox" checked>
-                        Enhance tongue contact
+                        Enhance articulatory animation
                     </label>
-                    <p class="text-sm text-gray-600">Estimates tongue closures for new Analysis and Comparison Lab results. Turn it off to use baseline R4.</p>
+                    <p class="text-sm text-gray-600">Adds tongue contact, lip closure, and quiet-pose settling to new Analysis and Comparison Lab results. Turn it off to use baseline R4.</p>
                     {% if not settings.contact_available %}
                     <p class="text-sm text-amber-800">Contact weights are missing. Speech Guider will use baseline R4.</p>
                     {% endif %}
+                </fieldset>
+                <fieldset class="space-y-4 border-t border-gray-200 pt-5">
+                    <legend class="text-lg font-semibold mb-1">Presenter Remote</legend>
+                    <p class="text-sm text-gray-600">Map buttons on your presenter remote to control recording, playback, and playback speed while Speech Guider is focused.</p>
+                    <label class="flex items-center gap-2">
+                        <input id="settings-remote-enabled" type="checkbox" checked>
+                        Enable presenter remote controls
+                    </label>
+                    <div class="flex flex-wrap items-center gap-3">
+                        <label for="settings-remote-record-mode" class="text-sm font-medium text-gray-700">Record button behavior</label>
+                        <select id="settings-remote-record-mode" class="rounded border border-gray-300 px-3 py-2 text-sm">
+                            <option value="toggle">Click to start / click again to stop (Toggle)</option>
+                            <option value="hold">Hold to record / release to stop (Hold)</option>
+                        </select>
+                    </div>
+                    <div class="space-y-2" id="settings-remote-bindings">
+                        <div class="flex flex-wrap items-center justify-between gap-2 rounded border border-gray-200 bg-gray-50 px-3 py-2">
+                            <div>
+                                <div class="text-sm font-medium text-gray-800">Record (Start / Stop)</div>
+                                <div class="text-xs text-gray-500">Works in Analysis, Prosody Lab, and Comparison Lab</div>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span data-remote-binding="record" class="rounded bg-white border border-gray-300 px-2.5 py-1 text-xs font-mono text-gray-700">Not assigned</span>
+                                <button type="button" data-remote-assign="record" class="rounded border border-blue-600 px-3 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50 disabled:opacity-50">Assign button</button>
+                                <button type="button" data-remote-clear="record" class="rounded border border-gray-300 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-100 disabled:opacity-50">Clear</button>
+                            </div>
+                        </div>
+                        <div class="flex flex-wrap items-center justify-between gap-2 rounded border border-gray-200 bg-gray-50 px-3 py-2">
+                            <div>
+                                <div class="text-sm font-medium text-gray-800">Play / Pause</div>
+                                <div class="text-xs text-gray-500">Controls playback in Analysis, Prosody Lab, and Comparison Lab</div>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span data-remote-binding="play_pause" class="rounded bg-white border border-gray-300 px-2.5 py-1 text-xs font-mono text-gray-700">Not assigned</span>
+                                <button type="button" data-remote-assign="play_pause" class="rounded border border-blue-600 px-3 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50 disabled:opacity-50">Assign button</button>
+                                <button type="button" data-remote-clear="play_pause" class="rounded border border-gray-300 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-100 disabled:opacity-50">Clear</button>
+                            </div>
+                        </div>
+                        <div class="flex flex-wrap items-center justify-between gap-2 rounded border border-gray-200 bg-gray-50 px-3 py-2">
+                            <div>
+                                <div class="text-sm font-medium text-gray-800">Playback Speed Up</div>
+                                <div class="text-xs text-gray-500">Steps playback faster — great for remote Volume Up</div>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span data-remote-binding="speed_up" class="rounded bg-white border border-gray-300 px-2.5 py-1 text-xs font-mono text-gray-700">Not assigned</span>
+                                <button type="button" data-remote-assign="speed_up" class="rounded border border-blue-600 px-3 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50 disabled:opacity-50">Assign button</button>
+                                <button type="button" data-remote-clear="speed_up" class="rounded border border-gray-300 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-100 disabled:opacity-50">Clear</button>
+                            </div>
+                        </div>
+                        <div class="flex flex-wrap items-center justify-between gap-2 rounded border border-gray-200 bg-gray-50 px-3 py-2">
+                            <div>
+                                <div class="text-sm font-medium text-gray-800">Playback Speed Down</div>
+                                <div class="text-xs text-gray-500">Steps playback slower — great for remote Volume Down</div>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span data-remote-binding="speed_down" class="rounded bg-white border border-gray-300 px-2.5 py-1 text-xs font-mono text-gray-700">Not assigned</span>
+                                <button type="button" data-remote-assign="speed_down" class="rounded border border-blue-600 px-3 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50 disabled:opacity-50">Assign button</button>
+                                <button type="button" data-remote-clear="speed_down" class="rounded border border-gray-300 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-100 disabled:opacity-50">Clear</button>
+                            </div>
+                        </div>
+                    </div>
+                    <p id="settings-remote-status" class="text-sm text-gray-600" role="status"></p>
+                    <div id="settings-remote-macos-box" class="hidden rounded-md border border-blue-200 bg-blue-50 p-3 space-y-2">
+                        <p id="settings-remote-permission-status" class="text-xs text-blue-900"></p>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <button id="settings-remote-permission-btn" type="button" class="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700">Enable macOS volume button capture</button>
+                            <button id="settings-remote-permission-refresh" type="button" class="rounded border border-blue-300 bg-white px-3 py-1.5 text-xs font-medium text-blue-800 hover:bg-blue-100">Re-check permission</button>
+                        </div>
+                    </div>
                 </fieldset>
                 <div class="flex flex-wrap items-center gap-3">
                     <button id="settings-save" type="submit" class="rounded bg-blue-600 text-white px-4 py-2 font-medium disabled:opacity-50">Save settings</button>
@@ -575,6 +644,7 @@
         window.__DESKTOP_HISTORY__ = {{ desktop_history | tojson }};
         window.__SPEECH_GUIDER_SETTINGS__ = {{ settings | tojson }};
     </script>
+    <script type="module" src="/static/js/remote_controller.js"></script>
     <script type="module" src="/static/js/app.js"></script>
     <script type="module" src="/static/js/comparison_lab.js"></script>
     <script type="module" src="/static/js/prosody_lab.js"></script>

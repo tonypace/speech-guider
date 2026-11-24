@@ -2,6 +2,7 @@
 
 import logging
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, ValidationError
@@ -16,11 +17,21 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+class RemoteBindings(BaseModel):
+    record: str = Field(default="", max_length=64)
+    play_pause: str = Field(default="", max_length=64)
+    speed_up: str = Field(default="", max_length=64)
+    speed_down: str = Field(default="", max_length=64)
+
+
 class AppSettings(BaseModel):
     contact_enabled: bool = True
     microphone_enabled: bool = True
     microphone_device_id: str = Field(default="", max_length=512)
     microphone_label: str = Field(default="", max_length=512)
+    remote_enabled: bool = True
+    remote_record_mode: Literal["toggle", "hold"] = "toggle"
+    remote_bindings: RemoteBindings = Field(default_factory=RemoteBindings)
 
 
 def _settings_path() -> Path:

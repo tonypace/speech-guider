@@ -33,6 +33,15 @@ def test_desktop_resolves_installed_models_and_shows_missing_requirements(
     assert len(desktop_assets_missing()) == 2
     for relative in (
         "r4/weights/r4.pt",
+        "r4/weights/contact.pt",
+        "r4/weights/lip.json",
+        "r4/weights/dental.json",
+        "r4/weights/silence.joblib",
+        "r4/configs/silence_reviewed.json",
+        "r4/configs/silence_expanded.json",
+        "r4/silence_fit.json",
+        "r4/CONTENTVEC_STATE_SHA256",
+        "r4/SHA256SUMS",
         "r4/configs/nine_channel_v12_100ms.yaml",
         "r4/weights/contentvec/model.safetensors",
         "r4/weights/contentvec/config.json",

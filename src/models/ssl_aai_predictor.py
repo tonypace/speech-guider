@@ -12,7 +12,12 @@ from transformers import AutoFeatureExtractor, AutoModel  # type: ignore[import-
 
 from src.models.aai_adapter import AAI_TV_ORDER as AAI_TV_ORDER
 from src.models.r4_contact import ContactTracker, R4ContactHead, load_contact_head
+from src.models.r4_contract import StreamingContract, load_streaming_contract
 from src.models.r4_decoder import R4Decoder, load_r4_decoder
+from src.models.r4_dental import DentalCorrection
+from src.models.r4_hints import load_dental, load_lip, load_silence
+from src.models.r4_lip import LipCorrection, LipCorrectionStream
+from src.models.r4_silence import apply_silence_hint
 from src.models.ssl_common import (
     DEFAULT_SSL_FEATURE_CONFIG,
     SSLFeatureConfig,
@@ -21,7 +26,9 @@ from src.models.ssl_common import (
 )
 
 logger = logging.getLogger(__name__)
-DEFAULT_R4_BUNDLE = Path(__file__).resolve().parents[2] / "external" / "R4 26-11-06"
+DEFAULT_R4_BUNDLE = (
+    Path(__file__).resolve().parents[2] / "external" / "R4 final with hinting models"
+)
 
 
 class SSLAAIPredictor:
@@ -50,6 +57,10 @@ class SSLAAIPredictor:
         device: str | None = None,
         ssl_config: SSLFeatureConfig | None = None,
         bundle_path: str | Path | None = None,
+        *,
+        lip_enabled: bool = True,
+        dental_enabled: bool = False,
+        silence_mode: str = "reviewed",
     ) -> None:
         self.bundle_path = Path(bundle_path or DEFAULT_R4_BUNDLE).expanduser().resolve()
         self.checkpoint_path = (
@@ -63,6 +74,15 @@ class SSLAAIPredictor:
             or self.ssl_config.frame_rate != 50
         ):
             raise ValueError("R4 requires 16 kHz, ContentVec-L7 width 768, 50 Hz output")
+        if silence_mode not in {"off", "reviewed", "expanded"}:
+            raise ValueError("R4 silence mode must be off, reviewed, or expanded")
+        self.lip_enabled = lip_enabled
+        self.dental_enabled = dental_enabled
+        self.silence_mode = silence_mode
+        self._contract: StreamingContract | None = None
+        self._lip_correction: LipCorrection | None = None
+        self._dental_correction: DentalCorrection | None = None
+        self._silence: tuple[Any, dict[str, Any], dict[str, int]] | None = None
         self.device = device or get_best_torch_device()
         self._ssl_model: Any = None
         self._feature_extractor: Any = None
@@ -95,6 +115,9 @@ class SSLAAIPredictor:
             self._feature_extractor = processor
             self._predictor_head = decoder
             self._contact_head = None
+            self._lip_correction = None
+            self._dental_correction = None
+            self._silence = None
             self._metadata = metadata
             self.checkpoint_path = path
             self._loaded = True
@@ -127,19 +150,24 @@ class SSLAAIPredictor:
             or config.get("policy", {}).get("contact_augmentation") != "disabled"
         ):
             raise ValueError("Unsupported R4 streaming contract")
+        self._contract = load_streaming_contract(config_path)
 
-    def _validate_output(self, output: torch.Tensor) -> None:
+    def _validate_output(self, output: torch.Tensor, *, allow_empty: bool = False) -> None:
         if output.ndim != 2:
             raise ValueError(f"Predictor output must be 2D (T, 9), got {output.shape}")
         if output.shape[1] != 9:
             raise ValueError(f"Predictor output must have 9 channels, got {output.shape[1]}")
-        if output.shape[0] == 0:
+        if output.shape[0] == 0 and not allow_empty:
             raise ValueError("Predictor output has no time frames")
         if not torch.isfinite(output).all():
             raise ValueError("Predictor output contains NaN or Inf values")
 
     def _predict_window(
-        self, samples: np.ndarray, tracker: ContactTracker | None = None
+        self,
+        samples: np.ndarray,
+        tracker: ContactTracker | None = None,
+        lip_stream: LipCorrectionStream | None = None,
+        dental: DentalCorrection | None = None,
     ) -> torch.Tensor:
         processed = self._feature_extractor(samples, sampling_rate=16000, return_tensors="pt")
         inputs = {key: value.to(self.device) for key, value in processed.items()}
@@ -159,7 +187,20 @@ class SSLAAIPredictor:
         if trajectory.shape != (1, self.FEATURE_FRAMES, 9):
             raise ValueError(f"Unexpected R4 trajectory shape: {tuple(trajectory.shape)}")
         self._validate_output(prediction)
-        return cast(torch.Tensor, prediction.detach().to("cpu", dtype=torch.float32))
+        prediction = prediction.detach().to("cpu", dtype=torch.float32)
+        if lip_stream is not None or dental is not None:
+            # Hint readouts use unscaled L7 rows, after committed-frame contact.
+            committed_features = (
+                features[0, self.COMMITTED_SLICE].to("cpu", dtype=torch.float32).numpy()
+            )
+            values = prediction.numpy()
+            if lip_stream is not None:
+                values, _ = lip_stream.apply(committed_features, values)
+            if dental is not None:
+                values, _ = dental.apply(committed_features, values)
+            prediction = torch.from_numpy(values)
+        self._validate_output(prediction)
+        return cast(torch.Tensor, prediction)
 
     def predict_with_metadata(
         self, audio_tensor: torch.Tensor, sample_rate: int = 16000, *, contact_enabled: bool = False
@@ -190,8 +231,30 @@ class SSLAAIPredictor:
                     contact_mode = "enabled"
                 else:
                     contact_mode = "unavailable"
+            lip_stream = None
+            dental = None
+            if tracker is not None and self._contract is not None:
+                if self.lip_enabled and (self.bundle_path / "weights/lip.json").is_file():
+                    if self._lip_correction is None:
+                        self._lip_correction = load_lip(
+                            self.bundle_path, self._metadata, self._contract
+                        )
+                    lip_stream = self._lip_correction.new_stream()
+                if self.dental_enabled:
+                    if self._dental_correction is None:
+                        self._dental_correction = load_dental(
+                            self.bundle_path, self._metadata, self._contract
+                        )
+                    dental = self._dental_correction
+                if (
+                    self.silence_mode != "off"
+                    and (self.bundle_path / "weights/silence.joblib").is_file()
+                ):
+                    if self._silence is None:
+                        self._silence = load_silence(self.bundle_path, self.silence_mode)
             samples = audio.numpy()
-            frame_count = (len(samples) + self.STRIDE_SAMPLES - 1) // self.STRIDE_SAMPLES
+            # The final bundle emits only frames whose centers lie inside source audio.
+            frame_count = (len(samples) + self.STRIDE_SAMPLES // 2 - 1) // self.STRIDE_SAMPLES
             hops = (len(samples) + self.HOP_SAMPLES - 1) // self.HOP_SAMPLES
             # One extra hop supplies future context for the final real audio hop.
             padded = np.pad(samples, (0, (hops + 1) * self.HOP_SAMPLES - len(samples)))
@@ -205,11 +268,27 @@ class SSLAAIPredictor:
                     packet = (
                         self._predict_window(window)
                         if tracker is None
-                        else self._predict_window(window, tracker)
+                        else self._predict_window(window, tracker, lip_stream, dental)
                     )
                     packets.append(packet)
             raw = torch.cat(packets, dim=0)[:frame_count]
-            self._validate_output(raw)
+            self._validate_output(raw, allow_empty=True)
+            settled = np.zeros(frame_count, dtype=bool)
+            silence_mode = "off"
+            if (
+                tracker is not None
+                and self.silence_mode != "off"
+                and self._silence is not None
+                and frame_count
+            ):
+                assert self._contract is not None
+                classifier, gates, allowance = self._silence
+                values, settled = apply_silence_hint(
+                    raw.numpy(), samples, classifier, gates, allowance, self._contract
+                )
+                raw = torch.from_numpy(values)
+                self._validate_output(raw)
+                silence_mode = self.silence_mode
             outside = (raw < 0.0) | (raw > 1.0)
             return {
                 "tvs": raw.clamp(0.0, 1.0),
@@ -224,7 +303,11 @@ class SSLAAIPredictor:
                     "frame_rate": 50,
                     "lookahead_ms": 100,
                     "contact_augmentation": contact_mode,
-                    "clip_fraction": float(outside.float().mean().item()),
+                    "lip_correction": lip_stream is not None,
+                    "dental_correction": dental is not None,
+                    "silence_hint": silence_mode,
+                    "silence_settled_frames": int(settled.sum()),
+                    "clip_fraction": float(outside.float().mean().item()) if frame_count else 0.0,
                     "source_commit": self._metadata.get("git_commit"),
                 },
             }
@@ -246,6 +329,10 @@ class SSLAAIPredictor:
             self._predictor_head = None
             self._contact_head = None
             self._feature_extractor = None
+            self._lip_correction = None
+            self._dental_correction = None
+            self._silence = None
+            self._contract = None
             self._metadata = {}
             self._loaded = False
             clear_torch_device_cache(self.device)

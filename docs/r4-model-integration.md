@@ -1,110 +1,110 @@
-# Frozen R4 integration
+# R4 final with hinting integration
 
-Both `/api/analyze` and `/api/reference-animation` now use the frozen R4
-`bounded_v12` successor. The application does not merge the old MLP and
-Haskins BiGRU outputs or fall back to those models when R4 fails.
+Analysis and Comparison Lab share local ContentVec-L7, extended R4 (update
+15,500), the coupled Model A tongue-contact head, lip closure correction, and
+reviewed recording-replay silence settling. The default bundle is
+`external/R4 final with hinting models/`. No model downloads occur at runtime.
 
-## Local assets
+## Assets and configuration
 
-Keep the evaluation bundle at `external/R4 26-11-06/`, containing:
+Keep these supplied files together; `external/` remains ignored by Git:
 
 ```text
 configs/nine_channel_v12_100ms.yaml
+configs/silence_reviewed.json
+configs/silence_expanded.json
 weights/r4.pt
 weights/contact.pt
-weights/contentvec/config.json
-weights/contentvec/preprocessor_config.json
-weights/contentvec/model.safetensors
+weights/lip.json
+weights/dental.json
+weights/silence.joblib
+weights/contentvec/{config.json,preprocessor_config.json,model.safetensors}
+CONTENTVEC_STATE_SHA256
+SHA256SUMS
+silence_fit.json
 ```
 
-`external/` is ignored by Git. New checkouts need these assets copied separately.
-No Hugging Face download occurs during R4 loading. Do not substitute the original
-base checkpoint named in the YAML: that field records training provenance.
+`SSL_AAI_BUNDLE_PATH` overrides the bundle directory. `SSL_AAI_CHECKPOINT_PATH`
+overrides only the decoder checkpoint; the coupled contact head still requires
+its exact matching base weights. New checkouts need the local assets copied
+separately. The installer stages the final hint assets and their checksum
+manifest. Its default source is the same final bundle.
 
-To move the bundle, set `SSL_AAI_BUNDLE_PATH` to its absolute directory. Optionally
-set `SSL_AAI_CHECKPOINT_PATH` to another compatible R4 successor checkpoint;
-this does not change the bundle used for the encoder or streaming contract.
-Legacy checkpoints are rejected. Loading validates the declared architecture,
-channel order, lookahead allocation, local encoder shape, streaming policy,
-and every decoder state-dict key and tensor shape.
+The Settings **Enhance articulatory animation** checkbox gates all hint branches.
+It defaults on; turning it off selects baseline R4. Existing saved settings are
+preserved. Startup environment options (also in `.env.sample`):
 
-## Inference contract
+| Variable | Default | Behavior |
+| --- | --- | --- |
+| `SSL_AAI_LIP_ENABLED` | `1` | Set `0` for tongue contact without lip correction. |
+| `SSL_AAI_DENTAL_ENABLED` | `0` | Set `1` for experimental dental / “th” correction. |
+| `SSL_AAI_SILENCE_MODE` | `reviewed` | `reviewed`, `expanded`, or `off`. |
 
-- Audio: mono float32, 16 kHz. Existing upload/TTS preprocessing performs resampling.
-- Encoder: bundled seven-layer ContentVec, last hidden state, width 768.
-- Decoder: learned feature scale, four asymmetric residual convolutions,
-  nine-channel projection, and the V1.2 temporal VEL/GLO/LAT extension head.
-- Replay: 19,200-sample windows, 1,600-sample hops, 1,600-sample lookahead.
-- Each window yields 59 feature frames; indices `49:54` are committed.
-- Output: 50 Hz, ordered `LP, LA, TTCL, TTCD, TBCL, TBCD, VEL, GLO, LAT`.
-- The uploaded-clip adapter pads the final partial hop and flushes one extra
-  silence hop. It returns `ceil(audio_samples / 320)` frames, trimming padding.
-- Frame centers follow the bundle's sample clock: `160 + frame_index * 320`.
-  Existing browser playback uses the corresponding uniform 50 Hz frame grid.
-- Each clip starts with a fresh rolling buffer. Model loading and inference are
-  locked so concurrent requests cannot share partial initialization or device work.
+Restart the backend after changing assets or environment options. Model loading
+is lazy and cached. Reference cache identities include hint options and all hint
+asset/config revisions. Explicitly selected older bundles without hint assets
+retain contact-only compatibility.
 
-Raw oral outputs retain speaker-Z normalized values in `[-0.1, 1.1]`;
-VEL/GLO/LAT use sigmoid outputs. The adapter clamps a separate display tensor
-to `[0, 1]` and passes it directly into the existing canonical renderer mapping.
-It never inverts speaker-specific training statistics. `clip_fraction` reports
-values changed at this display boundary; old BiGRU confidence thresholds are
-not used to claim R4 confidence.
+Install `requirements.txt` into the project environment. The silence classifier
+requires its supplied **scikit-learn 1.9.0** serialization version; the loader
+rejects a version mismatch. Release checksums are checked before unpickling the
+local classifier and before loading hint configuration. Lip loading also checks
+encoder identity and the streaming contract.
 
-Speech Guider enables the bundled `contact.pt` decoder for Analysis and
-Comparison Lab by default. Turn off **Enhance tongue contact** in Settings to
-use baseline R4. Missing contact weights also select baseline R4. The head uses
-one additional frame of right context on top of the frozen oral states, within
-the existing lookahead. Its per-clip tracker advances only on committed frames.
-It adjusts four tongue channels before display normalization. The review
-renderer's contact exaggeration is separate. The animation estimates contact
-from audio.
+## Inference and timing
 
-The application still analyzes uploaded recordings; using the bounded model
-does not add live microphone streaming or Core ML deployment.
+- Input: mono float32, 16 kHz; upload and TTS preprocessing resample as needed.
+- Encoder: local seven-layer ContentVec, width 768, 59 feature rows per window.
+- Replay: 19,200-sample window, 1,600-sample hop, 1,600-sample lookahead.
+- Commit slice: `[49:54]`, five frames per packet, 50 Hz.
+- Output order: `LP LA TTCL TTCD TBCL TBCD VEL GLO LAT`.
+- Centers: `160 + 320 * frame_index`. The final partial hop and lookahead are
+  padded, then **centers at or beyond source length are discarded**, matching the
+  final bundle. Clips of 160 samples or fewer have no valid frame center.
+- Each clip creates fresh rolling audio, tongue tracking, and lip motion state.
+  Loading and inference remain locked.
 
-## Device selection and verification
+Contact adjusts the four tongue channels first. Lip and optional dental
+readouts use the committed **unscaled** ContentVec rows. Lip correction changes
+aperture; dental correction changes tip place and degree while preserving tongue
+holds and lip seals. Silence settling follows packet replay, on the same frame
+clock; its onset guard and blend respect the reference's lookahead policy.
+This integration analyzes completed recordings, with no live streaming or Core ML
+qualification implied.
 
-The existing device helper selects CUDA when present, otherwise Apple MPS,
-otherwise CPU. Native arm64 Python and the existing PyTorch MPS build are
-sufficient on this Mac. The Codex execution sandbox hides GPU access; the same
-virtual environment reports MPS available and can run GPU inference outside
-that sandbox. Start the app normally from Terminal to access MPS:
+Raw oral values retain speaker-Z bounds `[-0.1, 1.1]`; VEL/GLO/LAT are sigmoid
+outputs. Only the separate display tensor is clamped to `[0, 1]`, then mapped to
+the canonical renderer fields. Metadata reports actual contact, lip, dental and
+silence modes, settled frame count, and display clipping fraction.
+The supplied renderer's palate and throat geometry already matches the app;
+the app retains its anatomy labels and frame-render optimizations.
+
+Dental correction remains experimental, awaiting blind review and validation
+on a second speaker. Expanded silence coverage is optional. See the supplied
+`IMPLEMENTATION_NOTES.md` for provenance and review limits.
+
+## Verification and device selection
 
 ```bash
 source speech-guider/bin/activate
+pytest tests/test_r4_predictor.py tests/test_r4_hints.py tests/test_ssl_aai_predictor.py
+npm run check
+```
+
+Integration tests compare raw output and timestamps against the unmodified final
+bundle, including tongue/lip corrections, dental correction, both silence gates,
+long pauses, speech recovery, partial tails and fresh-clip resets. Deterministic
+tests cover lip motion, dental precedence, checksum rejection, cache identity and
+installer staging. Model-dependent tests skip when local assets are absent.
+
+Device preference is Apple MPS, then CUDA, then CPU. The execution sandbox can
+hide GPU access; launch normally from Terminal for MPS:
+
+```bash
 python -m app.main
 ```
 
-Check device visibility in the same environment used to launch the backend:
-
-```bash
-python -c 'import torch; print(torch.backends.mps.is_built(), torch.backends.mps.is_available())'
-```
-
-Existing pinned app dependencies load this bundle; the evaluation kit's newer
-benchmark environment is not required by this inference port. Focused checks:
-
-```bash
-python -m pytest tests/test_r4_predictor.py tests/test_ssl_aai_predictor.py
-```
-
-The integration test compares raw outputs and timestamps with the unmodified
-bundled decoder and replay scheduler, including partial tails and silence.
-Without local model assets, the model-dependent tests skip; deterministic
-boundary and API-consistency tests still run.
-
-## Source and terms
-
-The inference port in `src/models/r4_decoder.py` follows the bundle's
-`models.py` and `aai_streaming/bounded_model.py`, source revision
-`cb2f2f15c6445cfddb69d791debf1f5923fc40f2`. Changes remove training execution,
-preserve saved training-head parameters for strict loading, and expose only the
-trajectory tensor. The bundle's CC BY-NC 4.0 license is retained in
-[r4-LICENSE.txt](r4-LICENSE.txt). Model assets retain their supplied terms.
-
-The previous integration remains in `src/models/legacy_aai_predictor.py` for
-explicit legacy use and historical regression checks. It is not the app's
-runtime fallback. Legacy checkpoint bundles and research data were moved into
-`archive/2026-11-06/backup/`; restore their original paths to run historical
-checkpoint-dependent tests. See [workspace archive](workspace-archive.md).
+The inference ports retain the supplied CC BY-NC 4.0 terms in
+[r4-LICENSE.txt](r4-LICENSE.txt). Decoder/contact architecture is unchanged from
+the previous frozen R4 integration; hint math follows the final bundle's
+`aai_streaming/{lip_closure,dental_correction,silence_hint}.py`.

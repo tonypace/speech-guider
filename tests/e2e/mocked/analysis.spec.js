@@ -8,7 +8,7 @@
  */
 
 const { test, expect } = require('@playwright/test');
-const { openHome } = require('../helpers/app');
+const { openHome, expectSvgHealthy } = require('../helpers/app');
 const { mockAnalyze, mockSelectError, cannedAnalyzeResponse } = require('../helpers/mockApi');
 
 /**
@@ -114,6 +114,49 @@ test.describe('Analysis — Mocked API Flow', () => {
 
         await expect(page.locator('body')).toBeVisible();
         await expect(page.locator('#analyze-form')).toBeVisible();
+    });
+
+    test('mocked trajectory renders visible non-collapsed articulatory SVG', async ({ page }) => {
+        const trajectoryResponse = {
+            ...cannedAnalyzeResponse,
+            ssl_trajectory: {
+                frame_rate: 50,
+                frame_count: 2,
+                frames: [
+                    {
+                        lip_aperture: 0.25,
+                        lip_protrusion: 0.71,
+                        tongue_tip_constriction_location: 0.2,
+                        tongue_tip_constriction_degree: 0.4,
+                        lateral_tongue_drop: 0,
+                        velic_aperture: 0,
+                        tongue_body_constriction_location: 0.7,
+                        tongue_body_constriction_degree: 0.6,
+                        glottal_aperture: 0.1,
+                    },
+                    {
+                        lip_aperture: 0.75,
+                        lip_protrusion: 0.3,
+                        tongue_tip_constriction_location: 0.5,
+                        tongue_tip_constriction_degree: 0.2,
+                        lateral_tongue_drop: 0.1,
+                        velic_aperture: 0.2,
+                        tongue_body_constriction_location: 0.5,
+                        tongue_body_constriction_degree: 0.4,
+                        glottal_aperture: 0.2,
+                    },
+                ],
+            },
+        };
+        await triggerAnalysis(page, 'The weather is very hot today.', trajectoryResponse);
+
+        const svg = page.locator('#analysis-estimate-mouth-svg');
+        await expect(svg).toBeVisible();
+        await expectSvgHealthy(page, 'analysis-estimate');
+        const box = await svg.boundingBox();
+        expect(box).not.toBeNull();
+        expect(box.width).toBeGreaterThanOrEqual(200);
+        expect(box.height).toBeGreaterThanOrEqual(200);
     });
 
 });

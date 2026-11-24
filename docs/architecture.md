@@ -15,7 +15,7 @@ implemented; `src/llm` is presently a placeholder.
 | `app/utils/audio.py` | Upload conversion, shared SSL waveform decoding |
 | `app/services/` | Process-local inference ownership, progress jobs, atomic preset persistence |
 | `src/audio/` | Praat/numpy prosody computation and OmniVoice reference speech |
-| `src/models/` | Lazy SSL inference, R4/legacy decoders, articulatory contracts |
+| `src/models/` | Lazy SSL inference, R4 decoder/hints, articulatory contracts |
 | `src/services/` | Model and reference-result caches |
 | `static/js/` | Recording, lab controllers, synchronized playback, rendering |
 | `app/templates/index.html` | UI composition and existing inline UI behavior |
@@ -38,8 +38,9 @@ whole sample axis, including when resampling.
 ## Articulatory models and renderer
 
 The default predictor uses local ContentVec-L7 and the R4 bounded temporal decoder.
-Legacy decoder support remains isolated in its compatibility module. Model
-loading is lazy and cached. The adapter maps model tract variables into the
+The final bundle adds coupled tongue contact, lip closure and reviewed silence
+settling, with experimental dental correction opt-in. Each clip resets its
+tracking/motion state. Model loading is lazy and cached. The adapter maps model tract variables into the
 canonical nine-field renderer state. Preserve field names, ordering, time units,
 and normalization from [the contract](articulatory-animation-api.md).
 

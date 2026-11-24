@@ -45,6 +45,14 @@ def test_root_renders_default_settings_and_contact_availability(
             "microphone_enabled": True,
             "microphone_device_id": "",
             "microphone_label": "",
+            "remote_enabled": True,
+            "remote_record_mode": "toggle",
+            "remote_bindings": {
+                "record": "",
+                "play_pause": "",
+                "speed_up": "",
+                "speed_down": "",
+            },
             "contact_available": False,
         }
         assert "Contact weights are missing." in response.text
@@ -71,6 +79,14 @@ def test_put_settings_persists_to_disk_and_renders_on_get(
         "microphone_enabled": False,
         "microphone_device_id": "usb-mic-01",
         "microphone_label": "Studio USB Mic",
+        "remote_enabled": True,
+        "remote_record_mode": "hold",
+        "remote_bindings": {
+            "record": "PageDown",
+            "play_pause": "PageUp",
+            "speed_up": "AudioVolumeUp",
+            "speed_down": "AudioVolumeDown",
+        },
     }
 
     with TestClient(app) as client:
@@ -164,3 +180,31 @@ def test_recovers_from_unreadable_settings_file(tmp_path: Path) -> None:
         assert response.status_code == 200
         rendered = _extract_rendered_settings(response.text)
         assert rendered["microphone_device_id"] == ""
+
+
+def test_loads_legacy_settings_json_without_remote_fields(tmp_path: Path) -> None:
+    legacy = {
+        "contact_enabled": False,
+        "microphone_enabled": True,
+        "microphone_device_id": "mic-1",
+        "microphone_label": "Legacy Mic",
+    }
+    (tmp_path / "settings.json").write_text(json.dumps(legacy), encoding="utf-8")
+
+    loaded = settings_api.load_settings()
+    assert loaded.contact_enabled is False
+    assert loaded.remote_enabled is True
+    assert loaded.remote_record_mode == "toggle"
+    assert loaded.remote_bindings == settings_api.RemoteBindings()
+
+
+def test_put_settings_rejects_invalid_remote_mode_or_oversized_binding() -> None:
+    with TestClient(app) as client:
+        bad_mode = client.put("/api/settings", json={"remote_record_mode": "double_tap"})
+        assert bad_mode.status_code == 422
+
+        bad_key = client.put(
+            "/api/settings",
+            json={"remote_bindings": {"record": "x" * 65}},
+        )
+        assert bad_key.status_code == 422

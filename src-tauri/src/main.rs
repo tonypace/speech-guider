@@ -1,8 +1,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod backend;
+mod media_keys;
 
 use backend::BackendState;
+use media_keys::ManagedMediaKeys;
 use std::{
     fs, io,
     path::{Path, PathBuf},
@@ -16,7 +18,7 @@ use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
     webview::PageLoadEvent,
-    App, AppHandle, Manager, RunEvent, Url, WebviewWindow, WebviewWindowBuilder,
+    App, AppHandle, Manager, RunEvent, Url, WebviewWindow, WebviewWindowBuilder, WindowEvent,
 };
 
 #[cfg(not(target_os = "windows"))]
@@ -233,6 +235,13 @@ fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
         })
         .build()?;
 
+    let media_keys_state = Arc::clone(&app.state::<ManagedMediaKeys>().0);
+    window.on_window_event(move |event| {
+        if let WindowEvent::Focused(focused) = event {
+            media_keys_state.set_focused(*focused);
+        }
+    });
+
     install_tray(app, Arc::clone(&port))?;
     if !development {
         match desktop_paths(app.handle()) {
@@ -252,6 +261,12 @@ fn main() {
     tauri::Builder::default()
         .manage(BackendState::default())
         .manage(PendingMode::default())
+        .manage(ManagedMediaKeys::default())
+        .invoke_handler(tauri::generate_handler![
+            media_keys::get_media_key_status,
+            media_keys::request_media_key_permission,
+            media_keys::set_media_key_capture,
+        ])
         .setup(setup)
         .build(tauri::generate_context!())
         .expect("error while building Speech Guider")

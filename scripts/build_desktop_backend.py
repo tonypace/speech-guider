@@ -74,6 +74,11 @@ def build() -> None:
         "transformers.models.hubert",
         "--collect-submodules",
         "transformers.models.wav2vec2",
+        # The silence classifier resolves these estimator classes while unpickling.
+        "--collect-submodules",
+        "sklearn.ensemble._hist_gradient_boosting",
+        "--hidden-import",
+        "sklearn.preprocessing._label",
         "--exclude-module",
         "pytest",
         "--exclude-module",

@@ -29,7 +29,7 @@ export function showAnalysisTrajectory(container, trajectory, blob) {
             <span data-speed-badge class="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800">Slow Motion (0.5x)</span>
         </div>
         <div class="mt-4 flex-1 flex flex-col justify-center w-full max-w-3xl mx-auto">
-            <div data-tract class="w-full flex justify-center [&>svg]:max-h-[62vh] [&>svg]:w-auto"></div>
+            <div data-tract class="w-full max-w-[62vh] aspect-square shrink-0 mx-auto"></div>
             <label class="block mt-3 text-sm text-gray-700">Inspect frame <input type="range" min="0" step="1" value="0" class="block w-full mt-1"></label>
             <output class="text-xs text-gray-600 mt-1"></output>
         </div>`;
@@ -88,6 +88,10 @@ export function showAnalysisTrajectory(container, trajectory, blob) {
     };
     audio.onplay = () => { cancelAnimationFrame(animation); tick(); };
     audio.onpause = () => cancelAnimationFrame(animation);
+    audio.onended = () => {
+        cancelAnimationFrame(animation);
+        render(Math.floor(audio.currentTime * rate));
+    };
     audio.onseeked = () => render(Math.floor(audio.currentTime * rate));
     const onTabChange = (event) => {
         if (event.detail !== 'analysis') {
@@ -98,8 +102,14 @@ export function showAnalysisTrajectory(container, trajectory, blob) {
     window.addEventListener('speechguider:tabchange', onTabChange);
     slider.oninput = () => {
         const index = Number(slider.value);
-        if (url) audio.currentTime = index / rate;
         render(index);
+        if (url) {
+            try {
+                audio.currentTime = index / rate;
+            } catch {
+                // Ignore seek attempts before audio metadata loads.
+            }
+        }
     };
     render(0);
     return () => {

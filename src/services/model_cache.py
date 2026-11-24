@@ -26,6 +26,9 @@ def get_ssl_predictor() -> SSLAAIPredictor:
             predictor = SSLAAIPredictor(
                 checkpoint_path=os.getenv("SSL_AAI_CHECKPOINT_PATH"),
                 bundle_path=asset_override("SSL_AAI_BUNDLE_PATH", "r4"),
+                lip_enabled=os.getenv("SSL_AAI_LIP_ENABLED", "1") == "1",
+                dental_enabled=os.getenv("SSL_AAI_DENTAL_ENABLED", "0") == "1",
+                silence_mode=os.getenv("SSL_AAI_SILENCE_MODE", "reviewed"),
             )
             predictor.load()
             _cached_ssl_predictor = predictor
@@ -55,8 +58,35 @@ def get_ssl_cache_identity(contact_enabled: bool = False) -> dict[str, object]:
             else Path(os.getenv("SSL_AAI_CHECKPOINT_PATH", str(bundle / "weights" / "r4.pt")))
         )
         contact_path = bundle / "weights" / "contact.pt"
+        hints = {
+            "lip": predictor.lip_enabled
+            if predictor
+            else os.getenv("SSL_AAI_LIP_ENABLED", "1") == "1",
+            "dental": predictor.dental_enabled
+            if predictor
+            else os.getenv("SSL_AAI_DENTAL_ENABLED", "0") == "1",
+            "silence": predictor.silence_mode
+            if predictor
+            else os.getenv("SSL_AAI_SILENCE_MODE", "reviewed"),
+        }
         return {
-            "pipeline": "contentvec-l7-r4-canonical-v1",
+            "pipeline": "contentvec-l7-r4-final-hints-v2",
+            "hints": hints if contact_enabled else "disabled",
+            "hint_assets": {
+                name: file_identity(bundle / name) if (bundle / name).is_file() else "unavailable"
+                for name in (
+                    "weights/lip.json",
+                    "weights/dental.json",
+                    "weights/silence.joblib",
+                    "configs/silence_reviewed.json",
+                    "configs/silence_expanded.json",
+                    "silence_fit.json",
+                    "CONTENTVEC_STATE_SHA256",
+                    "SHA256SUMS",
+                )
+            }
+            if contact_enabled
+            else "disabled",
             "decoder": file_identity(checkpoint),
             "contact_decoder": (
                 file_identity(contact_path) if contact_path.is_file() else "unavailable"

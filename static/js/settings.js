@@ -1,5 +1,11 @@
 import { releaseCapture } from './capture_resources.js';
 import { getSettings, listMicrophones, microphoneError, openMicrophone } from './microphone.js';
+import {
+    DEFAULT_REMOTE_BINDINGS,
+    REMOTE_ACTIONS,
+    formatRemoteKeyLabel,
+    normalizeRemoteKey,
+} from './remote_controller.js';
 
 function initializeSettings() {
     const form = document.getElementById('settings-form');
@@ -14,6 +20,15 @@ function initializeSettings() {
     const status = document.getElementById('settings-mic-status');
     const saveStatus = document.getElementById('settings-save-status');
     const save = document.getElementById('settings-save');
+    const remoteEnabled = document.getElementById('settings-remote-enabled');
+    const remoteRecordMode = document.getElementById('settings-remote-record-mode');
+    const remoteStatus = document.getElementById('settings-remote-status');
+    const remoteMacosBox = document.getElementById('settings-remote-macos-box');
+    const remotePermissionStatus = document.getElementById('settings-remote-permission-status');
+    const remotePermissionBtn = document.getElementById('settings-remote-permission-btn');
+    const remotePermissionRefresh = document.getElementById('settings-remote-permission-refresh');
+    const assignButtons = Array.from(form.querySelectorAll('[data-remote-assign]'));
+    const clearButtons = Array.from(form.querySelectorAll('[data-remote-clear]'));
     const capture = {};
     let inputs = [];
     let generation = 0;
@@ -21,11 +36,120 @@ function initializeSettings() {
     let animation;
     let url;
     let recorder;
+    let learningAction = null;
+    let fallbackLearnListener = null;
+    const remoteBindings = { ...DEFAULT_REMOTE_BINDINGS };
 
     const updateMicrophoneControls = () => {
         devices.disabled = !enabled.checked;
         refresh.disabled = !enabled.checked;
         test.disabled = !enabled.checked;
+    };
+
+    const renderRemoteBindings = () => {
+        const isRemoteOn = remoteEnabled ? remoteEnabled.checked : true;
+        if (remoteRecordMode) remoteRecordMode.disabled = !isRemoteOn;
+        for (const action of REMOTE_ACTIONS) {
+            const badge = form.querySelector(`[data-remote-binding="${action}"]`);
+            if (badge) badge.textContent = formatRemoteKeyLabel(remoteBindings[action]);
+        }
+        assignButtons.forEach((btn) => {
+            const action = btn.getAttribute('data-remote-assign');
+            const isListening = learningAction === action;
+            btn.disabled = !isRemoteOn;
+            btn.textContent = isListening ? 'Press remote button…' : 'Assign button';
+            btn.classList.toggle('bg-blue-600', isListening);
+            btn.classList.toggle('text-white', isListening);
+            btn.classList.toggle('text-blue-600', !isListening);
+        });
+        clearButtons.forEach((btn) => {
+            const action = btn.getAttribute('data-remote-clear');
+            btn.disabled = !isRemoteOn || !remoteBindings[action];
+        });
+    };
+
+    const stopLearning = (message = '') => {
+        learningAction = null;
+        if (fallbackLearnListener) {
+            document.removeEventListener('keydown', fallbackLearnListener, true);
+            fallbackLearnListener = null;
+        }
+        window.remoteController?.setLearningCallback?.(null);
+        if (remoteStatus && message) remoteStatus.textContent = message;
+        renderRemoteBindings();
+    };
+
+    const applyLearnedKey = (action, result) => {
+        if (!result || result.cancelled) {
+            stopLearning('Button assignment cancelled.');
+            return;
+        }
+        const key = normalizeRemoteKey(result.key);
+        if (!key) {
+            stopLearning('Button not recognized. Try another remote button.');
+            return;
+        }
+        let replacedAction = null;
+        for (const other of REMOTE_ACTIONS) {
+            if (other !== action && remoteBindings[other] === key) {
+                remoteBindings[other] = '';
+                replacedAction = other;
+            }
+        }
+        remoteBindings[action] = key;
+        const label = formatRemoteKeyLabel(key);
+        const note = replacedAction
+            ? `Assigned ${label} (cleared previous binding). Click Save settings to keep.`
+            : `Assigned ${label}. Click Save settings to keep.`;
+        stopLearning(note);
+    };
+
+    const startLearning = (action) => {
+        if (learningAction === action) {
+            stopLearning('Button assignment cancelled.');
+            return;
+        }
+        stopLearning();
+        learningAction = action;
+        renderRemoteBindings();
+        if (remoteStatus) {
+            remoteStatus.textContent = 'Press a button on your presenter remote (Esc to cancel)…';
+        }
+        if (window.remoteController?.setLearningCallback) {
+            window.remoteController.setLearningCallback((result) => applyLearnedKey(action, result));
+        } else {
+            fallbackLearnListener = (event) => {
+                const key = normalizeRemoteKey(event);
+                if (!key || event.repeat) return;
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                applyLearnedKey(action, key === 'Escape' ? { cancelled: true } : { key });
+            };
+            document.addEventListener('keydown', fallbackLearnListener, true);
+        }
+    };
+
+    const refreshMacosPermission = async (requestPrompt = false) => {
+        if (!remoteMacosBox || !window.remoteController) return;
+        const result = requestPrompt
+            ? await window.remoteController.requestMediaKeyPermission()
+            : await window.remoteController.getMediaKeyStatus();
+        if (!result?.supported) {
+            remoteMacosBox.classList.add('hidden');
+            return;
+        }
+        remoteMacosBox.classList.remove('hidden');
+        if (result.permission_granted) {
+            if (remotePermissionStatus) {
+                remotePermissionStatus.textContent = 'macOS volume & media button capture is ready (only active while Speech Guider is focused).';
+            }
+            if (remotePermissionBtn) remotePermissionBtn.hidden = true;
+        } else {
+            if (remotePermissionStatus) {
+                remotePermissionStatus.textContent = 'To map Volume Up / Down buttons on macOS, grant Accessibility permission to Speech Guider, then click Re-check permission.';
+            }
+            if (remotePermissionBtn) remotePermissionBtn.hidden = false;
+        }
     };
 
     const renderDevices = async (id, label) => {
@@ -50,6 +174,11 @@ function initializeSettings() {
         microphone_label: inputs.find(device => device.deviceId === devices.value)?.label || (
             devices.value && devices.value === getSettings().microphone_device_id ? getSettings().microphone_label : ''
         ) || '',
+        remote_enabled: remoteEnabled ? remoteEnabled.checked : (getSettings().remote_enabled !== false),
+        remote_record_mode: remoteRecordMode
+            ? (remoteRecordMode.value === 'hold' ? 'hold' : 'toggle')
+            : (getSettings().remote_record_mode === 'hold' ? 'hold' : 'toggle'),
+        remote_bindings: { ...remoteBindings },
     });
 
     const stopTest = () => {
@@ -79,9 +208,43 @@ function initializeSettings() {
         status.textContent = '';
     };
 
-    window.addEventListener('beforeunload', closeTest);
+    window.addEventListener('beforeunload', () => {
+        closeTest();
+        stopLearning();
+    });
     window.addEventListener('speechguider:tabchange', event => {
-        if (event.detail !== 'settings') closeTest();
+        if (event.detail !== 'settings') {
+            closeTest();
+            stopLearning();
+        } else {
+            void refreshMacosPermission(false);
+        }
+    });
+    remoteEnabled?.addEventListener('change', () => {
+        if (!remoteEnabled.checked) stopLearning();
+        renderRemoteBindings();
+    });
+    assignButtons.forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const action = btn.getAttribute('data-remote-assign');
+            if (action) startLearning(action);
+        });
+    });
+    clearButtons.forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const action = btn.getAttribute('data-remote-clear');
+            if (!action) return;
+            if (learningAction === action) stopLearning();
+            remoteBindings[action] = '';
+            renderRemoteBindings();
+            if (remoteStatus) remoteStatus.textContent = 'Binding cleared. Click Save settings to keep.';
+        });
+    });
+    remotePermissionBtn?.addEventListener('click', () => {
+        void refreshMacosPermission(true);
+    });
+    remotePermissionRefresh?.addEventListener('click', () => {
+        void refreshMacosPermission(false);
     });
     enabled.addEventListener('change', () => {
         if (!enabled.checked) closeTest();
@@ -208,7 +371,14 @@ function initializeSettings() {
     const settings = getSettings();
     contact.checked = settings.contact_enabled !== false;
     enabled.checked = settings.microphone_enabled !== false;
+    if (remoteEnabled) remoteEnabled.checked = settings.remote_enabled !== false;
+    if (remoteRecordMode) remoteRecordMode.value = settings.remote_record_mode === 'hold' ? 'hold' : 'toggle';
+    for (const action of REMOTE_ACTIONS) {
+        remoteBindings[action] = normalizeRemoteKey(settings.remote_bindings?.[action] || '');
+    }
     updateMicrophoneControls();
+    renderRemoteBindings();
+    void refreshMacosPermission(false);
     renderDevices(settings.microphone_device_id, settings.microphone_label).catch(error => {
         status.textContent = microphoneError(error);
     });

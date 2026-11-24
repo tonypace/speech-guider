@@ -23,6 +23,7 @@ The initial codebase cleanup stack (`P0.1`–`P4.3`) was completed on **2026-11-
 ### Desktop distribution and hardware validation
 - **References:** [Desktop release](desktop-release.md), [Release contracts](release-contracts.md), [Stabilization repair evidence](stabilization-2026-11-07.md)
 - **Scope:**
+  - Measure cold first-launch readiness: one initial frozen-backend startup exceeded the 60-second smoke timeout during the 2026-11-24 rebuild; the startup probe and subsequent frozen/app smoke runs passed.
   - Complete macOS `.pkg` distribution signing, notarization, clean-machine install, WebView microphone/playback verification, and physical clicker verification (`npm run test:e2e:mocked` and `npm run test:e2e:real` already passed).
 
 ---
@@ -36,6 +37,10 @@ The initial codebase cleanup stack (`P0.1`–`P4.3`) was completed on **2026-11-
 ### Acoustic validation for voice quality and coaching thresholds
 - **References:** [Release contracts](release-contracts.md)
 - **Scope:** Validate heuristic CPPS, spectral tilt, jitter/shimmer, and pitch coaching thresholds against a versioned Praat reference script suite and licensed recorded speech before surfacing clinical/diagnostic claims.
+
+### R4 dental hint validation
+- **References:** [R4 integration](r4-model-integration.md), `external/R4 final with hinting models/IMPLEMENTATION_NOTES.md`
+- **Scope:** Complete blind review and second-speaker validation of the experimental dental / “th” hint before enabling it by default. Compare false dental approaches against existing tongue contacts and lip seals.
 
 ### Forced alignment, phoneme error detection, and LLM feedback synthesis
 - **Files:** `src/models/alignment.py`, `src/llm/__init__.py`, `app/api/analyze.py`

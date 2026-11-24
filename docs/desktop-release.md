@@ -76,6 +76,14 @@ assets/
     configs/nine_channel_v12_100ms.yaml
     weights/r4.pt
     weights/contact.pt             # Enabled by default when present
+    weights/lip.json
+    weights/dental.json            # Experimental; opt-in
+    weights/silence.joblib
+    configs/silence_reviewed.json
+    configs/silence_expanded.json
+    silence_fit.json
+    CONTENTVEC_STATE_SHA256
+    SHA256SUMS
     weights/contentvec/            # Local encoder and processor files
   omnivoice/
     omnivoice-tts                   # Executable arm64 build, with its needed libraries
@@ -96,7 +104,7 @@ See [R4 integration](r4-model-integration.md) for bundle details.
 
 ```sh
 python scripts/smoke_desktop_backend.py
-python scripts/smoke_desktop_backend.py --r4-bundle 'external/R4 26-11-06'
+python scripts/smoke_desktop_backend.py --r4-bundle 'external/R4 final with hinting models'
 python scripts/smoke_desktop_app.py  # Opens test windows in a macOS desktop session
 npm run test:e2e:offline
 ```
