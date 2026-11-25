@@ -1,3 +1,13 @@
+/* Classroom-readable Target Text Inputs */
+.target-text-input {
+    font-size: 30pt;
+    line-height: 1.25;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    word-break: break-word;
+    resize: vertical;
+}
+
 /* Tab Navigation Styles */
 .tab-btn {
     transition: color 0.2s ease, border-color 0.2s ease;

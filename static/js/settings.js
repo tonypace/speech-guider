@@ -79,6 +79,57 @@ function initializeSettings() {
         renderRemoteBindings();
     };
 
+    const applyRemoteSettingsLive = () => {
+        const previous = getSettings();
+        const next = {
+            ...previous,
+            remote_enabled: remoteEnabled ? remoteEnabled.checked : (previous.remote_enabled !== false),
+            remote_record_mode: remoteRecordMode
+                ? (remoteRecordMode.value === 'hold' ? 'hold' : 'toggle')
+                : (previous.remote_record_mode === 'hold' ? 'hold' : 'toggle'),
+            remote_bindings: { ...remoteBindings },
+        };
+        window.__SPEECH_GUIDER_SETTINGS__ = next;
+        window.dispatchEvent(new CustomEvent('speechguider:settingschange', { detail: { previous, next } }));
+        return next;
+    };
+
+    let remotePersistSeq = 0;
+    const persistRemoteSettings = async (savedMessage = '', fallbackMessage = '') => {
+        const next = applyRemoteSettingsLive();
+        const seq = ++remotePersistSeq;
+        if (typeof fetch !== 'function') {
+            if (remoteStatus && fallbackMessage) remoteStatus.textContent = fallbackMessage;
+            return;
+        }
+        try {
+            const payload = {
+                contact_enabled: next.contact_enabled !== false,
+                microphone_enabled: next.microphone_enabled !== false,
+                microphone_device_id: next.microphone_device_id || '',
+                microphone_label: next.microphone_label || '',
+                remote_enabled: next.remote_enabled !== false,
+                remote_record_mode: next.remote_record_mode === 'hold' ? 'hold' : 'toggle',
+                remote_bindings: { ...remoteBindings },
+            };
+            const response = await fetch('/api/settings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            if (!response.ok) throw new Error('Could not save settings.');
+            const persisted = await response.json();
+            if (seq === remotePersistSeq) {
+                window.__SPEECH_GUIDER_SETTINGS__ = persisted;
+                if (remoteStatus && savedMessage) remoteStatus.textContent = savedMessage;
+            }
+        } catch {
+            if (seq === remotePersistSeq && remoteStatus && fallbackMessage) {
+                remoteStatus.textContent = fallbackMessage;
+            }
+        }
+    };
+
     const applyLearnedKey = (action, result) => {
         if (!result || result.cancelled) {
             stopLearning('Button assignment cancelled.');
@@ -98,10 +149,14 @@ function initializeSettings() {
         }
         remoteBindings[action] = key;
         const label = formatRemoteKeyLabel(key);
-        const note = replacedAction
+        const fallbackNote = replacedAction
             ? `Assigned ${label} (cleared previous binding). Click Save settings to keep.`
             : `Assigned ${label}. Click Save settings to keep.`;
-        stopLearning(note);
+        const savedNote = replacedAction
+            ? `Assigned ${label} (cleared previous binding) and saved.`
+            : `Assigned ${label} and saved.`;
+        stopLearning(fallbackNote);
+        void persistRemoteSettings(savedNote, fallbackNote);
     };
 
     const startLearning = (action) => {
@@ -223,6 +278,10 @@ function initializeSettings() {
     remoteEnabled?.addEventListener('change', () => {
         if (!remoteEnabled.checked) stopLearning();
         renderRemoteBindings();
+        void persistRemoteSettings();
+    });
+    remoteRecordMode?.addEventListener('change', () => {
+        void persistRemoteSettings();
     });
     assignButtons.forEach((btn) => {
         btn.addEventListener('click', () => {
@@ -238,6 +297,7 @@ function initializeSettings() {
             remoteBindings[action] = '';
             renderRemoteBindings();
             if (remoteStatus) remoteStatus.textContent = 'Binding cleared. Click Save settings to keep.';
+            void persistRemoteSettings('Binding cleared and saved.', 'Binding cleared. Click Save settings to keep.');
         });
     });
     remotePermissionBtn?.addEventListener('click', () => {

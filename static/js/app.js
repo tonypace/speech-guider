@@ -202,11 +202,39 @@ window.animateRight = function animateRight() {
     togglePoseAnimation('right');
 };
 
+function autoResizeTextarea(el) {
+    if (!el || el.tagName !== 'TEXTAREA') return;
+    el.style.height = 'auto';
+    if (el.scrollHeight > 0) {
+        el.style.height = `${el.scrollHeight}px`;
+    }
+}
+
 function bindTargetSentenceSync() {
     const inputIds = ['target_text', 'comparison-target-text', 'prosody-custom-text'];
     const inputs = inputIds
         .map((id) => document.getElementById(id))
         .filter(Boolean);
+
+    inputs.forEach((el) => {
+        if (el.tagName === 'TEXTAREA') {
+            autoResizeTextarea(el);
+            el.addEventListener('input', () => autoResizeTextarea(el));
+            el.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter' && !event.shiftKey) {
+                    event.preventDefault();
+                    if (el.id === 'comparison-target-text') {
+                        document.getElementById('comparison-reference-form')?.requestSubmit?.();
+                    }
+                }
+            });
+        }
+    });
+
+    window.addEventListener('speechguider:tabchange', () => {
+        inputs.forEach((el) => autoResizeTextarea(el));
+    });
+
     if (inputs.length < 2) return;
 
     let isSyncing = false;
@@ -219,6 +247,7 @@ function bindTargetSentenceSync() {
                 inputs.forEach((target) => {
                     if (target !== source && target.value !== value) {
                         target.value = value;
+                        autoResizeTextarea(target);
                         if (target.id === 'comparison-target-text') {
                             target.dispatchEvent(new Event('input', { bubbles: true }));
                         }

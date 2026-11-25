@@ -76,8 +76,39 @@ function getTauriInvoke() {
     return null;
 }
 
-function isEditableTarget(target) {
-    return Boolean(target?.closest?.('input, textarea, select, [contenteditable="true"]'));
+const NON_TEXT_INPUT_TYPES = new Set([
+    'button',
+    'checkbox',
+    'color',
+    'file',
+    'hidden',
+    'image',
+    'radio',
+    'range',
+    'reset',
+    'submit',
+]);
+
+const TEXT_INPUT_ALLOWED_REMOTE_KEYS = new Set([
+    'Tab',
+    'PageUp',
+    'PageDown',
+    'Escape',
+]);
+
+function isTextInputTarget(target) {
+    const el = target?.closest?.('input, textarea, [contenteditable="true"]');
+    if (!el) return false;
+    if (el.tagName === 'INPUT') {
+        const type = (el.getAttribute('type') || 'text').toLowerCase();
+        return !NON_TEXT_INPUT_TYPES.has(type);
+    }
+    return true;
+}
+
+function canTriggerInsideTextInput(key) {
+    if (MEDIA_KEYS.has(key) || TEXT_INPUT_ALLOWED_REMOTE_KEYS.has(key)) return true;
+    return /^F([1-9]|1[0-2])$/.test(key);
 }
 
 export class PresenterRemoteController {
@@ -217,7 +248,7 @@ export class PresenterRemoteController {
         }
 
         if (event.metaKey || event.ctrlKey || event.altKey) return;
-        if (isEditableTarget(event.target) && !MEDIA_KEYS.has(key)) return;
+        if (isTextInputTarget(event.target) && !canTriggerInsideTextInput(key)) return;
 
         const handled = this._dispatchKey(key, type, Boolean(event.repeat));
         if (handled) {
@@ -249,6 +280,8 @@ export class PresenterRemoteController {
             this._releaseHoldRecording();
             return true;
         }
+
+        if (this._activeTab() === 'settings') return false;
 
         const action = this.findActionForKey(key);
         if (!action) return false;
@@ -298,7 +331,7 @@ export class PresenterRemoteController {
     triggerRecordToggle() {
         const recorder = this._recorderForTab(this._activeTab());
         if (!recorder) return;
-        if (recorder.isRecording) {
+        if (recorder.isRecording || recorder.isStartingRecording) {
             recorder.stopRecording?.();
         } else {
             recorder.startRecording?.();
@@ -328,7 +361,7 @@ export class PresenterRemoteController {
         const tab = this._activeTab();
         if (tab === 'analysis') {
             const audio = document.querySelector('#feedback-container audio');
-            if (!audio || !audio.getAttribute('src')) return;
+            if (!audio || !(audio.src || audio.getAttribute('src'))) return;
             if (audio.paused || audio.ended) {
                 const promise = audio.play?.();
                 promise?.catch?.(() => {});

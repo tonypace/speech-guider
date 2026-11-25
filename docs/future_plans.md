@@ -38,6 +38,10 @@ The initial codebase cleanup stack (`P0.1`–`P4.3`) was completed on **2026-11-
 - **References:** [Release contracts](release-contracts.md)
 - **Scope:** Validate heuristic CPPS, spectral tilt, jitter/shimmer, and pitch coaching thresholds against a versioned Praat reference script suite and licensed recorded speech before surfacing clinical/diagnostic claims.
 
+### R4 articulatory hinter sensitivity on poorly enunciated consonants
+- **Files:** `src/models/r4_hints.py`, `src/models/r4_contact.py`, `src/models/r4_lip.py`, `src/models/r4_dental.py`
+- **Scope:** Observed during testing that some poorly enunciated consonants are still caught by the articulatory hinter and animated as full closures. Audit hinter classifier confidence thresholds, hysteresis, and blending so weak or reduced consonant articulations are not over-corrected in the animation.
+
 ### R4 dental hint validation
 - **References:** [R4 integration](r4-model-integration.md), `external/R4 final with hinting models/IMPLEMENTATION_NOTES.md`
 - **Scope:** Complete blind review and second-speaker validation of the experimental dental / “th” hint before enabling it by default. Compare false dental approaches against existing tongue contacts and lip seals.

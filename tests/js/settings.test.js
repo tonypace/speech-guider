@@ -422,38 +422,36 @@ describe('settings panel behavior', () => {
 
         expect(document.querySelector('[data-remote-binding="record"]').textContent).toBe('Page Down');
 
-        // Assign PageDown to play_pause: should move binding off record.
+        const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => ({
+            ok: true,
+            json: async () => JSON.parse(init.body),
+        }));
+
+        // Assign PageDown to play_pause: should move binding off record and apply live immediately.
         document.querySelector('[data-remote-assign="play_pause"]').click();
         expect(document.querySelector('[data-remote-assign="play_pause"]').textContent).toBe('Press remote button…');
         document.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageDown', bubbles: true, cancelable: true }));
 
         expect(document.querySelector('[data-remote-binding="play_pause"]').textContent).toBe('Page Down');
         expect(document.querySelector('[data-remote-binding="record"]').textContent).toBe('Not assigned');
+        expect(window.__SPEECH_GUIDER_SETTINGS__.remote_bindings.play_pause).toBe('PageDown');
+        expect(window.__SPEECH_GUIDER_SETTINGS__.remote_bindings.record).toBe('');
 
         // Assign record to F5 and switch to hold mode.
         document.querySelector('[data-remote-assign="record"]').click();
         document.dispatchEvent(new KeyboardEvent('keydown', { key: 'F5', bubbles: true, cancelable: true }));
         expect(document.querySelector('[data-remote-binding="record"]').textContent).toBe('F5');
+        expect(window.__SPEECH_GUIDER_SETTINGS__.remote_bindings.record).toBe('F5');
 
         // Clear play_pause.
         document.querySelector('[data-remote-clear="play_pause"]').click();
         expect(document.querySelector('[data-remote-binding="play_pause"]').textContent).toBe('Not assigned');
+        expect(window.__SPEECH_GUIDER_SETTINGS__.remote_bindings.play_pause).toBe('');
 
         document.getElementById('settings-remote-record-mode').value = 'hold';
+        document.getElementById('settings-remote-record-mode').dispatchEvent(new Event('change'));
 
-        const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-            ok: true,
-            json: async () => ({
-                contact_enabled: true,
-                microphone_enabled: true,
-                microphone_device_id: '',
-                microphone_label: '',
-                remote_enabled: true,
-                remote_record_mode: 'hold',
-                remote_bindings: { record: 'F5', play_pause: '', speed_up: '', speed_down: '' },
-            }),
-        });
-
+        fetchMock.mockClear();
         document.getElementById('settings-form').dispatchEvent(new Event('submit', { cancelable: true }));
         await vi.waitFor(() => {
             expect(document.getElementById('settings-save-status').textContent).toBe('Settings saved.');

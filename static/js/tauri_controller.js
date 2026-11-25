@@ -148,13 +148,19 @@ class TauriController {
                     this.handleNext();
                     break;
 
-                case 'Tab':
+                case 'Tab': {
+                    const remoteSettings = window.__SPEECH_GUIDER_SETTINGS__;
+                    const customRecord = remoteSettings?.remote_bindings?.record;
+                    if (remoteSettings?.remote_enabled === false || (customRecord && customRecord !== 'Tab')) {
+                        break;
+                    }
                     event.preventDefault();
                     if (!this.isRecording && this.tabDownTime === null) {
                         this.tabDownTime = Date.now();
                         this.handleRecordPress();
                     }
                     break;
+                }
             }
         });
 

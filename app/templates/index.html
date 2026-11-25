@@ -82,12 +82,11 @@
                 <!-- Target Text -->
                 <div class="mb-4">
                     <label for="target_text" class="block text-sm font-medium text-gray-700 mb-1">Target Sentence</label>
-                    <input type="text" 
-                           id="target_text" 
-                           name="target_text"
-                           value="The weather is very hot today."
-                           class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                           placeholder="Enter the sentence to practice...">
+                    <textarea id="target_text"
+                              name="target_text"
+                              rows="1"
+                              class="target-text-input w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                              placeholder="Enter the sentence to practice...">The weather is very hot today.</textarea>
                 </div>
 
                 <!-- Intercom Recorder -->
@@ -370,11 +369,11 @@
                 <!-- Target Text Input -->
                 <form id="comparison-reference-form" class="mb-4">
                     <label for="comparison-target-text" class="block text-sm font-medium text-gray-700 mb-2">Target Text</label>
-                    <div class="flex flex-wrap items-center gap-2">
-                        <input type="text" id="comparison-target-text" required
-                               data-text-limit="{{ reference_text_limit }}" aria-describedby="comparison-ref-status"
-                               class="flex-1 min-w-0 px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
-                               placeholder="Enter text to practice...">
+                    <div class="flex flex-wrap items-start gap-2">
+                        <textarea id="comparison-target-text" rows="1" required
+                                  data-text-limit="{{ reference_text_limit }}" aria-describedby="comparison-ref-status"
+                                  class="target-text-input flex-1 min-w-[260px] px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                                  placeholder="Enter text to practice..."></textarea>
                         <button type="submit" id="comparison-generate" class="rounded bg-blue-600 px-3 py-2 font-medium text-white disabled:opacity-50" disabled>Generate reference</button>
                     </div>
                     <div id="comparison-ref-status" class="mt-2 text-sm text-gray-500" role="status">Enter text to generate a reference.</div>

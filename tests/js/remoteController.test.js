@@ -26,7 +26,9 @@ describe('PresenterRemoteController', () => {
                 <option value="0.5" selected>0.5x</option>
                 <option value="1">1x</option>
             </select>
-            <input id="target_text" type="text" value="Hello">
+            <textarea id="target_text">Hello</textarea>
+            <input id="scrub-range" type="range" min="0" max="100" value="0">
+            <input id="link-check" type="checkbox">
         `;
         window.currentTab = 'analysis';
         window.__SPEECH_GUIDER_SETTINGS__ = {
@@ -191,12 +193,60 @@ describe('PresenterRemoteController', () => {
         expect(cancelled).toHaveBeenCalledWith({ cancelled: true });
     });
 
-    it('ignores keyboard remote keys while typing inside text inputs', () => {
-        const analysisRec = { isRecording: false, startRecording: vi.fn(), stopRecording: vi.fn() };
+    it('ignores printable keys while typing in text inputs, but allows non-typing presenter keys like Tab', () => {
+        const analysisRec = {
+            isRecording: false,
+            startRecording: vi.fn(() => { analysisRec.isRecording = true; }),
+            stopRecording: vi.fn(() => { analysisRec.isRecording = false; }),
+        };
         window.recorder = analysisRec;
-        const input = document.getElementById('target_text');
+        window.__SPEECH_GUIDER_SETTINGS__.remote_bindings.record = 'Tab';
+        window.__SPEECH_GUIDER_SETTINGS__.remote_bindings.play_pause = 'b';
+        const textarea = document.getElementById('target_text');
+        const audio = document.querySelector('#feedback-container audio');
+        const playSpy = vi.spyOn(audio, 'play').mockResolvedValue();
 
-        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageDown', bubbles: true, cancelable: true }));
-        expect(analysisRec.startRecording).not.toHaveBeenCalled();
+        // Printable 'b' inside textarea should NOT trigger play_pause
+        const bEvent = new KeyboardEvent('keydown', { key: 'b', bubbles: true, cancelable: true });
+        textarea.dispatchEvent(bEvent);
+        expect(playSpy).not.toHaveBeenCalled();
+        expect(bEvent.defaultPrevented).toBe(false);
+
+        // Non-typing 'Tab' bound to record SHOULD trigger recording and prevent default Tab navigation
+        const tabEvent = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+        textarea.dispatchEvent(tabEvent);
+        expect(analysisRec.startRecording).toHaveBeenCalledOnce();
+        expect(tabEvent.defaultPrevented).toBe(true);
+
+        // Pressing 'Tab' again stops recording
+        const tabStopEvent = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+        textarea.dispatchEvent(tabStopEvent);
+        expect(analysisRec.stopRecording).toHaveBeenCalledOnce();
+        expect(tabStopEvent.defaultPrevented).toBe(true);
+    });
+
+    it('fires bound remote keys when focus is on range sliders, checkboxes, or selects, and yields on Settings tab', () => {
+        const analysisRec = {
+            isRecording: false,
+            startRecording: vi.fn(() => { analysisRec.isRecording = true; }),
+            stopRecording: vi.fn(() => { analysisRec.isRecording = false; }),
+        };
+        window.recorder = analysisRec;
+        window.__SPEECH_GUIDER_SETTINGS__.remote_bindings.record = 'b';
+
+        document.getElementById('scrub-range').dispatchEvent(new KeyboardEvent('keydown', { key: 'b', bubbles: true, cancelable: true }));
+        expect(analysisRec.startRecording).toHaveBeenCalledOnce();
+
+        document.getElementById('link-check').dispatchEvent(new KeyboardEvent('keydown', { key: 'b', bubbles: true, cancelable: true }));
+        expect(analysisRec.stopRecording).toHaveBeenCalledOnce();
+
+        document.getElementById('comparison-speed').dispatchEvent(new KeyboardEvent('keydown', { key: 'b', bubbles: true, cancelable: true }));
+        expect(analysisRec.startRecording).toHaveBeenCalledTimes(2);
+
+        // On Settings tab, bound keys are not hijacked (except during learning mode)
+        window.currentTab = 'settings';
+        const settingsEvent = new KeyboardEvent('keydown', { key: 'b', bubbles: true, cancelable: true });
+        document.dispatchEvent(settingsEvent);
+        expect(settingsEvent.defaultPrevented).toBe(false);
     });
 });
