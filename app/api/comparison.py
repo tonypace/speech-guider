@@ -103,7 +103,7 @@ def _generate_reference_asset(
     audio_tensor = _prepare_reference_audio_tensor(reference_audio)
     predictor = get_ssl_predictor()
     try:
-        trajectory = predictor.predict(
+        prediction = predictor.predict_with_metadata(
             audio_tensor,
             sample_rate=DEFAULT_SSL_FEATURE_CONFIG.sample_rate,
             contact_enabled=contact_enabled,
@@ -113,7 +113,10 @@ def _generate_reference_asset(
         if isinstance(dev, str):
             clear_torch_device_cache(dev)
 
-    frames = r4_trajectory_to_canonical_frames(trajectory.numpy())
+    trajectory = prediction["tvs"]
+    labiodental_tensor = prediction.get("labiodental_retraction")
+    labiodental_array = labiodental_tensor.numpy() if labiodental_tensor is not None else None
+    frames = r4_trajectory_to_canonical_frames(trajectory.numpy(), labiodental_array)
 
     asset = cache.put(
         text=text,

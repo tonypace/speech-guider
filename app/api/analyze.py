@@ -95,7 +95,11 @@ def _ssl_aai_to_animation_state(
         logger.debug("[_ssl_aai_to_animation_state] Generated animation state via SSL AAI path")
 
         if return_trajectory:
-            frames = r4_trajectory_to_canonical_frames(tvs_array)
+            labiodental_tensor = prediction.get("labiodental_retraction")
+            labiodental_array = (
+                labiodental_tensor.numpy() if labiodental_tensor is not None else None
+            )
+            frames = r4_trajectory_to_canonical_frames(tvs_array, labiodental_array)
             logger.debug(f"[_ssl_aai_to_animation_state] Generated {len(frames)} trajectory frames")
             return animation_state, frames, ssl_meta
 

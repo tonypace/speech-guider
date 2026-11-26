@@ -35,6 +35,8 @@ def desktop_assets_missing() -> list[str]:
             bundle / "weights" / "contact.pt",
             bundle / "weights" / "lip.json",
             bundle / "weights" / "dental.json",
+            bundle / "weights" / "labiodental.json",
+            bundle / "configs" / "output_calibration.json",
             bundle / "weights" / "silence.joblib",
             bundle / "configs" / "silence_reviewed.json",
             bundle / "configs" / "silence_expanded.json",

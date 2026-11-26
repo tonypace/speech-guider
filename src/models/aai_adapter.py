@@ -436,9 +436,21 @@ def aai_to_canonical_states_batch(
 SPEAKER_Z_METADATA = AAIConversionMetadata(normalization="speaker_z_normalized")
 
 
-def r4_trajectory_to_canonical_frames(tvs_array: np.ndarray) -> list[dict[str, float]]:
+def r4_trajectory_to_canonical_frames(
+    tvs_array: np.ndarray,
+    labiodental_retraction: np.ndarray | Sequence[float] | None = None,
+) -> list[dict[str, float]]:
     """Convert an R4 speaker-Z trajectory array (T, 9) into canonical renderer frames."""
-    return aai_to_canonical_states_batch(tvs_array, SPEAKER_Z_METADATA)
+    frames = aai_to_canonical_states_batch(tvs_array, SPEAKER_Z_METADATA)
+    if labiodental_retraction is not None:
+        ret_values = np.asarray(labiodental_retraction, dtype=np.float32)
+        if len(ret_values) != len(frames):
+            raise ValueError(
+                f"labiodental_retraction length ({len(ret_values)}) does not match frames ({len(frames)})"
+            )
+        for frame, ret in zip(frames, ret_values):
+            frame["labiodental_retraction"] = clamp_unit(float(ret))
+    return frames
 
 
 def parse_aai_animation_payload(

@@ -32,7 +32,7 @@ def test_reference_cache_partitions_provider_and_model_revisions() -> None:
         audio_bytes=b"new audio", sample_rate=8000, duration_seconds=1.0, format="ogg"
     )
     predictor = Mock()
-    predictor.predict.return_value = torch.zeros((2, 9))
+    predictor.predict_with_metadata.return_value = {"tvs": torch.zeros((2, 9))}
     cache = ComparisonCache(use_temp_files=True)
     try:
         with (

@@ -136,6 +136,14 @@ def smoke(executable: Path, r4_bundle: Path | None = None) -> None:
                         raise RuntimeError(
                             "Frozen Analysis did not enable reviewed silence settling"
                         )
+                    if (
+                        r4_bundle / "configs/output_calibration.json"
+                    ).is_file() and not metadata.get("output_calibration"):
+                        raise RuntimeError("Frozen Analysis did not enable output calibration")
+                    if (r4_bundle / "weights/labiodental.json").is_file() and not metadata.get(
+                        "labiodental_correction"
+                    ):
+                        raise RuntimeError("Frozen Analysis did not enable labiodental correction")
                     request = Request(
                         f"{base}/api/settings",
                         data=b'{"contact_enabled":false}',
@@ -158,6 +166,8 @@ def smoke(executable: Path, r4_bundle: Path | None = None) -> None:
                     baseline_meta = baseline.get("integration_meta", {})
                     if (
                         baseline_meta.get("lip_correction")
+                        or baseline_meta.get("output_calibration")
+                        or baseline_meta.get("labiodental_correction")
                         or baseline_meta.get("silence_hint") != "off"
                     ):
                         raise RuntimeError("Frozen baseline Analysis retained R4 hints")

@@ -153,6 +153,7 @@ def test_contact_keeps_timing_and_other_channels(
     if not (DEFAULT_R4_BUNDLE / "weights/contact.pt").is_file():
         pytest.skip("Local R4 contact checkpoint unavailable")
     monkeypatch.setattr(real_predictor, "lip_enabled", False)
+    monkeypatch.setattr(real_predictor, "calibrate_enabled", False)
     monkeypatch.setattr(real_predictor, "silence_mode", "off")
     enhanced = real_predictor.predict_with_metadata(waveform, contact_enabled=True)
     baseline = real_predictor.predict_with_metadata(waveform)
@@ -304,30 +305,37 @@ def test_final_hints_match_bundled_replay(
     monkeypatch.syspath_prepend(str(DEFAULT_R4_BUNDLE))
     monkeypatch.setattr(real_predictor, "lip_enabled", True)
     monkeypatch.setattr(real_predictor, "dental_enabled", dental)
+    monkeypatch.setattr(real_predictor, "calibrate_enabled", True)
+    monkeypatch.setattr(real_predictor, "labiodental_enabled", True)
     monkeypatch.setattr(real_predictor, "silence_mode", silence)
     # Load the selected gate independently of earlier parameterized runs.
     monkeypatch.setattr(real_predictor, "_silence", None)
     try:
         reference = importlib.import_module("run_r4")
-        backend = reference.load_runtime("cpu", dental=dental)
+        backend = reference.load_runtime("cpu", dental=dental, calibrate=True, labiodental=True)
         samples = torch.cat(
             (waveform[:4800], torch.zeros(19200), waveform[:4800], torch.zeros(613))
         )
-        expected, centers, _, mask = reference.replay(
+        expected, centers, _, mask, expected_ret = reference.replay_with_hints(
             backend, samples.numpy(), None if silence == "off" else silence
         )
         actual = real_predictor.predict_with_metadata(samples, contact_enabled=True)
         np.testing.assert_allclose(actual["tvs_raw"].numpy(), expected, atol=1e-5, rtol=1e-5)
+        np.testing.assert_allclose(
+            actual["labiodental_retraction"].numpy(), expected_ret, atol=1e-5, rtol=1e-5
+        )
         np.testing.assert_array_equal(actual["center_samples"].numpy(), centers)
         assert actual["metadata"]["lip_correction"] is True
+        assert actual["metadata"]["output_calibration"] is True
         assert actual["metadata"]["dental_correction"] is dental
+        assert actual["metadata"]["labiodental_correction"] is True
         assert actual["metadata"]["silence_hint"] == silence
         assert actual["metadata"]["silence_settled_frames"] == int(mask.sum())
         if silence != "off":
             assert mask.any(), "Synthetic long pause must exercise settling"
         # A second clip must not inherit tongue holds or lip momentum.
         short = waveform[:321]
-        expected_short, centers_short, _, _ = reference.replay(
+        expected_short, centers_short, _, _, _ = reference.replay_with_hints(
             backend, short.numpy(), None if silence == "off" else silence
         )
         repeated = real_predictor.predict_with_metadata(short, contact_enabled=True)
@@ -337,7 +345,9 @@ def test_final_hints_match_bundled_replay(
         np.testing.assert_array_equal(repeated["center_samples"].numpy(), centers_short)
         baseline = real_predictor.predict_with_metadata(short, contact_enabled=False)
         assert baseline["metadata"]["lip_correction"] is False
+        assert baseline["metadata"]["output_calibration"] is False
         assert baseline["metadata"]["dental_correction"] is False
+        assert baseline["metadata"]["labiodental_correction"] is False
         assert baseline["metadata"]["silence_hint"] == "off"
     finally:
         for name in set(sys.modules) - before:

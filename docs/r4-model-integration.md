@@ -11,12 +11,14 @@ Keep these supplied files together; `external/` remains ignored by Git:
 
 ```text
 configs/nine_channel_v12_100ms.yaml
+configs/output_calibration.json
 configs/silence_reviewed.json
 configs/silence_expanded.json
 weights/r4.pt
 weights/contact.pt
 weights/lip.json
 weights/dental.json
+weights/labiodental.json
 weights/silence.joblib
 weights/contentvec/{config.json,preprocessor_config.json,model.safetensors}
 CONTENTVEC_STATE_SHA256
@@ -37,6 +39,8 @@ preserved. Startup environment options (also in `.env.sample`):
 | Variable | Default | Behavior |
 | --- | --- | --- |
 | `SSL_AAI_LIP_ENABLED` | `1` | Set `0` for tongue contact without lip correction. |
+| `SSL_AAI_CALIBRATE_ENABLED` | `1` | Set `0` to disable conditional `TTCL`/`TBCL`/`LP` output calibration. |
+| `SSL_AAI_LABIODENTAL_ENABLED` | `1` | Set `0` to disable `/f, v/` lower-lip retraction (`labiodental_retraction`). |
 | `SSL_AAI_DENTAL_ENABLED` | `0` | Set `1` for experimental dental / “th” correction. |
 | `SSL_AAI_SILENCE_MODE` | `reviewed` | `reviewed`, `expanded`, or `off`. |
 

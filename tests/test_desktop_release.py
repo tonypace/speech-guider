@@ -36,6 +36,8 @@ def test_desktop_resolves_installed_models_and_shows_missing_requirements(
         "r4/weights/contact.pt",
         "r4/weights/lip.json",
         "r4/weights/dental.json",
+        "r4/weights/labiodental.json",
+        "r4/configs/output_calibration.json",
         "r4/weights/silence.joblib",
         "r4/configs/silence_reviewed.json",
         "r4/configs/silence_expanded.json",

@@ -8,8 +8,15 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 
+from src.models.r4_calibration import (
+    CurveCalibrationParams,
+    OutputCalibrator,
+    TipCalibrationParams,
+    apply_conditional_calibration,
+)
 from src.models.r4_dental import apply_dental_correction
 from src.models.r4_hints import load_silence, verified_asset
+from src.models.r4_labiodental import apply_labiodental_correction
 from src.models.r4_lip import LipClosureConfig, LipCorrection
 from src.services import model_cache
 
@@ -107,12 +114,16 @@ def test_reference_identity_tracks_hint_settings_and_assets(
         checkpoint_path=tmp_path / "weights/r4.pt",
         lip_enabled=True,
         dental_enabled=False,
+        calibrate_enabled=True,
+        labiodental_enabled=True,
         silence_mode="reviewed",
     )
     monkeypatch.setattr(model_cache, "_cached_ssl_predictor", predictor)
     assert model_cache.get_ssl_cache_identity(True)["hints"] == {
         "lip": True,
         "dental": False,
+        "calibrate": True,
+        "labiodental": True,
         "silence": "reviewed",
     }
 
@@ -138,3 +149,33 @@ def test_installer_stages_final_hint_assets_and_manifest(tmp_path: Path) -> None
     (bundle / "weights/lip.json").write_text("corrupt")
     with pytest.raises(ValueError, match="checksum mismatch"):
         _stage_r4(bundle, target)
+
+
+def test_conditional_calibration_expands_speech_and_preserves_silence_identity() -> None:
+    calibrator = OutputCalibrator(
+        ttcl=TipCalibrationParams(p0=0.5, g=4.0, span=0.34, cd_lo=0.35, cd_hi=0.57, w_open=0.25),
+        tbcl=CurveCalibrationParams(p0=0.5, g=5.0, span=0.34),
+        lp=CurveCalibrationParams(p0=0.5, g=2.5, span=0.34),
+    )
+    frames = np.full((2, 9), 0.6, dtype=np.float32)
+    frames[:, 3] = 0.2  # TTCD active
+    result = apply_conditional_calibration(frames, calibrator, speech_weight=np.array([0.0, 1.0]))
+    # Confirmed silence (weight=0.0) is exact identity
+    np.testing.assert_array_equal(result[0], frames[0])
+    # Active speech (weight=1.0) expands TTCL/TBCL/LP away from p0=0.5, leaves other channels intact
+    assert result[1, 0] > frames[1, 0]
+    assert result[1, 2] > frames[1, 2]
+    assert result[1, 4] > frames[1, 4]
+    np.testing.assert_array_equal(result[1, [1, 3, 5, 6, 7, 8]], frames[1, [1, 3, 5, 6, 7, 8]])
+
+
+def test_labiodental_correction_gates_bilabial_seals_and_tongue_stops() -> None:
+    frames = np.full((3, 9), 0.5, dtype=np.float32)
+    frames[1, 1] = 0.02  # bilabial seal (LA <= 0.05)
+    frames[2, 3] = 0.01  # tongue tip stop (TTCD <= 0.03)
+    probs = np.array([0.9, 0.9, 0.9], dtype=np.float32)
+    retraction, strength = apply_labiodental_correction(frames, probs, threshold=0.315)
+    assert retraction[0] > 0.9
+    assert strength[0] > 0.9
+    assert retraction[1] == 0.0
+    assert retraction[2] == 0.0

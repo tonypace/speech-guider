@@ -22,6 +22,8 @@ R4_FILES = (
     "weights/contact.pt",
     "weights/lip.json",
     "weights/dental.json",
+    "weights/labiodental.json",
+    "configs/output_calibration.json",
     "weights/silence.joblib",
     "configs/silence_reviewed.json",
     "configs/silence_expanded.json",

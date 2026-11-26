@@ -1,6 +1,7 @@
 export const DEFAULT_STATE = {
     lip_aperture: 0.25,
     lip_protrusion: 0.71,
+    labiodental_retraction: 0,
     tongue_tip_constriction_location: 0.2,
     tongue_tip_constriction_degree: 1,
     lateral_tongue_drop: 0,
@@ -10,20 +11,25 @@ export const DEFAULT_STATE = {
     glottal_aperture: 0,
 };
 
-const TIP_DOMAIN_END = 0.25;
-const BODY_DOMAIN_START = 0.35;
-// This fraction is the hard palate endpoint on the original fixed track.
-const SOFT_PALATE_START = 0.5628632913010034;
+const TIP_DOMAIN_START = 0.0;
+const TIP_DOMAIN_MID = 0.135;
+const TIP_DOMAIN_END = 0.34;
+const BODY_DOMAIN_START = 0.22;
+const BODY_DOMAIN_MID = 0.48;
+const BODY_DOMAIN_END = 0.88;
 const PHARYNX_START = 0.86;
 const TEETH = [[50, 265], [53, 256], [56, 247], [60, 239]];
-const ALVEOLAR_RIDGE = [[60, 239], [75, 225], [95, 205], [122, 192]];
+const ALVEOLAR_RIDGE = [[60, 239], [80, 237], [98, 207], [122, 192]];
 const HARD_PALATE = [[122, 192], [155, 172], [205, 172], [240, 190]];
+const DEFAULT_SOFT_PALATE = [HARD_PALATE[3], [260, 190], [275, 205], [280, 230]];
+const DEFAULT_THROAT = [DEFAULT_SOFT_PALATE[3], [290, 270], [300, 320], [300, 350]];
 const TONGUE_TIP_REST_DISTANCE = 32;
 const TONGUE_BODY_REST_DISTANCE = 36;
 const LIP_APERTURE_MAX = 40;
 const LIP_PROTRUSION_MAX = 14;
 const VELIC_APERTURE_MAX = 40;
 const ORAL_REFERENCE_POINT = { x: 190, y: 300 };
+const JAW_HINGE_PIVOT = { x: 225, y: 290 };
 const FRAME_RENDER_INTERVAL_MS = 33;
 
 function clamp(value, min, max) {
@@ -69,29 +75,84 @@ function cubicPoint(p0, p1, p2, p3, t) {
     };
 }
 
-function cubicPath([, first, second, end]) {
-    return `C ${first.join(' ')}, ${second.join(' ')}, ${end.join(' ')}`;
+function quadraticPoint(p0, p1, p2, t) {
+    const mt = 1 - t;
+    return {
+        x: (mt ** 2) * p0.x + 2 * mt * t * p1.x + (t ** 2) * p2.x,
+        y: (mt ** 2) * p0.y + 2 * mt * t * p1.y + (t ** 2) * p2.y,
+    };
 }
-
-function sampleRoofSection(curves, steps, start, end) {
-    const samples = [];
-    let length = 0;
-    for (const curve of curves) {
-        const [p0, p1, p2, p3] = curve.map(([x, y]) => ({x, y}));
-        for (let index = 0; index <= steps; index += 1) {
-            const point = cubicPoint(p0, p1, p2, p3, index / steps);
-            if (samples.length) length += distance(samples[samples.length - 1], point);
-            samples.push({...point, length});
-        }
-    }
-    return samples.map(point => ({...point, position: lerp(start, end, point.length / length)}));
-}
-
-const ANTERIOR_ROOF = sampleRoofSection([TEETH, ALVEOLAR_RIDGE, HARD_PALATE], 70, 0, SOFT_PALATE_START);
 
 function distance(a, b) {
     return Math.hypot(b.x - a.x, b.y - a.y);
 }
+
+function cubicPath([, first, second, end]) {
+    return `C ${first.join(' ')}, ${second.join(' ')}, ${end.join(' ')}`;
+}
+
+function cubicLength(curve, steps = 70) {
+    const [p0, p1, p2, p3] = curve.map(([x, y]) => ({ x, y }));
+    let length = 0;
+    let prev = p0;
+    for (let index = 1; index <= steps; index += 1) {
+        const pt = cubicPoint(p0, p1, p2, p3, index / steps);
+        length += distance(prev, pt);
+        prev = pt;
+    }
+    return length;
+}
+
+function sampleRoofSection(curves, steps, start, end, startLength = 0) {
+    const samples = [];
+    let sectionLength = 0;
+    for (let curveIndex = 0; curveIndex < curves.length; curveIndex += 1) {
+        const [p0, p1, p2, p3] = curves[curveIndex].map(([x, y]) => ({ x, y }));
+        const initialStep = curveIndex === 0 ? 0 : 1;
+        for (let index = initialStep; index <= steps; index += 1) {
+            const point = cubicPoint(p0, p1, p2, p3, index / steps);
+            if (samples.length) sectionLength += distance(samples[samples.length - 1], point);
+            samples.push({ ...point, length: startLength + sectionLength });
+        }
+    }
+    const denom = sectionLength || 1;
+    return {
+        samples: samples.map((point, idx) => ({
+            ...point,
+            position: idx === samples.length - 1 ? end : lerp(start, end, (point.length - startLength) / denom),
+        })),
+        sectionLength,
+        endLength: startLength + sectionLength,
+    };
+}
+
+function transformJawPoint(x, y, jawTy, jawDeg) {
+    if (!jawDeg) return { x, y: y + jawTy };
+    const rad = (jawDeg * Math.PI) / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+    const dx = x - JAW_HINGE_PIVOT.x;
+    const dy = y - JAW_HINGE_PIVOT.y;
+    return {
+        x: JAW_HINGE_PIVOT.x + dx * cos - dy * sin,
+        y: JAW_HINGE_PIVOT.y + dx * sin + dy * cos + jawTy,
+    };
+}
+
+const DEFAULT_TEETH_LENGTH = cubicLength(TEETH, 70);
+const DEFAULT_ALVEOLAR_LENGTH = cubicLength(ALVEOLAR_RIDGE, 70);
+const DEFAULT_HARD_PALATE_LENGTH = cubicLength(HARD_PALATE, 70);
+const DEFAULT_ANTERIOR_LENGTH = DEFAULT_TEETH_LENGTH + DEFAULT_ALVEOLAR_LENGTH + DEFAULT_HARD_PALATE_LENGTH;
+const DEFAULT_CLOSED_TOTAL_LENGTH = (
+    DEFAULT_ANTERIOR_LENGTH
+      + cubicLength(DEFAULT_SOFT_PALATE, 128)
+      + cubicLength(DEFAULT_THROAT, 128)
+);
+const ALVEOLAR_END = (DEFAULT_TEETH_LENGTH + DEFAULT_ALVEOLAR_LENGTH) / DEFAULT_CLOSED_TOTAL_LENGTH;
+const SOFT_PALATE_START = DEFAULT_ANTERIOR_LENGTH / DEFAULT_CLOSED_TOTAL_LENGTH;
+const ANTERIOR_ROOF_SECTION = sampleRoofSection([TEETH, ALVEOLAR_RIDGE, HARD_PALATE], 70, 0, SOFT_PALATE_START, 0);
+const ANTERIOR_ROOF = ANTERIOR_ROOF_SECTION.samples;
+const ANTERIOR_ROOF_LENGTH = ANTERIOR_ROOF_SECTION.endLength;
 
 function createSvgMarkup(prefix) {
     return `
@@ -113,6 +174,8 @@ function createSvgMarkup(prefix) {
         <path id="${prefix}-oral-tract-fill" fill="#ffb4a2" opacity="0.6"></path>
         <path id="${prefix}-nasal-voicing" fill="url(#${prefix}-voicing-pattern)" pointer-events="none"></path>
         <path id="${prefix}-oral-voicing" fill="url(#${prefix}-voicing-pattern)" clip-path="url(#${prefix}-oral-voicing-clip)" pointer-events="none"></path>
+        <path id="${prefix}-palate-tissue" fill="#fda4af" opacity="0.35" pointer-events="none"></path>
+        <path id="${prefix}-uvula" fill="#fda4af" stroke="#e11d48" stroke-width="2" stroke-linejoin="round" pointer-events="none"></path>
 
         <g>
           <g stroke="#334155" stroke-width="6" fill="none" stroke-linecap="round" stroke-linejoin="round">
@@ -124,7 +187,7 @@ function createSvgMarkup(prefix) {
         </g>
 
         <g id="${prefix}-jaw-group">
-          <path d="M 60 290 Q 80 300 100 300" fill="none" stroke="#e11d48" stroke-width="6" stroke-linecap="round"></path>
+          <path d="M 60 290 Q 67 296 74 296" fill="none" stroke="#e11d48" stroke-width="6" stroke-linecap="round"></path>
           <path id="${prefix}-lower-face" d="" stroke="#475569" stroke-width="6" fill="none" stroke-linecap="round" stroke-linejoin="round"></path>
         </g>
 
@@ -133,9 +196,9 @@ function createSvgMarkup(prefix) {
         <path id="${prefix}-tip-contact-arc" d="" fill="none" stroke="#f59e0b" stroke-width="5" stroke-linecap="round" opacity="0" pointer-events="none"></path>
         <path id="${prefix}-body-contact-arc" d="" fill="none" stroke="#f59e0b" stroke-width="5" stroke-linecap="round" opacity="0" pointer-events="none"></path>
         <circle id="${prefix}-lip-contact-seal" cx="46" cy="260" r="5" fill="#f59e0b" stroke="#ffffff" stroke-width="1.5" opacity="0" pointer-events="none"></circle>
-        <path id="${prefix}-upper-teeth" d="M 52 239 C 48 254, 48 259, 50 264 L 60 239 Z" fill="#ffffff" stroke="#000000" stroke-width="1.5" stroke-linejoin="round"></path>
+        <path id="${prefix}-upper-teeth" d="M 51 242 Q 55.5 234 60 239 C 56 248, 53 256, 50 264 C 48 258, 48.5 250, 51 242 Z" fill="#ffffff" stroke="#000000" stroke-width="1.5" stroke-linejoin="round"></path>
         <g id="${prefix}-lower-teeth-group">
-          <path id="${prefix}-lower-teeth" d="M 52 290 C 48 275, 48 270, 50 265 L 60 290 Z" fill="#ffffff" stroke="#000000" stroke-width="1.5" stroke-linejoin="round"></path>
+          <path id="${prefix}-lower-teeth" d="M 51 287 Q 55.5 295 60 290 C 56 281, 53 273, 50 265 C 48 271, 48.5 279, 51 287 Z" fill="#ffffff" stroke="#000000" stroke-width="1.5" stroke-linejoin="round"></path>
         </g>
         <path id="${prefix}-roof-track-debug" fill="none" stroke="#10b981" stroke-width="2" stroke-dasharray="4" opacity="0" pointer-events="none"></path>
         <line id="${prefix}-normal-line" x1="0" y1="0" x2="0" y2="0" stroke="#ef4444" stroke-width="1.5" stroke-dasharray="4" marker-end="url(#${prefix}-arrow)"></line>
@@ -170,10 +233,10 @@ export class SvgArticulatoryRenderer {
         this.isRunning = false;
         this.animationId = null;
         this._voicingOffset = 0;
+        this._lastFrameRenderAt = 0;
+        this._frameDirty = true;
         this._mounted = false;
         this._elements = {};
-        this._frameDirty = true;
-        this._lastFrameRenderAt = 0;
         
         // History Trail configuration
         this.showHistory = options.showHistory !== false;
@@ -225,7 +288,8 @@ export class SvgArticulatoryRenderer {
     _cacheElements() {
         const ids = [
             'mouth-svg', 'outside-air', 'nasal-tract-fill', 'oral-tract-fill', 'nasal-voicing',
-            'oral-voicing', 'oral-voicing-clip-rect', 'upper-face', 'nasal-floor', 'palate',
+            'oral-voicing', 'oral-voicing-clip-rect', 'palate-tissue', 'uvula',
+            'upper-face', 'nasal-floor', 'palate',
             'jaw-group', 'lower-face', 'tongue', 'tongue-trail-group', 'tip-contact-arc', 'body-contact-arc',
             'lip-contact-seal', 'upper-teeth', 'lower-teeth-group', 'lower-teeth',
             'roof-track-debug', 'normal-line', 'anchor-point', 'wind-icon',
@@ -313,11 +377,32 @@ export class SvgArticulatoryRenderer {
     }
 
     _buildRoofTrack(geometry = this._buildVisiblePalateGeometry(this.state.velic_aperture * VELIC_APERTURE_MAX)) {
-        const softPalate = sampleRoofSection([geometry.softPalate], 128, SOFT_PALATE_START, PHARYNX_START);
-        const throat = sampleRoofSection([geometry.throat], 128, PHARYNX_START, 1);
+        const roofEnd = { x: 300, y: 350 };
+        const softPalateSection = sampleRoofSection(
+            [geometry.softPalate],
+            128,
+            SOFT_PALATE_START,
+            PHARYNX_START,
+            ANTERIOR_ROOF_LENGTH,
+        );
+        const throatSection = sampleRoofSection(
+            [geometry.throat],
+            128,
+            PHARYNX_START,
+            1,
+            softPalateSection.endLength,
+        );
+        const samples = [
+            ...ANTERIOR_ROOF,
+            ...softPalateSection.samples.slice(1),
+            ...throatSection.samples.slice(1),
+        ];
+
         return {
             path: `M ${TEETH[0].join(' ')} ${cubicPath(TEETH)} ${geometry.palateCurves} ${geometry.throatClosure}`,
-            samples: [...ANTERIOR_ROOF, ...softPalate.slice(1), ...throat.slice(1)],
+            samples,
+            totalLength: throatSection.endLength,
+            end: roofEnd,
         };
     }
 
@@ -340,18 +425,25 @@ export class SvgArticulatoryRenderer {
         const throatCurveControl2Y = lerp(320, 320, velFactor);
 
         const softPalate = [
-            HARD_PALATE[3], [softPalateControl1X, softPalateControl1Y],
-            [softPalateControl2X, softPalateControl2Y], [velumEndX, velumEndY],
+            HARD_PALATE[3],
+            [softPalateControl1X, softPalateControl1Y],
+            [softPalateControl2X, softPalateControl2Y],
+            [velumEndX, velumEndY],
         ];
         const throat = [
-            softPalate[3], [throatCurveControl1X, throatCurveControl1Y],
-            [throatCurveControl2X, throatCurveControl2Y], [300, 350],
+            softPalate[3],
+            [throatCurveControl1X, throatCurveControl1Y],
+            [throatCurveControl2X, throatCurveControl2Y],
+            [300, 350],
         ];
         const palateCurves = [ALVEOLAR_RIDGE, HARD_PALATE, softPalate].map(cubicPath).join(' ');
+        const path = `M ${ALVEOLAR_RIDGE[0].join(' ')} ${palateCurves}`;
+        const throatClosure = cubicPath(throat);
+
         return {
-            path: `M ${ALVEOLAR_RIDGE[0].join(' ')} ${palateCurves}`,
+            path,
             palateCurves,
-            throatClosure: cubicPath(throat),
+            throatClosure,
             softPalate,
             throat,
             velumEndX,
@@ -377,6 +469,7 @@ export class SvgArticulatoryRenderer {
             ...state,
             lip_aperture: normalizedScalar(state.lip_aperture, DEFAULT_STATE.lip_aperture),
             lip_protrusion: normalizedScalar(state.lip_protrusion, DEFAULT_STATE.lip_protrusion),
+            labiodental_retraction: normalizedScalar(state.labiodental_retraction, DEFAULT_STATE.labiodental_retraction),
             tongue_tip_constriction_location: normalizedScalar(state.tongue_tip_constriction_location, DEFAULT_STATE.tongue_tip_constriction_location),
             tongue_tip_constriction_degree: normalizedScalar(state.tongue_tip_constriction_degree, DEFAULT_STATE.tongue_tip_constriction_degree),
             lateral_tongue_drop: normalizedScalar(state.lateral_tongue_drop, DEFAULT_STATE.lateral_tongue_drop),
@@ -390,14 +483,26 @@ export class SvgArticulatoryRenderer {
     _sampleRoofTrack(roofTrack, s) {
         const position = clamp(s, 0, 1);
         const samples = roofTrack.samples;
-        const index = samples.findIndex(sample => sample.position >= position);
+        if (!samples.length) {
+            return {
+                anchorX: 0,
+                anchorY: 0,
+                inwardNormalX: 0,
+                inwardNormalY: 1,
+            };
+        }
+        let index = samples.findIndex((sample) => sample.position >= position);
+        if (index < 0) index = samples.length - 1;
         const upper = samples[index];
         const lower = samples[Math.max(0, index - 1)];
         const next = samples[Math.min(samples.length - 1, index + 1)];
-        const interpolate = position > TIP_DOMAIN_END && upper.position > lower.position;
-        const weight = interpolate ? (position - lower.position) / (upper.position - lower.position) : 1;
-        const current = {x: lerp(lower.x, upper.x, weight), y: lerp(lower.y, upper.y, weight)};
         const previous = samples[Math.max(0, index - 2)];
+        const interpolate = upper.position > lower.position;
+        const weight = interpolate ? (position - lower.position) / (upper.position - lower.position) : 1;
+        const current = {
+            x: lerp(lower.x, upper.x, weight),
+            y: lerp(lower.y, upper.y, weight),
+        };
         const tangentX = lerp(upper.x - previous.x, next.x - lower.x, weight);
         const tangentY = lerp(upper.y - previous.y, next.y - lower.y, weight);
         let normalX = -tangentY;
@@ -422,14 +527,19 @@ export class SvgArticulatoryRenderer {
     }
 
     _mapLocation(location, domain) {
-        if (domain === 'tip') return lerp(0, TIP_DOMAIN_END, clamp(location, 0, 1));
-        return lerp(BODY_DOMAIN_START, 1, clamp(location, 0, 1));
+        const value = clamp(location, 0, 1);
+        if (domain === 'tip') {
+            if (value <= 0.5) return lerp(TIP_DOMAIN_START, TIP_DOMAIN_MID, value * 2);
+            return lerp(TIP_DOMAIN_MID, TIP_DOMAIN_END, (value - 0.5) * 2);
+        }
+        if (value <= 0.5) return lerp(BODY_DOMAIN_START, BODY_DOMAIN_MID, value * 2);
+        return lerp(BODY_DOMAIN_MID, BODY_DOMAIN_END, (value - 0.5) * 2);
     }
 
     _surfaceForRoofPosition(position) {
         const value = clamp(position, 0, 1);
         if (value < 0.035) return 'upper_teeth';
-        if (value < 0.25) return 'alveolar_ridge';
+        if (value < ALVEOLAR_END) return 'alveolar_ridge';
         if (value < SOFT_PALATE_START) return 'hard_palate';
         if (value < PHARYNX_START) return 'velum';
         return 'pharynx';
@@ -447,15 +557,71 @@ export class SvgArticulatoryRenderer {
         };
     }
 
-    _normalizeDegree(value) {
-        return normalizedScalar(value, 1);
+    _signedRoofDistance(point, roofTrack) {
+        const samples = roofTrack.samples;
+        let best = 0;
+        let bestDistSq = Infinity;
+        for (let i = 0; i < samples.length; i += 1) {
+            const dx = samples[i].x - point.x;
+            const dy = samples[i].y - point.y;
+            const distSq = dx * dx + dy * dy;
+            if (distSq < bestDistSq) {
+                best = i;
+                bestDistSq = distSq;
+            }
+        }
+        const current = samples[best];
+        const before = samples[Math.max(0, best - 1)];
+        const after = samples[Math.min(samples.length - 1, best + 1)];
+        let nx = -(after.y - before.y);
+        let ny = after.x - before.x;
+        const length = Math.hypot(nx, ny) || 1;
+        nx /= length;
+        ny /= length;
+        if (nx * (ORAL_REFERENCE_POINT.x - current.x) + ny * (ORAL_REFERENCE_POINT.y - current.y) < 0) {
+            nx *= -1;
+            ny *= -1;
+        }
+        const sd = (point.x - current.x) * nx + (point.y - current.y) * ny;
+        return { sd, nx, ny };
+    }
+
+    _constrainSegmentInsideRoof(p0, p1, p2, p3, roofTrack, adjustP1 = true, adjustP2 = true) {
+        let c1 = { ...p1 };
+        let c2 = { ...p2 };
+        const samplesPerPass = 40;
+        for (let pass = 0; pass < 6; pass += 1) {
+            let adjusted = false;
+            for (let step = 1; step < samplesPerPass; step += 1) {
+                const t = step / samplesPerPass;
+                const pt = cubicPoint(p0, c1, c2, p3, t);
+                const { sd, nx, ny } = this._signedRoofDistance(pt, roofTrack);
+                if (sd < 0) {
+                    const b1 = adjustP1 ? 3 * ((1 - t) ** 2) * t : 0;
+                    const b2 = adjustP2 ? 3 * (1 - t) * (t ** 2) : 0;
+                    const denom = b1 + b2;
+                    if (denom > 1e-6) {
+                        const shift = (-sd + 0.15) / denom;
+                        if (adjustP1) {
+                            c1 = { x: c1.x + nx * shift, y: c1.y + ny * shift };
+                        }
+                        if (adjustP2) {
+                            c2 = { x: c2.x + nx * shift, y: c2.y + ny * shift };
+                        }
+                        adjusted = true;
+                    }
+                }
+            }
+            if (!adjusted) break;
+        }
+        return [c1, c2];
     }
 
     _getTonguePoint(location, degree, domain, roofTrack) {
         const roofPosition = this._mapLocation(location, domain);
         const anchor = this._sampleRoofTrack(roofTrack, roofPosition);
         const restDistance = domain === 'tip' ? TONGUE_TIP_REST_DISTANCE : TONGUE_BODY_REST_DISTANCE;
-        const normalizedDegree = this._normalizeDegree(degree);
+        const normalizedDegree = normalizedScalar(degree, 1);
         const distanceFromRoof = normalizedDegree * restDistance;
 
         return {
@@ -629,6 +795,8 @@ export class SvgArticulatoryRenderer {
         const upperFace = this.$('upper-face');
         const lowerFace = this.$('lower-face');
         const palate = this.$('palate');
+        const palateTissue = this.$('palate-tissue');
+        const uvula = this.$('uvula');
         const tongue = this.$('tongue');
         const roofTrackDebug = this.$('roof-track-debug');
         const outsideAir = this.$('outside-air');
@@ -651,7 +819,10 @@ export class SvgArticulatoryRenderer {
 
         const eff = this._effectiveDegrees();
         const la = eff.la * LIP_APERTURE_MAX;
-        const lp = s.lip_protrusion * LIP_PROTRUSION_MAX;
+        const lpOffset = s.lip_protrusion >= 0.5
+            ? lerp(0, LIP_PROTRUSION_MAX, (s.lip_protrusion - 0.5) * 2)
+            : lerp(-4, 0, s.lip_protrusion * 2);
+        const ldr = s.labiodental_retraction;
         const ttcl = clamp(s.tongue_tip_constriction_location, 0, 1);
         const ttcd = eff.ttcd;
         const lat = s.lateral_tongue_drop * 40;
@@ -676,33 +847,93 @@ export class SvgArticulatoryRenderer {
             softPalateControl2Y,
         } = visiblePalateGeometry;
 
-        if (jaw) jaw.setAttribute('transform', `translate(0, ${la})`);
-        if (lowerTeeth) lowerTeeth.setAttribute('transform', `translate(0, ${la})`);
+        const jawTy = la * 0.7;
+        const jawDeg = -la * 0.12;
+        const jawTransform = jawDeg === 0
+            ? `translate(0, ${jawTy})`
+            : `translate(0, ${jawTy.toFixed(2)}) rotate(${jawDeg.toFixed(2)}, ${JAW_HINGE_PIVOT.x}, ${JAW_HINGE_PIVOT.y})`;
+        if (jaw) jaw.setAttribute('transform', jawTransform);
+        if (lowerTeeth) lowerTeeth.setAttribute('transform', jawTransform);
         if (roofTrackDebug) roofTrackDebug.setAttribute('d', roofTrack.path);
 
-        const upperFacePath = `M 90 20 C 75 60, 60 90, 65 110 C 70 120, 65 130, 50 145 C 30 165, 10 170, 15 190 C 20 205, 40 205, 40 215 C 35 225, 22 230, ${27 - lp} 240 C 32 255, 43 260, 46 260`;
-        const lowerFacePath = `M 46 260 C ${27 - lp} 265, 27 280, 42 295 C 47 310, 42 320, 32 335 C 22 355, 60 365, 120 380`;
+        const upperLipMidX = 22 - lpOffset * 0.45;
+        const upperLipTipX = 27 - lpOffset;
+        const upperLipLowX = 32 - lpOffset * 0.45;
+        const upperLipCornerX = 46 - lpOffset * 0.2;
+        const upperLipC3X = 43 - lpOffset * 0.2;
+
+        const retractX = ldr * 12;
+        const elevateY = ldr * 6 * clamp(1 - la / LIP_APERTURE_MAX, 0.25, 1);
+        const lowerLipStartX = upperLipCornerX + retractX * 0.75;
+        const lowerLipStartY = 260 - elevateY * 0.75;
+        const lowerLipC1X = 27 - lpOffset + retractX * 1.4;
+        const lowerLipC1Y = 265 - elevateY;
+        const lowerLipC2X = 27 + retractX * 0.7;
+        const lowerLipC2Y = 280 - elevateY * 0.35;
+
+        const upperFaceLip = `C 35 225, ${upperLipMidX} 230, ${upperLipTipX} 240 C ${upperLipLowX} 255, ${upperLipC3X} 260, ${upperLipCornerX} 260`;
+        const upperFacePath = `M 90 20 C 75 60, 60 90, 65 110 C 70 120, 65 130, 50 145 C 30 165, 10 170, 15 190 C 20 205, 40 205, 40 215 ${upperFaceLip}`;
+        const lowerFacePath = `M ${lowerLipStartX} ${lowerLipStartY} C ${lowerLipC1X} ${lowerLipC1Y}, ${lowerLipC2X} ${lowerLipC2Y}, 42 295 C 47 310, 42 320, 32 335 C 22 355, 60 365, 120 380`;
         if (upperFace) upperFace.setAttribute('d', upperFacePath);
         if (lowerFace) lowerFace.setAttribute('d', lowerFacePath);
         if (palate) palate.setAttribute('d', visiblePalatePath);
 
+        if (palateTissue) {
+            const alvReverse = `C ${ALVEOLAR_RIDGE[2].join(' ')}, ${ALVEOLAR_RIDGE[1].join(' ')}, ${ALVEOLAR_RIDGE[0].join(' ')}`;
+            const hardReverse = `C ${HARD_PALATE[2].join(' ')}, ${HARD_PALATE[1].join(' ')}, ${HARD_PALATE[0].join(' ')}`;
+            const palateTissuePath = [
+                'M 40 215',
+                'C 100 130, 220 140, 240 190',
+                `C ${softPalateControl1X} ${softPalateControl1Y - 4}, ${softPalateControl2X} ${softPalateControl2Y - 4}, ${velumEndX + 2} ${velumEndY - 2}`,
+                `C ${velumEndX + 5} ${velumEndY + 3}, ${velumEndX - 1} ${velumEndY + 7}, ${velumEndX - 3} ${velumEndY + 2}`,
+                `C ${softPalateControl2X} ${softPalateControl2Y}, ${softPalateControl1X} ${softPalateControl1Y}, 240 190`,
+                hardReverse,
+                alvReverse,
+                `Q 52 246 ${upperLipCornerX} 260`,
+                `C ${upperLipC3X} 260, ${upperLipLowX} 255, ${upperLipTipX} 240`,
+                `C ${upperLipMidX} 230, 35 225, 40 215 Z`,
+            ].join(' ');
+            palateTissue.setAttribute('d', palateTissuePath);
+        }
+        if (uvula) {
+            const uvulaPath = `M ${velumEndX - 2.5} ${velumEndY - 1} C ${velumEndX + 3.5} ${velumEndY + 2}, ${velumEndX + 2.5} ${velumEndY + 7.5}, ${velumEndX - 2} ${velumEndY + 6.5} C ${velumEndX - 5.5} ${velumEndY + 5.5}, ${velumEndX - 5} ${velumEndY + 1}, ${velumEndX - 2.5} ${velumEndY - 1} Z`;
+            uvula.setAttribute('d', uvulaPath);
+        }
+
         const tip = this._getTonguePoint(ttcl, ttcd, 'tip', roofTrack);
         const body = this._getTonguePoint(tbcl, tbcd, 'body', roofTrack);
-        const frX = 100;
-        const frY = 300 + la;
+        const frPt = transformJawPoint(74, 296, jawTy, jawDeg);
+        const frX = frPt.x;
+        const frY = frPt.y;
         const brX = 240;
         const brY = 380 + la * 0.5;
+
+        const tipBodyDist = Math.max(1, Math.hypot(body.targetX - tip.targetX, body.targetY - tip.targetY));
+        const tipHandleLen = Math.min(30, Math.max(10, 0.38 * tipBodyDist));
+        const bodyHandleLen = Math.min(34, Math.max(12, 0.42 * tipBodyDist));
 
         const v1x = body.targetX - frX;
         const v1y = body.targetY - frY;
         const len1 = Math.max(1, Math.hypot(v1x, v1y));
-        const dx1 = (v1x / len1) * 30;
-        const dy1 = (v1y / len1) * 30;
+        const dx1 = (v1x / len1) * tipHandleLen;
+        const dy1 = (v1y / len1) * tipHandleLen;
+
         const v2x = brX - tip.targetX;
         const v2y = brY - tip.targetY;
         const len2 = Math.max(1, Math.hypot(v2x, v2y));
-        const dx2 = (v2x / len2) * 40;
-        const dy2 = (v2y / len2) * 40;
+        const chordX = v2x / len2;
+        const chordY = v2y / len2;
+        let roofTanX = -body.inwardNormalY;
+        let roofTanY = body.inwardNormalX;
+        if ((roofTanX * chordX) + (roofTanY * chordY) < 0) {
+            roofTanX *= -1;
+            roofTanY *= -1;
+        }
+        const blendX = 0.65 * roofTanX + 0.35 * chordX;
+        const blendY = 0.65 * roofTanY + 0.35 * chordY;
+        const blendLen = Math.max(1e-6, Math.hypot(blendX, blendY));
+        const dx2 = (blendX / blendLen) * bodyHandleLen;
+        const dy2 = (blendY / blendLen) * bodyHandleLen;
 
         let tipIn = this._projectInside(
             { x: tip.anchorX, y: tip.anchorY },
@@ -740,6 +971,26 @@ export class SvgArticulatoryRenderer {
             bodyOut = patch.after;
         }
 
+        const frHandle0 = { x: frX - 4, y: frY - 26 };
+        const brHandle0 = { x: brX, y: brY - 40 };
+        let tipPt = { x: tip.targetX, y: tip.targetY };
+        const tipSd = this._signedRoofDistance(tipPt, roofTrack);
+        if (tipSd.sd < 0) {
+            tipPt = { x: tipPt.x + tipSd.nx * (-tipSd.sd + 1e-4), y: tipPt.y + tipSd.ny * (-tipSd.sd + 1e-4) };
+        }
+        let bodyPt = { x: body.targetX, y: body.targetY };
+        const bodySd = this._signedRoofDistance(bodyPt, roofTrack);
+        if (bodySd.sd < 0) {
+            bodyPt = { x: bodyPt.x + bodySd.nx * (-bodySd.sd + 1e-4), y: bodyPt.y + bodySd.ny * (-bodySd.sd + 1e-4) };
+        }
+        const frEndpoint = { x: frX, y: frY };
+        const brEndpoint = { x: brX, y: brY };
+        let frHandle;
+        [frHandle, tipIn] = this._constrainSegmentInsideRoof(frEndpoint, frHandle0, tipIn, tipPt, roofTrack, true, true);
+        [tipOut, bodyIn] = this._constrainSegmentInsideRoof(tipPt, tipOut, bodyIn, bodyPt, roofTrack, true, true);
+        let brHandle;
+        [bodyOut, brHandle] = this._constrainSegmentInsideRoof(bodyPt, bodyOut, brHandle0, brEndpoint, roofTrack, true, true);
+
         const showHighlight = Boolean(this.contactExaggeration?.enabled && this.contactExaggeration?.showContactHighlight);
         if (tipContactArc) {
             if (showHighlight && this._hasTongueSurfaceContact(ttcd)) {
@@ -759,8 +1010,8 @@ export class SvgArticulatoryRenderer {
         }
         if (lipContactSeal) {
             if (showHighlight && this._isEffectiveLipClosure(la)) {
-                lipContactSeal.setAttribute('cx', String(44 - lp * 0.25));
-                lipContactSeal.setAttribute('cy', '260');
+                lipContactSeal.setAttribute('cx', String(44 - lpOffset * 0.25 + retractX * 0.4));
+                lipContactSeal.setAttribute('cy', String(260 - elevateY * 0.4));
                 lipContactSeal.setAttribute('opacity', '0.95');
             } else {
                 lipContactSeal.setAttribute('opacity', '0');
@@ -772,7 +1023,7 @@ export class SvgArticulatoryRenderer {
             tongue.setAttribute('opacity', String(tongueOpacity));
             tongue.setAttribute(
                 'd',
-                `M ${frX} ${frY} C ${frX} ${frY - 30}, ${tipIn.x} ${tipIn.y}, ${tip.targetX} ${tip.targetY} C ${tipOut.x} ${tipOut.y}, ${bodyIn.x} ${bodyIn.y}, ${body.targetX} ${body.targetY} C ${bodyOut.x} ${bodyOut.y}, ${brX} ${brY - 40}, ${brX} ${brY} Z`,
+                `M ${frX} ${frY} C ${frHandle.x} ${frHandle.y}, ${tipIn.x} ${tipIn.y}, ${tipPt.x} ${tipPt.y} C ${tipOut.x} ${tipOut.y}, ${bodyIn.x} ${bodyIn.y}, ${bodyPt.x} ${bodyPt.y} C ${bodyOut.x} ${bodyOut.y}, ${brHandle.x} ${brHandle.y}, ${brX} ${brY} Z`,
             );
         }
 
@@ -782,8 +1033,22 @@ export class SvgArticulatoryRenderer {
             wind.setAttribute('transform', `translate(${(tip.targetX + body.targetX) / 2}, ${(tip.targetY + body.targetY) / 2 - 15}) scale(-0.75, 0.75)`);
         }
 
+        const floorCtrlPt = transformJawPoint(67, 296, jawTy, jawDeg);
+        const jawCornerPt = transformJawPoint(60, 290, jawTy, jawDeg);
+        const lowerToothTipPt = transformJawPoint(50, 265, jawTy, jawDeg);
+        const lowerLipG0 = transformJawPoint(lowerLipStartX, lowerLipStartY, jawTy, jawDeg);
+        const lowerLipG1 = transformJawPoint(lowerLipC1X, lowerLipC1Y, jawTy, jawDeg);
+        const lowerLipG2 = transformJawPoint(lowerLipC2X, lowerLipC2Y, jawTy, jawDeg);
+        const lowerLipG3 = transformJawPoint(42, 295, jawTy, jawDeg);
+        const lowerLipG4 = transformJawPoint(47, 310, jawTy, jawDeg);
+        const lowerLipG5 = transformJawPoint(42, 320, jawTy, jawDeg);
+        const lowerLipG6 = transformJawPoint(32, 335, jawTy, jawDeg);
+        const lowerLipG7 = transformJawPoint(22, 355, jawTy, jawDeg);
+        const lowerLipG8 = transformJawPoint(60, 365, jawTy, jawDeg);
+        const lowerLipG9 = transformJawPoint(120, 380, jawTy, jawDeg);
+
         const nasalD = `M 15 190 C 120 70, 250 70, 280 230 C 290 270, 300 320, 300 350 C ${throatCurveControl2X} ${throatCurveControl2Y}, ${throatCurveControl1X} ${throatCurveControl1Y}, ${velumEndX} ${velumEndY} C ${softPalateControl2X} ${softPalateControl2Y}, ${softPalateControl1X} ${softPalateControl1Y}, 240 190 C 220 140, 100 130, 40 215 Z`;
-        const oralD = `${visiblePalatePath} ${throatClosure} L 300 380 L 240 380 L ${brX} ${brY} C ${brX} ${brY - 40}, ${bodyOut.x} ${bodyOut.y}, ${body.targetX} ${body.targetY} C ${bodyIn.x} ${bodyIn.y}, ${tipOut.x} ${tipOut.y}, ${tip.targetX} ${tip.targetY} C ${tipIn.x} ${tipIn.y}, ${frX} ${frY - 30}, ${frX} ${frY} Q 80 ${300 + la} 60 ${290 + la} L 50 ${265 + la} L 46 ${260 + la} L 46 260 L 50 264 Z`;
+        const oralD = `${visiblePalatePath} ${throatClosure} L 300 380 L 240 380 L ${brX} ${brY} C ${brHandle.x} ${brHandle.y}, ${bodyOut.x} ${bodyOut.y}, ${bodyPt.x} ${bodyPt.y} C ${bodyIn.x} ${bodyIn.y}, ${tipOut.x} ${tipOut.y}, ${tipPt.x} ${tipPt.y} C ${tipIn.x} ${tipIn.y}, ${frHandle.x} ${frHandle.y}, ${frX} ${frY} Q ${floorCtrlPt.x} ${floorCtrlPt.y} ${jawCornerPt.x} ${jawCornerPt.y} L ${lowerToothTipPt.x} ${lowerToothTipPt.y} L ${lowerLipG0.x} ${lowerLipG0.y} L ${upperLipCornerX} 260 L 50 264 Z`;
         if (nasalTractFill) nasalTractFill.setAttribute('d', nasalD);
         if (oralTractFill) oralTractFill.setAttribute('d', oralD);
         if (nasalVoicing) {
@@ -794,7 +1059,7 @@ export class SvgArticulatoryRenderer {
 
         const clipX = this._getOralVoicingClipX({
             lipAperture: la,
-            lipProtrusion: lp,
+            lipProtrusion: lpOffset,
             lateralDrop: lat,
             ttcd,
             tbcd,
@@ -806,8 +1071,8 @@ export class SvgArticulatoryRenderer {
             clipRect.setAttribute('width', String(400 - clipX));
         }
 
-        const uFacePoints = `90 20 C 75 60, 60 90, 65 110 C 70 120, 65 130, 50 145 C 30 165, 10 170, 15 190 C 20 205, 40 205, 40 215 C 35 225, 22 230, ${27 - lp} 240 C 32 255, 43 260, 46 260`;
-        const lFaceGlobal = `46 ${260 + la} C ${27 - lp} ${265 + la}, ${27 + la * 0.4} ${280 + la}, 42 ${295 + la} C 47 ${310 + la}, 42 ${320 + la}, 32 ${335 + la} C 22 ${355 + la}, 60 ${365 + la}, 120 ${380 + la}`;
+        const uFacePoints = `90 20 C 75 60, 60 90, 65 110 C 70 120, 65 130, 50 145 C 30 165, 10 170, 15 190 C 20 205, 40 205, 40 215 ${upperFaceLip}`;
+        const lFaceGlobal = `${lowerLipG0.x} ${lowerLipG0.y} C ${lowerLipG1.x} ${lowerLipG1.y}, ${lowerLipG2.x} ${lowerLipG2.y}, ${lowerLipG3.x} ${lowerLipG3.y} C ${lowerLipG4.x} ${lowerLipG4.y}, ${lowerLipG5.x} ${lowerLipG5.y}, ${lowerLipG6.x} ${lowerLipG6.y} C ${lowerLipG7.x} ${lowerLipG7.y}, ${lowerLipG8.x} ${lowerLipG8.y}, ${lowerLipG9.x} ${lowerLipG9.y}`;
         if (outsideAir) outsideAir.setAttribute('d', `M 0 0 L 90 0 L ${uFacePoints} L ${lFaceGlobal} L 120 400 L 0 400 Z`);
 
         const halfGlo = glo * 0.3;

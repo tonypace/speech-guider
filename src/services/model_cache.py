@@ -28,6 +28,8 @@ def get_ssl_predictor() -> SSLAAIPredictor:
                 bundle_path=asset_override("SSL_AAI_BUNDLE_PATH", "r4"),
                 lip_enabled=os.getenv("SSL_AAI_LIP_ENABLED", "1") == "1",
                 dental_enabled=os.getenv("SSL_AAI_DENTAL_ENABLED", "0") == "1",
+                calibrate_enabled=os.getenv("SSL_AAI_CALIBRATE_ENABLED", "1") == "1",
+                labiodental_enabled=os.getenv("SSL_AAI_LABIODENTAL_ENABLED", "1") == "1",
                 silence_mode=os.getenv("SSL_AAI_SILENCE_MODE", "reviewed"),
             )
             predictor.load()
@@ -65,18 +67,26 @@ def get_ssl_cache_identity(contact_enabled: bool = False) -> dict[str, object]:
             "dental": predictor.dental_enabled
             if predictor
             else os.getenv("SSL_AAI_DENTAL_ENABLED", "0") == "1",
+            "calibrate": predictor.calibrate_enabled
+            if predictor
+            else os.getenv("SSL_AAI_CALIBRATE_ENABLED", "1") == "1",
+            "labiodental": predictor.labiodental_enabled
+            if predictor
+            else os.getenv("SSL_AAI_LABIODENTAL_ENABLED", "1") == "1",
             "silence": predictor.silence_mode
             if predictor
             else os.getenv("SSL_AAI_SILENCE_MODE", "reviewed"),
         }
         return {
-            "pipeline": "contentvec-l7-r4-final-hints-v2",
+            "pipeline": "contentvec-l7-r4-final-hints-v3",
             "hints": hints if contact_enabled else "disabled",
             "hint_assets": {
                 name: file_identity(bundle / name) if (bundle / name).is_file() else "unavailable"
                 for name in (
                     "weights/lip.json",
                     "weights/dental.json",
+                    "weights/labiodental.json",
+                    "configs/output_calibration.json",
                     "weights/silence.joblib",
                     "configs/silence_reviewed.json",
                     "configs/silence_expanded.json",

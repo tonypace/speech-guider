@@ -74,9 +74,11 @@ state directory as follows:
 assets/
   r4/                              # Entire supplied bundle; retain its terms
     configs/nine_channel_v12_100ms.yaml
+    configs/output_calibration.json
     weights/r4.pt
     weights/contact.pt             # Enabled by default when present
     weights/lip.json
+    weights/labiodental.json
     weights/dental.json            # Experimental; opt-in
     weights/silence.joblib
     configs/silence_reviewed.json

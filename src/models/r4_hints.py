@@ -11,8 +11,10 @@ from typing import Any
 import joblib  # type: ignore[import-untyped]
 import sklearn  # type: ignore[import-untyped]
 
+from src.models.r4_calibration import OutputCalibrator
 from src.models.r4_contract import StreamingContract
 from src.models.r4_dental import DentalCorrection
+from src.models.r4_labiodental import LabiodentalCorrection
 from src.models.r4_lip import LipCorrection
 
 
@@ -86,3 +88,19 @@ def load_silence(bundle: Path, mode: str) -> tuple[Any, dict[str, Any], dict[str
         allowance = expanded["isolated_noise_allowance"]
     classifier = joblib.load(verified_asset(bundle, "weights/silence.joblib"))
     return classifier, config["gates"], allowance
+
+
+def load_output_calibration(bundle: Path) -> OutputCalibrator:
+    return OutputCalibrator.load(verified_asset(bundle, "configs/output_calibration.json"))
+
+
+def load_labiodental(
+    bundle: Path, metadata: dict[str, Any], contract: StreamingContract
+) -> LabiodentalCorrection:
+    digest = _validate_encoder(bundle, metadata)
+    correction = LabiodentalCorrection.load(
+        verified_asset(bundle, "weights/labiodental.json"), contentvec_sha256=digest
+    )
+    if len(correction.weights) != contract.feature_width:
+        raise ValueError("Labiodental readout width does not match the streaming contract")
+    return correction

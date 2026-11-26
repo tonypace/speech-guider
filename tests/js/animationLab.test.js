@@ -149,7 +149,8 @@ describe('SvgArticulatoryRenderer', () => {
         renderer.mount();
         renderer.setState({ lip_aperture: 0.5 });
         const jawGroup = container.querySelector('#test-jaw-group');
-        expect(jawGroup.getAttribute('transform')).toContain('translate(0, 20)');
+        expect(jawGroup.getAttribute('transform')).toContain('translate(0, 14.00)');
+        expect(jawGroup.getAttribute('transform')).toContain('rotate(-2.40, 225, 290)');
     });
 
     it('glottal_aperture updates glottis-hole points', () => {
@@ -216,17 +217,23 @@ describe('SvgArticulatoryRenderer', () => {
         const mod = await import('../../static/js/svg_articulatory_renderer.js');
         const r = new mod.SvgArticulatoryRenderer(document.body);
         expect(r._mapLocation(0, 'tip')).toBeCloseTo(0.0, 4);
-        expect(r._mapLocation(1, 'tip')).toBeCloseTo(0.25, 4);
-        expect(r._mapLocation(0, 'body')).toBeCloseTo(0.35, 4);
-        expect(r._mapLocation(1, 'body')).toBeCloseTo(1.0, 4);
+        expect(r._mapLocation(0.5, 'tip')).toBeCloseTo(0.135, 4);
+        expect(r._mapLocation(1, 'tip')).toBeCloseTo(0.34, 4);
+        expect(r._mapLocation(0, 'body')).toBeCloseTo(0.22, 4);
+        expect(r._mapLocation(0.5, 'body')).toBeCloseTo(0.48, 4);
+        expect(r._mapLocation(1, 'body')).toBeCloseTo(0.88, 4);
     });
 
-    it('clamps tongue degree to normalized range only', async () => {
+    it('clamps tongue degree and labiodental_retraction to normalized range', async () => {
         const mod = await import('../../static/js/svg_articulatory_renderer.js');
         const r = new mod.SvgArticulatoryRenderer(document.body);
-        expect(r._normalizeDegree(1.4)).toBeCloseTo(1, 4);
-        expect(r._normalizeDegree(0.5)).toBeCloseTo(0.5, 4);
-        expect(r._normalizeDegree(0.7)).toBeCloseTo(0.7, 4);
+        r.mount();
+        r.setState({ tongue_tip_constriction_degree: 1.4, labiodental_retraction: 0.8 });
+        expect(r.state.tongue_tip_constriction_degree).toBeCloseTo(1, 4);
+        expect(r.state.labiodental_retraction).toBeCloseTo(0.8, 4);
+        r.setState({ tongue_tip_constriction_degree: -0.2, labiodental_retraction: 1.5 });
+        expect(r.state.tongue_tip_constriction_degree).toBeCloseTo(0, 4);
+        expect(r.state.labiodental_retraction).toBeCloseTo(1, 4);
     });
 
     it('clips oral voicing at effective tongue closure anchors', async () => {
