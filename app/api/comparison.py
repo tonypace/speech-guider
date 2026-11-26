@@ -4,6 +4,7 @@ import base64
 import io
 import json
 import logging
+from typing import Any
 
 import torch
 from fastapi import APIRouter, HTTPException
@@ -74,6 +75,7 @@ def _generate_reference_asset(
     tts_provider: str = "omnivoice",
     cache: ComparisonCache | None = None,
     contact_enabled: bool = False,
+    hinter_options: dict[str, Any] | None = None,
 ) -> tuple[ReferenceAsset, bool]:
     """Generate reference audio and animation frames.
 
@@ -81,12 +83,13 @@ def _generate_reference_asset(
     """
     cache = cache or get_comparison_cache()
     provider = TTSProviderFactory.create(tts_provider)
+    resolved_hints = hinter_options or {}
     namespace = json.dumps(
         {
             "version": 2,
             "provider_name": tts_provider,
             "tts": provider.cache_identity(),
-            "ssl": get_ssl_cache_identity(contact_enabled),
+            "ssl": get_ssl_cache_identity(contact_enabled, **resolved_hints),
             "audio_sample_rate": 8000,
         },
         sort_keys=True,
@@ -107,6 +110,7 @@ def _generate_reference_asset(
             audio_tensor,
             sample_rate=DEFAULT_SSL_FEATURE_CONFIG.sample_rate,
             contact_enabled=contact_enabled,
+            **resolved_hints,
         )
     finally:
         dev = getattr(predictor, "device", None)
@@ -147,11 +151,20 @@ async def generate_reference_animation(
     if not request.target_text.strip():
         raise HTTPException(status_code=400, detail="Please enter reference text.")
     try:
+        settings = load_settings()
+        hinter_options = {
+            "lip_enabled": settings.lip_enabled,
+            "calibrate_enabled": settings.calibrate_enabled,
+            "labiodental_enabled": settings.labiodental_enabled,
+            "dental_enabled": settings.dental_enabled,
+            "silence_mode": settings.silence_mode,
+        }
         asset, was_cached = await run_inference(
             _generate_reference_asset,
             text=request.target_text,
             tts_provider=request.tts_provider,
-            contact_enabled=load_settings().contact_enabled,
+            contact_enabled=settings.contact_enabled,
+            hinter_options=hinter_options,
         )
 
         audio_b64 = base64.b64encode(asset.audio_bytes).decode("utf-8")

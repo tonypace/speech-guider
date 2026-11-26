@@ -96,7 +96,7 @@ class SSLAAIPredictor:
         self._dental_correction: DentalCorrection | None = None
         self._output_calibrator: OutputCalibrator | None = None
         self._labiodental_correction: LabiodentalCorrection | None = None
-        self._silence: tuple[Any, dict[str, Any], dict[str, int]] | None = None
+        self._silence: dict[str, tuple[Any, dict[str, Any], dict[str, int]]] = {}
         self._calibration_silence: tuple[Any, dict[str, Any], dict[str, int]] | None = None
         self.device = device or get_best_torch_device()
         self._ssl_model: Any = None
@@ -134,7 +134,7 @@ class SSLAAIPredictor:
             self._dental_correction = None
             self._output_calibrator = None
             self._labiodental_correction = None
-            self._silence = None
+            self._silence = {}
             self._calibration_silence = None
             self._metadata = metadata
             self.checkpoint_path = path
@@ -236,7 +236,16 @@ class SSLAAIPredictor:
         return cast(torch.Tensor, prediction)
 
     def predict_with_metadata(
-        self, audio_tensor: torch.Tensor, sample_rate: int = 16000, *, contact_enabled: bool = False
+        self,
+        audio_tensor: torch.Tensor,
+        sample_rate: int = 16000,
+        *,
+        contact_enabled: bool = False,
+        lip_enabled: bool | None = None,
+        dental_enabled: bool | None = None,
+        calibrate_enabled: bool | None = None,
+        labiodental_enabled: bool | None = None,
+        silence_mode: str | None = None,
     ) -> dict[str, Any]:
         """Return raw/display trajectories and sample-clock centers for one clip."""
         with self._lock, torch.inference_mode():
@@ -264,32 +273,45 @@ class SSLAAIPredictor:
                     contact_mode = "enabled"
                 else:
                     contact_mode = "unavailable"
+            effective_lip = self.lip_enabled if lip_enabled is None else lip_enabled
+            effective_dental = self.dental_enabled if dental_enabled is None else dental_enabled
+            effective_calibrate = (
+                self.calibrate_enabled if calibrate_enabled is None else calibrate_enabled
+            )
+            effective_labiodental = (
+                self.labiodental_enabled if labiodental_enabled is None else labiodental_enabled
+            )
+            effective_silence = self.silence_mode if silence_mode is None else silence_mode
+            if effective_silence not in {"off", "reviewed", "expanded"}:
+                raise ValueError("R4 silence mode must be off, reviewed, or expanded")
             lip_stream = None
             dental = None
             output_calibrator = None
             speech_tracker = None
             labiodental = None
             if tracker is not None and self._contract is not None:
-                if self.lip_enabled and (self.bundle_path / "weights/lip.json").is_file():
+                if effective_lip and (self.bundle_path / "weights/lip.json").is_file():
                     if self._lip_correction is None:
                         self._lip_correction = load_lip(
                             self.bundle_path, self._metadata, self._contract
                         )
                     lip_stream = self._lip_correction.new_stream()
-                if self.dental_enabled:
+                if effective_dental:
                     if self._dental_correction is None:
                         self._dental_correction = load_dental(
                             self.bundle_path, self._metadata, self._contract
                         )
                     dental = self._dental_correction
                 if (
-                    self.silence_mode != "off"
+                    effective_silence != "off"
                     and (self.bundle_path / "weights/silence.joblib").is_file()
                 ):
-                    if self._silence is None:
-                        self._silence = load_silence(self.bundle_path, self.silence_mode)
+                    if effective_silence not in self._silence:
+                        self._silence[effective_silence] = load_silence(
+                            self.bundle_path, effective_silence
+                        )
                 if (
-                    self.calibrate_enabled
+                    effective_calibrate
                     and (self.bundle_path / "configs/output_calibration.json").is_file()
                     and (self.bundle_path / "weights/silence.joblib").is_file()
                 ):
@@ -306,7 +328,7 @@ class SSLAAIPredictor:
                         allowance=cal_allowance,
                     )
                 if (
-                    self.labiodental_enabled
+                    effective_labiodental
                     and (self.bundle_path / "weights/labiodental.json").is_file()
                 ):
                     if self._labiodental_correction is None:
@@ -353,15 +375,15 @@ class SSLAAIPredictor:
                 else np.zeros(frame_count, dtype=np.float32)
             )
             settled = np.zeros(frame_count, dtype=bool)
-            silence_mode = "off"
+            silence_mode_applied = "off"
             if (
                 tracker is not None
-                and self.silence_mode != "off"
-                and self._silence is not None
+                and effective_silence != "off"
+                and effective_silence in self._silence
                 and frame_count
             ):
                 assert self._contract is not None
-                classifier, gates, allowance = self._silence
+                classifier, gates, allowance = self._silence[effective_silence]
                 values, settled = apply_silence_hint(
                     raw.numpy(), samples, classifier, gates, allowance, self._contract
                 )
@@ -369,7 +391,7 @@ class SSLAAIPredictor:
                 self._validate_output(raw)
                 labiodental_ret = labiodental_ret.copy()
                 labiodental_ret[settled] = 0.0
-                silence_mode = self.silence_mode
+                silence_mode_applied = effective_silence
             outside = (raw < 0.0) | (raw > 1.0)
             return {
                 "tvs": raw.clamp(0.0, 1.0),
@@ -389,7 +411,7 @@ class SSLAAIPredictor:
                     "output_calibration": output_calibrator is not None,
                     "dental_correction": dental is not None,
                     "labiodental_correction": labiodental is not None,
-                    "silence_hint": silence_mode,
+                    "silence_hint": silence_mode_applied,
                     "silence_settled_frames": int(settled.sum()),
                     "clip_fraction": float(outside.float().mean().item()) if frame_count else 0.0,
                     "source_commit": self._metadata.get("git_commit"),
@@ -417,7 +439,7 @@ class SSLAAIPredictor:
             self._dental_correction = None
             self._output_calibrator = None
             self._labiodental_correction = None
-            self._silence = None
+            self._silence = {}
             self._calibration_silence = None
             self._contract = None
             self._metadata = {}

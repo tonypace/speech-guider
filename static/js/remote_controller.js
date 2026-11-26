@@ -177,7 +177,7 @@ export class PresenterRemoteController {
 
     setLearningCallback(callback) {
         this.learningCallback = typeof callback === 'function' ? callback : null;
-        void this.syncNativeCapture();
+        return this.syncNativeCapture();
     }
 
     async syncNativeCapture() {

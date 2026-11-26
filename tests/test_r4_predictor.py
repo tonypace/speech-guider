@@ -309,7 +309,7 @@ def test_final_hints_match_bundled_replay(
     monkeypatch.setattr(real_predictor, "labiodental_enabled", True)
     monkeypatch.setattr(real_predictor, "silence_mode", silence)
     # Load the selected gate independently of earlier parameterized runs.
-    monkeypatch.setattr(real_predictor, "_silence", None)
+    monkeypatch.setattr(real_predictor, "_silence", {})
     try:
         reference = importlib.import_module("run_r4")
         backend = reference.load_runtime("cpu", dental=dental, calibrate=True, labiodental=True)

@@ -550,13 +550,39 @@
                     <p id="settings-mic-status" class="text-sm text-gray-600" role="status"></p>
                     <audio id="settings-test-playback" controls hidden></audio>
                 </fieldset>
-                <fieldset class="space-y-2">
+                <fieldset class="space-y-3">
                     <legend class="text-lg font-semibold mb-2">Articulation</legend>
-                    <label class="flex items-center gap-2">
+                    <label class="flex items-center gap-2 font-medium">
                         <input id="settings-contact" type="checkbox" checked>
-                        Enhance articulatory animation
+                        Enhance articulatory animation (Model A tongue contact &amp; hinters)
                     </label>
-                    <p class="text-sm text-gray-600">Adds tongue contact, lip closure, and quiet-pose settling to new Analysis and Comparison Lab results. Turn it off to use baseline R4.</p>
+                    <p class="text-sm text-gray-600">Enables Model A tongue-palate contact and selected articulatory hinters for new Analysis and Comparison Lab results. Turn off to use baseline R4.</p>
+                    <div id="settings-hinters-group" class="ml-6 space-y-2 border-l-2 border-gray-200 pl-4">
+                        <label class="flex items-center gap-2 text-sm">
+                            <input id="settings-lip" type="checkbox" checked>
+                            Lip closure correction
+                        </label>
+                        <label class="flex items-center gap-2 text-sm">
+                            <input id="settings-calibrate" type="checkbox" checked>
+                            Conditional output calibration (TTCL / TBCL / LP)
+                        </label>
+                        <label class="flex items-center gap-2 text-sm">
+                            <input id="settings-labiodental" type="checkbox" checked>
+                            Labiodental /f, v/ lower-lip retraction
+                        </label>
+                        <label class="flex items-center gap-2 text-sm">
+                            <input id="settings-dental" type="checkbox">
+                            Dental /th/ correction (experimental)
+                        </label>
+                        <div class="flex flex-wrap items-center gap-2 pt-1">
+                            <label for="settings-silence-mode" class="text-sm text-gray-700">Silence settling</label>
+                            <select id="settings-silence-mode" class="rounded border border-gray-300 px-2.5 py-1 text-sm">
+                                <option value="reviewed">Reviewed (default)</option>
+                                <option value="expanded">Expanded</option>
+                                <option value="off">Off</option>
+                            </select>
+                        </div>
+                    </div>
                     {% if not settings.contact_available %}
                     <p class="text-sm text-amber-800">Contact weights are missing. Speech Guider will use baseline R4.</p>
                     {% endif %}

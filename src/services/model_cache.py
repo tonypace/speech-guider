@@ -38,7 +38,15 @@ def get_ssl_predictor() -> SSLAAIPredictor:
     return _cached_ssl_predictor
 
 
-def get_ssl_cache_identity(contact_enabled: bool = False) -> dict[str, object]:
+def get_ssl_cache_identity(
+    contact_enabled: bool = False,
+    *,
+    lip_enabled: bool | None = None,
+    dental_enabled: bool | None = None,
+    calibrate_enabled: bool | None = None,
+    labiodental_enabled: bool | None = None,
+    silence_mode: str | None = None,
+) -> dict[str, object]:
     """Identify actual loaded assets, or configured assets before lazy loading."""
     from src.audio.reference_tts import file_identity
     from src.models.ssl_aai_predictor import DEFAULT_R4_BUNDLE
@@ -61,21 +69,51 @@ def get_ssl_cache_identity(contact_enabled: bool = False) -> dict[str, object]:
         )
         contact_path = bundle / "weights" / "contact.pt"
         hints = {
-            "lip": predictor.lip_enabled
-            if predictor
-            else os.getenv("SSL_AAI_LIP_ENABLED", "1") == "1",
-            "dental": predictor.dental_enabled
-            if predictor
-            else os.getenv("SSL_AAI_DENTAL_ENABLED", "0") == "1",
-            "calibrate": predictor.calibrate_enabled
-            if predictor
-            else os.getenv("SSL_AAI_CALIBRATE_ENABLED", "1") == "1",
-            "labiodental": predictor.labiodental_enabled
-            if predictor
-            else os.getenv("SSL_AAI_LABIODENTAL_ENABLED", "1") == "1",
-            "silence": predictor.silence_mode
-            if predictor
-            else os.getenv("SSL_AAI_SILENCE_MODE", "reviewed"),
+            "lip": (
+                lip_enabled
+                if lip_enabled is not None
+                else (
+                    predictor.lip_enabled
+                    if predictor
+                    else os.getenv("SSL_AAI_LIP_ENABLED", "1") == "1"
+                )
+            ),
+            "dental": (
+                dental_enabled
+                if dental_enabled is not None
+                else (
+                    predictor.dental_enabled
+                    if predictor
+                    else os.getenv("SSL_AAI_DENTAL_ENABLED", "0") == "1"
+                )
+            ),
+            "calibrate": (
+                calibrate_enabled
+                if calibrate_enabled is not None
+                else (
+                    predictor.calibrate_enabled
+                    if predictor
+                    else os.getenv("SSL_AAI_CALIBRATE_ENABLED", "1") == "1"
+                )
+            ),
+            "labiodental": (
+                labiodental_enabled
+                if labiodental_enabled is not None
+                else (
+                    predictor.labiodental_enabled
+                    if predictor
+                    else os.getenv("SSL_AAI_LABIODENTAL_ENABLED", "1") == "1"
+                )
+            ),
+            "silence": (
+                silence_mode
+                if silence_mode is not None
+                else (
+                    predictor.silence_mode
+                    if predictor
+                    else os.getenv("SSL_AAI_SILENCE_MODE", "reviewed")
+                )
+            ),
         }
         return {
             "pipeline": "contentvec-l7-r4-final-hints-v3",

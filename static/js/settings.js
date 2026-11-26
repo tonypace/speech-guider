@@ -11,6 +11,11 @@ function initializeSettings() {
     const form = document.getElementById('settings-form');
     if (!form) return;
     const contact = document.getElementById('settings-contact');
+    const lip = document.getElementById('settings-lip');
+    const calibrate = document.getElementById('settings-calibrate');
+    const labiodental = document.getElementById('settings-labiodental');
+    const dental = document.getElementById('settings-dental');
+    const silenceMode = document.getElementById('settings-silence-mode');
     const enabled = document.getElementById('settings-mic-enabled');
     const devices = document.getElementById('settings-mic-device');
     const refresh = document.getElementById('settings-refresh-devices');
@@ -68,13 +73,15 @@ function initializeSettings() {
         });
     };
 
-    const stopLearning = (message = '') => {
+    const stopLearning = (message = '', { syncNative = true } = {}) => {
         learningAction = null;
         if (fallbackLearnListener) {
             document.removeEventListener('keydown', fallbackLearnListener, true);
             fallbackLearnListener = null;
         }
-        window.remoteController?.setLearningCallback?.(null);
+        if (syncNative) {
+            window.remoteController?.setLearningCallback?.(null);
+        }
         if (remoteStatus && message) remoteStatus.textContent = message;
         renderRemoteBindings();
     };
@@ -105,6 +112,13 @@ function initializeSettings() {
         try {
             const payload = {
                 contact_enabled: next.contact_enabled !== false,
+                lip_enabled: next.lip_enabled !== false,
+                calibrate_enabled: next.calibrate_enabled !== false,
+                labiodental_enabled: next.labiodental_enabled !== false,
+                dental_enabled: Boolean(next.dental_enabled),
+                silence_mode: ['off', 'reviewed', 'expanded'].includes(next.silence_mode)
+                    ? next.silence_mode
+                    : 'reviewed',
                 microphone_enabled: next.microphone_enabled !== false,
                 microphone_device_id: next.microphone_device_id || '',
                 microphone_label: next.microphone_label || '',
@@ -164,14 +178,20 @@ function initializeSettings() {
             stopLearning('Button assignment cancelled.');
             return;
         }
-        stopLearning();
+        stopLearning('', { syncNative: false });
         learningAction = action;
         renderRemoteBindings();
         if (remoteStatus) {
             remoteStatus.textContent = 'Press a button on your presenter remote (Esc to cancel)…';
         }
         if (window.remoteController?.setLearningCallback) {
-            window.remoteController.setLearningCallback((result) => applyLearnedKey(action, result));
+            void Promise.resolve(
+                window.remoteController.setLearningCallback((result) => applyLearnedKey(action, result)),
+            ).then((status) => {
+                if (status?.supported && !status.permission_granted) {
+                    void refreshMacosPermission(false);
+                }
+            });
         } else {
             fallbackLearnListener = (event) => {
                 const key = normalizeRemoteKey(event);
@@ -196,12 +216,14 @@ function initializeSettings() {
         remoteMacosBox.classList.remove('hidden');
         if (result.permission_granted) {
             if (remotePermissionStatus) {
-                remotePermissionStatus.textContent = 'macOS volume & media button capture is ready (only active while Speech Guider is focused).';
+                remotePermissionStatus.textContent = result.tap_active
+                    ? 'macOS volume & media button capture is active while Speech Guider is focused.'
+                    : 'macOS Accessibility permission granted. Click Assign button and press a volume/media button to start capture.';
             }
             if (remotePermissionBtn) remotePermissionBtn.hidden = true;
         } else {
             if (remotePermissionStatus) {
-                remotePermissionStatus.textContent = 'To map Volume Up / Down buttons on macOS, grant Accessibility permission to Speech Guider, then click Re-check permission.';
+                remotePermissionStatus.textContent = 'macOS Accessibility permission is not active for this app build. In System Settings → Privacy & Security → Accessibility, remove (−) and re-add (+) Speech Guider (toggling off/on is not enough after a rebuild), then click Re-check permission.';
             }
             if (remotePermissionBtn) remotePermissionBtn.hidden = false;
         }
@@ -224,6 +246,13 @@ function initializeSettings() {
 
     const draft = () => ({
         contact_enabled: contact.checked,
+        lip_enabled: lip ? lip.checked : (getSettings().lip_enabled !== false),
+        calibrate_enabled: calibrate ? calibrate.checked : (getSettings().calibrate_enabled !== false),
+        labiodental_enabled: labiodental ? labiodental.checked : (getSettings().labiodental_enabled !== false),
+        dental_enabled: dental ? dental.checked : Boolean(getSettings().dental_enabled),
+        silence_mode: silenceMode
+            ? (['off', 'reviewed', 'expanded'].includes(silenceMode.value) ? silenceMode.value : 'reviewed')
+            : (getSettings().silence_mode || 'reviewed'),
         microphone_enabled: enabled.checked,
         microphone_device_id: devices.value,
         microphone_label: inputs.find(device => device.deviceId === devices.value)?.label || (
@@ -428,14 +457,34 @@ function initializeSettings() {
         }
     });
 
+    const updateArticulationControls = () => {
+        const disabled = !contact.checked;
+        if (lip) lip.disabled = disabled;
+        if (calibrate) calibrate.disabled = disabled;
+        if (labiodental) labiodental.disabled = disabled;
+        if (dental) dental.disabled = disabled;
+        if (silenceMode) silenceMode.disabled = disabled;
+    };
+    contact.addEventListener('change', updateArticulationControls);
+
     const settings = getSettings();
     contact.checked = settings.contact_enabled !== false;
+    if (lip) lip.checked = settings.lip_enabled !== false;
+    if (calibrate) calibrate.checked = settings.calibrate_enabled !== false;
+    if (labiodental) labiodental.checked = settings.labiodental_enabled !== false;
+    if (dental) dental.checked = Boolean(settings.dental_enabled);
+    if (silenceMode) {
+        silenceMode.value = ['off', 'reviewed', 'expanded'].includes(settings.silence_mode)
+            ? settings.silence_mode
+            : 'reviewed';
+    }
     enabled.checked = settings.microphone_enabled !== false;
     if (remoteEnabled) remoteEnabled.checked = settings.remote_enabled !== false;
     if (remoteRecordMode) remoteRecordMode.value = settings.remote_record_mode === 'hold' ? 'hold' : 'toggle';
     for (const action of REMOTE_ACTIONS) {
         remoteBindings[action] = normalizeRemoteKey(settings.remote_bindings?.[action] || '');
     }
+    updateArticulationControls();
     updateMicrophoneControls();
     renderRemoteBindings();
     void refreshMacosPermission(false);

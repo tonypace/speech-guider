@@ -236,6 +236,7 @@ fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     let media_keys_state = Arc::clone(&app.state::<ManagedMediaKeys>().0);
+    media_keys_state.set_focused(window.is_focused().unwrap_or(true));
     window.on_window_event(move |event| {
         if let WindowEvent::Focused(focused) = event {
             media_keys_state.set_focused(*focused);

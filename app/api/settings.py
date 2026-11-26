@@ -26,6 +26,11 @@ class RemoteBindings(BaseModel):
 
 class AppSettings(BaseModel):
     contact_enabled: bool = True
+    lip_enabled: bool = True
+    calibrate_enabled: bool = True
+    labiodental_enabled: bool = True
+    dental_enabled: bool = False
+    silence_mode: Literal["off", "reviewed", "expanded"] = "reviewed"
     microphone_enabled: bool = True
     microphone_device_id: str = Field(default="", max_length=512)
     microphone_label: str = Field(default="", max_length=512)
@@ -57,9 +62,16 @@ def _write_settings(settings: AppSettings) -> None:
 
 def settings_payload(settings: AppSettings) -> dict[str, object]:
     bundle = Path(asset_override("SSL_AAI_BUNDLE_PATH", "r4") or DEFAULT_R4_BUNDLE)
+    silence_available = (bundle / "weights" / "silence.joblib").is_file()
     return {
         **settings.model_dump(),
         "contact_available": (bundle / "weights" / "contact.pt").is_file(),
+        "lip_available": (bundle / "weights" / "lip.json").is_file(),
+        "calibrate_available": (bundle / "configs" / "output_calibration.json").is_file()
+        and silence_available,
+        "labiodental_available": (bundle / "weights" / "labiodental.json").is_file(),
+        "dental_available": (bundle / "weights" / "dental.json").is_file(),
+        "silence_available": silence_available,
     }
 
 

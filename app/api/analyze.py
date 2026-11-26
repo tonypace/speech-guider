@@ -52,6 +52,7 @@ def _ssl_aai_to_animation_state(
     sample_rate: int,
     return_trajectory: bool = False,
     contact_enabled: bool = False,
+    hinter_options: dict[str, Any] | None = None,
 ) -> dict[str, float] | tuple[dict[str, float], list[dict[str, float]], dict[str, Any]]:
     """Convert audio to animation state via SSL AAI predictor.
 
@@ -75,7 +76,10 @@ def _ssl_aai_to_animation_state(
     metadata = SPEAKER_Z_METADATA
     try:
         prediction = predictor.predict_with_metadata(
-            audio_tensor, sample_rate, contact_enabled=contact_enabled
+            audio_tensor,
+            sample_rate,
+            contact_enabled=contact_enabled,
+            **(hinter_options or {}),
         )
         tvs_array = prediction["tvs"].numpy()
         ssl_meta: dict[str, Any] = prediction["metadata"]
@@ -115,6 +119,7 @@ def try_primary_ssl_analysis(
     sample_rate: int,
     return_trajectory: bool = False,
     contact_enabled: bool = False,
+    hinter_options: dict[str, Any] | None = None,
 ) -> tuple[dict[str, float], list[dict[str, float]] | None, dict[str, Any]]:
     """Run the SSL AAI analysis path.
 
@@ -132,6 +137,7 @@ def try_primary_ssl_analysis(
             sample_rate,
             return_trajectory=return_trajectory,
             contact_enabled=contact_enabled,
+            hinter_options=hinter_options,
         )
     except SSLAnalysisError as e:
         logger.warning(f"[try_primary_ssl_analysis] SSL AAI path failed: {e}")
@@ -185,7 +191,11 @@ def _extract_acoustic_vowel_intervals(
 
 
 async def _run_analysis_pipeline(
-    audio_path: str, target_text: str, job_id: str, contact_enabled: bool = False
+    audio_path: str,
+    target_text: str,
+    job_id: str,
+    contact_enabled: bool = False,
+    hinter_options: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run the full analysis pipeline.
 
@@ -220,7 +230,12 @@ async def _run_analysis_pipeline(
     # Run SSL AAI analysis in thread to avoid blocking
     try:
         ssl_animation_state, ssl_trajectory, ssl_meta = await run_blocking(
-            try_primary_ssl_analysis, audio_tensor, sample_rate, True, contact_enabled
+            try_primary_ssl_analysis,
+            audio_tensor,
+            sample_rate,
+            True,
+            contact_enabled,
+            hinter_options,
         )
         logger.debug(
             "[analyze] SSL AAI analysis succeeded, animation state and trajectory generated"
@@ -495,9 +510,21 @@ async def analyze_audio(
     temp_path: str | None = None
     try:
         temp_path = await save_upload_to_temp(audio)
+        settings = load_settings()
+        hinter_options = {
+            "lip_enabled": settings.lip_enabled,
+            "calibrate_enabled": settings.calibrate_enabled,
+            "labiodental_enabled": settings.labiodental_enabled,
+            "dental_enabled": settings.dental_enabled,
+            "silence_mode": settings.silence_mode,
+        }
         result = await run_with_semaphore(
             _run_analysis_pipeline(
-                temp_path, target_text, job.job_id, load_settings().contact_enabled
+                temp_path,
+                target_text,
+                job.job_id,
+                settings.contact_enabled,
+                hinter_options,
             )
         )
         result["job_id"] = job.job_id

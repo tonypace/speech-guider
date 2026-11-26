@@ -42,6 +42,11 @@ def test_root_renders_default_settings_and_contact_availability(
         assert response.status_code == 200
         assert _extract_rendered_settings(response.text) == {
             "contact_enabled": True,
+            "lip_enabled": True,
+            "calibrate_enabled": True,
+            "labiodental_enabled": True,
+            "dental_enabled": False,
+            "silence_mode": "reviewed",
             "microphone_enabled": True,
             "microphone_device_id": "",
             "microphone_label": "",
@@ -54,6 +59,11 @@ def test_root_renders_default_settings_and_contact_availability(
                 "speed_down": "",
             },
             "contact_available": False,
+            "lip_available": False,
+            "calibrate_available": False,
+            "labiodental_available": False,
+            "dental_available": False,
+            "silence_available": False,
         }
         assert "Contact weights are missing." in response.text
 
@@ -76,6 +86,11 @@ def test_put_settings_persists_to_disk_and_renders_on_get(
 
     requested = {
         "contact_enabled": False,
+        "lip_enabled": False,
+        "calibrate_enabled": True,
+        "labiodental_enabled": False,
+        "dental_enabled": True,
+        "silence_mode": "expanded",
         "microphone_enabled": False,
         "microphone_device_id": "usb-mic-01",
         "microphone_label": "Studio USB Mic",
@@ -88,11 +103,19 @@ def test_put_settings_persists_to_disk_and_renders_on_get(
             "speed_down": "AudioVolumeDown",
         },
     }
+    expected_availability = {
+        "contact_available": True,
+        "lip_available": False,
+        "calibrate_available": False,
+        "labiodental_available": False,
+        "dental_available": False,
+        "silence_available": False,
+    }
 
     with TestClient(app) as client:
         put_response = client.put("/api/settings", json=requested)
         assert put_response.status_code == 200
-        assert put_response.json() == {**requested, "contact_available": True}
+        assert put_response.json() == {**requested, **expected_availability}
 
         persisted_path = tmp_path / "settings.json"
         assert persisted_path.is_file()
@@ -102,7 +125,7 @@ def test_put_settings_persists_to_disk_and_renders_on_get(
         assert home_response.status_code == 200
         assert _extract_rendered_settings(home_response.text) == {
             **requested,
-            "contact_available": True,
+            **expected_availability,
         }
 
 

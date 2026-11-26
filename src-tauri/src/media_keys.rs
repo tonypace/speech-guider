@@ -398,6 +398,7 @@ mod macos {
             return;
         }
 
+        let (tx, rx) = std::sync::mpsc::sync_channel::<()>(1);
         let app_handle = app.clone();
         let state_arc = Arc::clone(state);
         let spawn_result = thread::Builder::new()
@@ -425,6 +426,7 @@ mod macos {
                     unsafe { drop(Box::from_raw(ctx_ptr)) };
                     state_arc.tap_active.store(false, Ordering::Release);
                     state_arc.tap_started.store(false, Ordering::Release);
+                    let _ = tx.send(());
                     return;
                 }
                 unsafe {
@@ -435,12 +437,14 @@ mod macos {
                         drop(Box::from_raw(ctx_ptr));
                         state_arc.tap_active.store(false, Ordering::Release);
                         state_arc.tap_started.store(false, Ordering::Release);
+                        let _ = tx.send(());
                         return;
                     }
                     let run_loop = CFRunLoopGetCurrent();
                     CFRunLoopAddSource(run_loop, source, kCFRunLoopCommonModes);
                     CGEventTapEnable(port, true);
                     state_arc.tap_active.store(true, Ordering::Release);
+                    let _ = tx.send(());
                     CFRunLoopRun();
                     CFRelease(source.cast::<c_void>());
                     CFRelease(port.cast::<c_void>());
@@ -450,7 +454,9 @@ mod macos {
                 state_arc.tap_started.store(false, Ordering::Release);
             });
 
-        if spawn_result.is_err() {
+        if spawn_result.is_ok() {
+            let _ = rx.recv_timeout(std::time::Duration::from_millis(250));
+        } else {
             state.tap_started.store(false, Ordering::Release);
         }
     }

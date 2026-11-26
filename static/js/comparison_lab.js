@@ -131,7 +131,15 @@ class ComparisonLab {
     setupEventListeners() {
         listen(this, window, 'beforeunload', () => this.destroy());
         listen(this, window, 'speechguider:settingschange', ({ detail: { previous, next } }) => {
-            if (previous.contact_enabled !== next.contact_enabled) {
+            const hinterKeys = [
+                'contact_enabled',
+                'lip_enabled',
+                'calibrate_enabled',
+                'labiodental_enabled',
+                'dental_enabled',
+                'silence_mode',
+            ];
+            if (hinterKeys.some((key) => previous[key] !== next[key])) {
                 const text = this.currentTargetText;
                 this.clear();
                 this.currentTargetText = text;

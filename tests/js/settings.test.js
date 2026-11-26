@@ -333,6 +333,11 @@ describe('settings panel behavior', () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     contact_enabled: false,
+                    lip_enabled: true,
+                    calibrate_enabled: true,
+                    labiodental_enabled: true,
+                    dental_enabled: false,
+                    silence_mode: 'reviewed',
                     microphone_enabled: true,
                     microphone_device_id: 'mic-usb',
                     microphone_label: 'USB Mic',
