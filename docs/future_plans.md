@@ -47,5 +47,6 @@ The initial codebase cleanup stack (`P0.1`–`P4.3`) was completed on **2026-11-
 - **Scope:** Complete blind review and second-speaker validation of the experimental dental / “th” hint before enabling it by default. Compare false dental approaches against existing tongue contacts and lip seals.
 
 ### Forced alignment, phoneme error detection, and LLM feedback synthesis
+- **References:** [R5 + mHuBERT alignment plan](r5-mhubert-alignment-plan.md)
 - **Files:** `src/models/alignment.py`, `src/llm/__init__.py`, `app/api/analyze.py`
-- **Scope:** Replace the `ForcedAligner` scaffold with a real phoneme CTC / forced-alignment model so `/api/analyze` supplies real vowel/word timestamps (enabling live nPVI and word stress), phoneme errors, and optional `src/llm/` feedback synthesis.
+- **Scope:** Replace the `ForcedAligner` scaffold with shared `utter-project/mHuBERT-147` + `ctc_v1` IPA forced alignment and 6-category pronunciation weakness diagnostics (feeding real vowel/word timestamps into live nPVI and word stress), plus optional `src/llm/` feedback synthesis on the upcoming R5 branch.
