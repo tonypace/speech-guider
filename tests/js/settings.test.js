@@ -186,6 +186,38 @@ describe('microphone utilities', () => {
             },
         });
     });
+
+    it('falls back to system default when saved microphone is unavailable', async () => {
+        const defaultStream = { getTracks: () => [] };
+        const err = new Error('Requested device not found');
+        err.name = 'OverconstrainedError';
+        const getUserMedia = vi.fn()
+            .mockRejectedValueOnce(err)
+            .mockResolvedValueOnce(defaultStream);
+        const enumerateDevices = vi.fn().mockResolvedValue([
+            { kind: 'audioinput', deviceId: 'built-in', label: 'MacBook Air Microphone' },
+        ]);
+        Object.defineProperty(navigator, 'mediaDevices', {
+            configurable: true,
+            writable: true,
+            value: { enumerateDevices, getUserMedia },
+        });
+
+        const stream = await openMicrophone({
+            microphone_enabled: true,
+            microphone_device_id: 'unplugged-wireless-id',
+            microphone_label: 'Wireless Microphone',
+        });
+
+        expect(stream).toBe(defaultStream);
+        expect(getUserMedia).toHaveBeenNthCalledWith(2, {
+            audio: {
+                autoGainControl: false,
+                noiseSuppression: false,
+                echoCancellation: false,
+            },
+        });
+    });
 });
 
 describe('settings panel behavior', () => {

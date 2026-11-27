@@ -130,8 +130,8 @@ export class PresenterRemoteController {
     }
 
     bindEvents() {
-        document.addEventListener('keydown', this._onKeyDown, true);
-        document.addEventListener('keyup', this._onKeyUp, true);
+        window.addEventListener('keydown', this._onKeyDown, true);
+        window.addEventListener('keyup', this._onKeyUp, true);
         window.addEventListener('speechguider:mediakey', this._onMediaKey);
         window.addEventListener('blur', this._onBlur);
         window.addEventListener('speechguider:tabchange', this._onTabChange);
@@ -143,8 +143,8 @@ export class PresenterRemoteController {
         this.destroyed = true;
         this._releaseHoldRecording();
         this.learningCallback = null;
-        document.removeEventListener('keydown', this._onKeyDown, true);
-        document.removeEventListener('keyup', this._onKeyUp, true);
+        window.removeEventListener('keydown', this._onKeyDown, true);
+        window.removeEventListener('keyup', this._onKeyUp, true);
         window.removeEventListener('speechguider:mediakey', this._onMediaKey);
         window.removeEventListener('blur', this._onBlur);
         window.removeEventListener('speechguider:tabchange', this._onTabChange);

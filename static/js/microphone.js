@@ -20,7 +20,8 @@ export async function openMicrophone(settings = getSettings()) {
     if (settings.microphone_enabled === false) throw new Error('Microphone is off in Settings.');
     if (!navigator.mediaDevices?.getUserMedia) throw new Error('Microphone access is unavailable.');
     // Preserve speech dynamics for analysis by opting out of browser voice processing.
-    const audio = { autoGainControl: false, noiseSuppression: false, echoCancellation: false };
+    const baseAudio = { autoGainControl: false, noiseSuppression: false, echoCancellation: false };
+    const audio = { ...baseAudio };
     const id = settings.microphone_device_id;
     if (id) {
         // WebView origins change across desktop launches. Use a unique label if its ID changed.
@@ -28,6 +29,15 @@ export async function openMicrophone(settings = getSettings()) {
         const labels = settings.microphone_label ? devices.filter(device => device.label === settings.microphone_label) : [];
         const match = devices.find(device => device.deviceId === id) || (labels.length === 1 ? labels[0] : null);
         audio.deviceId = { exact: match?.deviceId || id };
+        try {
+            return await navigator.mediaDevices.getUserMedia({ audio });
+        } catch (error) {
+            if (error?.name !== 'NotFoundError' && error?.name !== 'OverconstrainedError') {
+                throw error;
+            }
+            // Fall back to system default (e.g. built-in mic) when saved device is unplugged.
+            return navigator.mediaDevices.getUserMedia({ audio: baseAudio });
+        }
     }
     return navigator.mediaDevices.getUserMedia({ audio });
 }
