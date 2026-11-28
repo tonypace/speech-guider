@@ -6,7 +6,14 @@ and prosody summaries remain in your application data directory.
 
 ## Attribution
 
-**R4 decoder** — built by Tony Pace.
+**R5 / R4 decoders** — built by Tony Pace. R5 pairs `microsoft/wavlm-base-plus` (MIT License) with an 11-channel articulatory decoder and Stage 5 realization badges.
+
+- https://huggingface.co/microsoft/wavlm-base-plus
+
+**mHuBERT-147 & IPA CTC Head** — forced alignment and pronunciation diagnostics use `utter-project/mHuBERT-147` (CC-BY-NC-4.0) and `istomin9192/mHuBERT-147-ipa-head` (Apache-2.0) with CMUdict lexical lookup.
+
+- https://huggingface.co/utter-project/mHuBERT-147
+- https://huggingface.co/istomin9192/mHuBERT-147-ipa-head
 
 **ContentVec** — credit to the ContentVec authors and to lengyue233 for the
 Hugging Face conversion. The bundle uses a local seven-layer export of the

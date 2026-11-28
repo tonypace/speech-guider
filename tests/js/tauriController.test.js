@@ -55,7 +55,7 @@ describe('TauriController', () => {
             const controller = new TauriController();
             expect(controller.isTauri).toBe(true);
             expect(controller.detectTauri()).toBe(true);
-            expect(addedDocumentListeners.map(([type]) => type)).toEqual(['keydown', 'keyup']);
+            expect(addedDocumentListeners.map(([type]) => type)).toEqual(['keydown']);
         });
 
         it('detects legacy __TAURI__ object', () => {
@@ -256,8 +256,8 @@ describe('TauriController', () => {
         });
     });
 
-    describe('Tab hold/release recording', () => {
-        it.each(['blur', 'comparison', 'prosody'])('releases the owning recorder on %s and accepts the next hold', (interruption) => {
+    describe('Tab toggle recording', () => {
+        it.each(['blur', 'comparison', 'prosody'])('releases the owning recorder on %s and accepts the next toggle', (interruption) => {
             window.__SPEECH_GUIDER_TAURI__ = true;
             window.currentTab = 'analysis';
             window.recorder = { startRecording: vi.fn(), stopRecording: vi.fn() };
@@ -278,12 +278,11 @@ describe('TauriController', () => {
             window.dispatchEvent(new CustomEvent('speechguider:tabchange', { detail: 'analysis' }));
             document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab' }));
             expect(window.recorder.startRecording).toHaveBeenCalledTimes(2);
-            document.dispatchEvent(new KeyboardEvent('keyup', { key: 'Tab' }));
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab' }));
             expect(window.recorder.stopRecording).toHaveBeenCalledTimes(2);
         });
 
-        it('starts pronunciation recording on Tab keydown, stops on release >= 200ms, and reads window.currentErrors dynamically', () => {
-            vi.useFakeTimers();
+        it('toggles pronunciation recording on Tab keydown, ignores key repeat, and reads window.currentErrors dynamically', () => {
             window.__SPEECH_GUIDER_TAURI__ = true;
             window.currentTab = 'analysis';
             window.recorder = {
@@ -302,12 +301,13 @@ describe('TauriController', () => {
             expect(controller.isRecording).toBe(true);
             expect(window.recorder.startRecording).toHaveBeenCalledOnce();
 
-            // Repeated Tab keydown while already recording should be ignored.
-            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', cancelable: true }));
+            // Repeated Tab keydown while held should be ignored.
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', repeat: true, cancelable: true }));
             expect(window.recorder.startRecording).toHaveBeenCalledOnce();
+            expect(controller.isRecording).toBe(true);
 
-            vi.advanceTimersByTime(250);
-            document.dispatchEvent(new KeyboardEvent('keyup', { key: 'Tab', cancelable: true }));
+            // Second non-repeat Tab keydown stops recording.
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', cancelable: true }));
             expect(controller.isRecording).toBe(false);
             expect(window.recorder.stopRecording).toHaveBeenCalledOnce();
 
@@ -318,8 +318,7 @@ describe('TauriController', () => {
             expect(controller.pronunciationErrors).toEqual([{ word_context: 'hot' }]);
         });
 
-        it('starts and stops prosody recording on Tab hold/release', () => {
-            vi.useFakeTimers();
+        it('starts and stops prosody recording on Tab toggle', () => {
             window.__SPEECH_GUIDER_TAURI__ = true;
             window.currentTab = 'prosody';
             window.prosodyLabRecorder = {
@@ -334,32 +333,9 @@ describe('TauriController', () => {
             expect(controller.isRecording).toBe(true);
             expect(window.prosodyLabRecorder.startRecording).toHaveBeenCalledOnce();
 
-            vi.advanceTimersByTime(200);
-            document.dispatchEvent(new KeyboardEvent('keyup', { key: 'Tab', cancelable: true }));
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', cancelable: true }));
             expect(controller.isRecording).toBe(false);
             expect(window.prosodyLabRecorder.stopRecording).toHaveBeenCalledOnce();
-        });
-
-        it('stops recording and resets isRecording on short Tab tap (< 200ms) while also calling handlePrimaryAction', () => {
-            vi.useFakeTimers();
-            window.__SPEECH_GUIDER_TAURI__ = true;
-            window.currentTab = 'analysis';
-            window.recorder = { startRecording: vi.fn(), stopRecording: vi.fn() };
-
-            const controller = new TauriController();
-            const primarySpy = vi.spyOn(controller, 'handlePrimaryAction');
-            const releaseSpy = vi.spyOn(controller, 'handleRecordRelease');
-            controller.handleLaunch('pronunciation');
-
-            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', cancelable: true }));
-            expect(controller.isRecording).toBe(true);
-            vi.advanceTimersByTime(50);
-            document.dispatchEvent(new KeyboardEvent('keyup', { key: 'Tab', cancelable: true }));
-
-            expect(controller.isRecording).toBe(false);
-            expect(releaseSpy).toHaveBeenCalledOnce();
-            expect(window.recorder.stopRecording).toHaveBeenCalledOnce();
-            expect(primarySpy).toHaveBeenCalledOnce();
         });
     });
 });

@@ -75,10 +75,45 @@
         
         <!-- Main Analysis Section -->
         <section class="bg-white rounded-lg shadow-md p-6 mb-8">
-            <h2 class="text-2xl font-semibold text-gray-800 mb-4">Analysis</h2>
+            <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
+                <h2 class="text-2xl font-semibold text-gray-800">Analysis</h2>
+                <button type="button" data-dev-export-tab="analysis" class="rounded border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 transition">
+                    Send to Developer…
+                </button>
+            </div>
             
             <form id="analyze-form">
                 
+                <!-- Diagnostic Passage Selector -->
+                <div class="mb-3 flex flex-wrap items-center justify-between gap-2 bg-slate-50 border border-slate-200 rounded-md px-3 py-2">
+                    <div class="flex flex-wrap items-center gap-2">
+                        <label for="diagnostic-passage-select" class="text-xs font-semibold text-slate-700 flex items-center gap-2">
+                            Diagnostic Passage:
+                            <select id="diagnostic-passage-select" class="text-xs font-normal border border-gray-300 rounded px-2.5 py-1.5 bg-white text-gray-800 focus:ring-2 focus:ring-blue-500">
+                                <option value="full_diagnostic" selected>1. Full 6-Category Diagnostic (5 sentences)</option>
+                                <option value="dental_fricatives">2. Dental Fricatives (/θ/ &amp; /ð/)</option>
+                                <option value="labiodental_glide">3. Labiodental vs. Glide (/v/ &amp; /w/)</option>
+                                <option value="liquid_contrast">4. Liquid Contrast (/r/ &amp; /l/)</option>
+                                <option value="final_clusters">5. Final Consonants &amp; Clusters</option>
+                                <option value="vowel_pairs">6. Tense/Lax &amp; Front Vowel Pairs</option>
+                                <option value="custom">Custom text…</option>
+                            </select>
+                        </label>
+                        <button type="button" id="play-reference-btn" class="inline-flex items-center gap-1 rounded border border-blue-300 bg-white px-2.5 py-1 text-xs font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-50 transition">
+                            ▶ Play Reference
+                        </button>
+                        <audio id="analysis-reference-audio" class="hidden" preload="none"></audio>
+                    </div>
+                    <div id="diagnostic-passage-badges" class="flex flex-wrap items-center gap-1.5 text-[11px]">
+                        <span class="rounded-full bg-blue-50 border border-blue-200 px-2 py-0.5 text-blue-700 font-medium">/θ/</span>
+                        <span class="rounded-full bg-blue-50 border border-blue-200 px-2 py-0.5 text-blue-700 font-medium">/ð/</span>
+                        <span class="rounded-full bg-blue-50 border border-blue-200 px-2 py-0.5 text-blue-700 font-medium">/v/ vs /w/</span>
+                        <span class="rounded-full bg-blue-50 border border-blue-200 px-2 py-0.5 text-blue-700 font-medium">/r/ vs /l/</span>
+                        <span class="rounded-full bg-blue-50 border border-blue-200 px-2 py-0.5 text-blue-700 font-medium">Final clusters</span>
+                        <span class="rounded-full bg-blue-50 border border-blue-200 px-2 py-0.5 text-blue-700 font-medium">/ɪ/ vs /iː/, /æ/ vs /ɛ/</span>
+                    </div>
+                </div>
+
                 <!-- Target Text -->
                 <div class="mb-4">
                     <label for="target_text" class="block text-sm font-medium text-gray-700 mb-1">Target Sentence</label>
@@ -101,11 +136,11 @@
                             class="record-button w-32 h-32 rounded-full bg-red-600 text-white font-semibold text-lg shadow-lg hover:bg-red-700 focus:outline-none focus:ring-4 focus:ring-red-300 transition-all transform hover:scale-105 active:scale-95"
                             style="display: inline-flex; flex-direction: column; align-items: center; justify-content: center;">
                         <span class="text-3xl mb-1">🎤</span>
-                        <span class="text-sm btn-text">Hold to Record</span>
+                        <span class="text-sm btn-text">Press to Record</span>
                     </button>
                     
                     <div class="mt-3 text-sm text-gray-500">
-                        or hold <kbd class="bg-gray-100 px-2 py-1 rounded border border-gray-300 font-mono">F5</kbd>
+                        or press <kbd class="bg-gray-100 px-2 py-1 rounded border border-gray-300 font-mono">F5</kbd> to start / stop
                     </div>
                 </div>
 
@@ -190,10 +225,10 @@
         <section class="prose max-w-none">
             <h2 class="text-xl font-semibold text-gray-800 mb-3">Instructions</h2>
             <ol class="list-decimal list-inside space-y-1 text-gray-600">
-                <li>Enter the target sentence you want to practice</li>
-                <li>Hold the microphone button, press Space/Enter while focused, or hold F5 while reading aloud, then release to analyze (or upload a WAV/audio file when the recorder is unavailable)</li>
-                <li>Inspect your vocal tract trajectory and prosody metrics in the feedback card</li>
-                <li>Scrub or play your articulatory trajectory at 0.5x slow motion, or open Comparison Lab to compare side-by-side with a spoken reference</li>
+                <li>Choose a curated diagnostic passage (or listen via Play Reference) or enter your own target sentence</li>
+                <li>Press the microphone button, Space/Enter while focused, or F5 to start recording, then press again to stop and analyze (or upload a WAV/audio file when the recorder is unavailable)</li>
+                <li>Review the syllable diff, weakness summary, and aligned word transcript; click any red or yellow syllable to compare your exact audio slice side-by-side in Comparison Lab</li>
+                <li>Scrub or play your articulatory trajectory at 0.5x slow motion, or click a weakness to load focused training sentences</li>
             </ol>
 
             <div class="mt-4 p-4 bg-blue-50 rounded-md">
@@ -238,6 +273,9 @@
                                 <option value="real_tts">Real Voice / TTS Only</option>
                             </select>
                         </label>
+                        <button type="button" data-dev-export-tab="prosody" class="rounded border border-gray-300 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 transition">
+                            Send to Developer…
+                        </button>
                     </div>
                 </div>
 
@@ -363,7 +401,10 @@
             <section class="comparison-workspace bg-white rounded-lg shadow-md p-4 sm:p-6 mb-8">
                 <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
                     <h2 class="text-2xl font-semibold text-gray-800">Comparison Lab</h2>
-                    <button type="button" id="comparison-fullscreen" class="rounded border border-gray-300 px-3 py-2 text-sm font-medium" aria-pressed="false">Full screen</button>
+                    <div class="flex items-center gap-2">
+                        <button type="button" data-dev-export-tab="comparison" class="rounded border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 transition">Send to Developer…</button>
+                        <button type="button" id="comparison-fullscreen" class="rounded border border-gray-300 px-3 py-2 text-sm font-medium" aria-pressed="false">Full screen</button>
+                    </div>
                 </div>
 
                 <!-- Target Text Input -->
@@ -662,6 +703,33 @@
                 </div>
             </form>
         </div><!-- End tab-panel-settings -->
+    </div>
+
+    <!-- Send to Developer Modal -->
+    <div id="dev-feedback-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-labelledby="dev-feedback-title">
+        <div class="w-full max-w-lg rounded-lg bg-white p-6 shadow-xl space-y-4">
+            <div class="flex items-center justify-between">
+                <h3 id="dev-feedback-title" class="text-lg font-semibold text-gray-800">
+                    Send to Developer (<span id="dev-feedback-tab-label">analysis</span>)
+                </h3>
+                <span id="dev-feedback-audio-badge" class="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-600"></span>
+            </div>
+            <form id="dev-feedback-form" class="space-y-3">
+                <div>
+                    <div class="text-xs font-medium text-gray-700 mb-1.5">Quick Tags</div>
+                    <div id="dev-feedback-categories" class="flex flex-wrap gap-1.5"></div>
+                </div>
+                <div>
+                    <label for="dev-feedback-note" class="block text-xs font-medium text-gray-700 mb-1">Notes / Subjective Judgment</label>
+                    <textarea id="dev-feedback-note" rows="3" class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500" placeholder="Describe what happened (e.g., dysfluent speech, missed /t/ end, timing drift, bad animation)..."></textarea>
+                </div>
+                <p id="dev-feedback-status" class="text-xs text-gray-600" role="status"></p>
+                <div class="flex items-center justify-end gap-2 pt-2">
+                    <button type="button" id="dev-feedback-cancel" class="rounded border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Cancel</button>
+                    <button type="submit" id="dev-feedback-submit" class="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">Save Packet</button>
+                </div>
+            </form>
+        </div>
     </div>
 
     <script>

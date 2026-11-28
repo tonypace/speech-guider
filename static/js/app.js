@@ -1,5 +1,6 @@
 import { SvgArticulatoryRenderer, DEFAULT_STATE } from './svg_articulatory_renderer.js';
 import { getSettings } from './microphone.js';
+import { initFeedbackExport } from './feedback_export.js';
 import './ipa_tooltips.js';
 import './recorder.js';
 
@@ -288,6 +289,7 @@ window.selectError = async function selectError(index) {
 document.addEventListener('DOMContentLoaded', () => {
     mountSvgRenderers();
     bindTargetSentenceSync();
+    initFeedbackExport();
     window.switchTab(window.currentTab);
 });
 

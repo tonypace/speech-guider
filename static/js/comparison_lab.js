@@ -421,6 +421,33 @@ class ComparisonLab {
         this.controller.togglePlay(type);
     }
 
+    async loadStudentSliceAndReference(targetText, slicedFrames, slicedWavBlob) {
+        if (this.destroyed) return;
+        this.init();
+        const text = String(targetText || '').trim();
+        if (!text) return;
+
+        const textInput = document.getElementById('comparison-target-text');
+        if (textInput) {
+            textInput.value = text;
+        }
+        this.currentTargetText = text;
+        this.studentLoaded = false;
+        this.referenceLoaded = false;
+        this.lastStudentAudioBlob = slicedWavBlob || null;
+
+        if (Array.isArray(slicedFrames) && slicedFrames.length > 0 && slicedWavBlob && this.controller) {
+            const loaded = await this.controller.loadStudent(slicedFrames, slicedWavBlob, () => !this.destroyed);
+            if (loaded) {
+                this.studentLoaded = true;
+                this.showStudentStatus('ready', `Loaded student slice for "${text}"`);
+                this.updateStudentScrub(0);
+            }
+        }
+        this.updateUIState();
+        await this.generateReference();
+    }
+
     /**
    * Handle speed change
    */
@@ -655,6 +682,7 @@ class ComparisonLab {
             // The packaged backend can analyze these recordings without ffmpeg.
             const wav = await convertAudioToWav(blob, 16000, (audio, length) => encodePcmWav(audio, length, true));
             if (!isCurrent()) return;
+            this.lastStudentAudioBlob = wav;
             const formData = new FormData();
             formData.append('audio', wav, 'recording.wav');
             formData.append('target_text', targetText);

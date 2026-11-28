@@ -75,7 +75,12 @@ def _request(base: str, path: str, upload: bytes | None = None) -> bytes:
         return cast(bytes, response.read())
 
 
-def smoke(executable: Path, r4_bundle: Path | None = None) -> None:
+def smoke(
+    executable: Path,
+    r4_bundle: Path | None = None,
+    r5_bundle: Path | None = None,
+    mhubert_bundle: Path | None = None,
+) -> None:
     """Verify the frozen imports, HTML, static assets, and native audio stack."""
     with tempfile.TemporaryDirectory(prefix="speech guider smoke ") as directory:
         scratch = Path(directory).resolve()
@@ -88,6 +93,10 @@ def smoke(executable: Path, r4_bundle: Path | None = None) -> None:
         }
         if r4_bundle is not None:
             env["SSL_AAI_BUNDLE_PATH"] = str(r4_bundle.resolve(strict=True))
+        if r5_bundle is not None:
+            env["R5_BUNDLE_PATH"] = str(r5_bundle.resolve(strict=True))
+        if mhubert_bundle is not None:
+            env["MHUBERT_BUNDLE_PATH"] = str(mhubert_bundle.resolve(strict=True))
         with log.open("wb") as output:
             process = subprocess.Popen(
                 [str(executable), "--ready-file", str(ready), "--parent-pid", str(os.getpid())],
@@ -105,12 +114,37 @@ def smoke(executable: Path, r4_bundle: Path | None = None) -> None:
                 raise RuntimeError("Frozen backend did not render the app template")
             if not _request(base, "/static/js/app.js"):
                 raise RuntimeError("Frozen backend did not serve the app module")
+            passages_data: dict[str, Any] = json.loads(_request(base, "/api/diagnostic-passages"))
+            if len(passages_data.get("passages", [])) != 6:
+                raise RuntimeError("Frozen backend did not serve all 6 diagnostic passages")
             data: dict[str, Any] = json.loads(
                 _request(base, "/api/prosody-lab/analyze", _wav_upload())
             )
             if data.get("summary", {}).get("duration_seconds") != 1:
                 raise RuntimeError("Synthetic WAV analysis failed in the frozen backend")
-            if r4_bundle is not None:
+            if r5_bundle is not None:
+                r5_analysis = json.loads(
+                    _request(base, "/api/analyze", _wav_upload("Every Thursday morning"))
+                )
+                r5_traj = r5_analysis.get("ssl_trajectory") or {}
+                if not r5_traj.get("frames"):
+                    raise RuntimeError("Frozen R5 inference did not produce animation frames")
+                r5_meta = r5_analysis.get("integration_meta", {})
+                if r5_meta.get("model_version") != "r5":
+                    raise RuntimeError(f"Expected R5 model_version, got {r5_meta!r}")
+                if (
+                    r5_bundle / "coreml_fp32" / "r5_wavlm_l8.mlpackage" / "Manifest.json"
+                ).is_file() and r5_meta.get("runtime_backend") != "coreml_split":
+                    raise RuntimeError(
+                        f"Expected R5 Core ML split backend, got {r5_meta.get('runtime_backend')!r}"
+                    )
+                if mhubert_bundle is not None:
+                    if r5_analysis.get("alignment_meta", {}).get("status") != "available":
+                        raise RuntimeError("Frozen mHuBERT forced alignment did not run")
+                    diag = r5_analysis.get("pronunciation_diagnostics", {})
+                    if diag.get("status") != "available" or len(diag.get("categories", [])) != 6:
+                        raise RuntimeError("Frozen 6-category pronunciation diagnostics failed")
+            if r4_bundle is not None and r5_bundle is None:
                 analysis = json.loads(_request(base, "/api/analyze", _wav_upload("Synthetic tone")))
                 trajectory = analysis.get("ssl_trajectory") or {}
                 if not trajectory.get("frames"):
@@ -191,5 +225,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("executable", nargs="?", type=Path, default=DEFAULT_EXECUTABLE)
     parser.add_argument("--r4-bundle", type=Path, help="Also run R4 on a generated one-second WAV")
+    parser.add_argument("--r5-bundle", type=Path, help="Also run R5 Core ML on a one-second WAV")
+    parser.add_argument(
+        "--mhubert-bundle", type=Path, help="Also run mHuBERT forced alignment + diagnostics"
+    )
     args = parser.parse_args()
-    smoke(args.executable.resolve(strict=True), args.r4_bundle)
+    smoke(args.executable.resolve(strict=True), args.r4_bundle, args.r5_bundle, args.mhubert_bundle)

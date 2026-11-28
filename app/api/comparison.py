@@ -18,6 +18,7 @@ from src.models.aai_adapter import r4_trajectory_to_canonical_frames
 from src.models.ssl_common import DEFAULT_SSL_FEATURE_CONFIG, clear_torch_device_cache
 from src.services.comparison_cache import ComparisonCache, ReferenceAsset, get_comparison_cache
 from src.services.model_cache import get_ssl_cache_identity, get_ssl_predictor
+from src.services.prebaked_references import get_prebaked_reference
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -150,6 +151,19 @@ async def generate_reference_animation(
     """
     if not request.target_text.strip():
         raise HTTPException(status_code=400, detail="Please enter reference text.")
+    if request.tts_provider == "omnivoice":
+        prebaked = get_prebaked_reference(request.target_text)
+        if prebaked and isinstance(prebaked.get("frames"), list):
+            return ReferenceAnimationResponse(
+                audio_base64=str(prebaked["audio_base64"]),
+                audio_sample_rate=int(prebaked.get("audio_sample_rate", 8000)),
+                audio_duration_seconds=float(prebaked["audio_duration_seconds"]),
+                audio_format=str(prebaked.get("audio_format", "ogg")),
+                frame_rate=int(prebaked.get("frame_rate", 50)),
+                frames=[AnimationFrame(**frame) for frame in prebaked["frames"]],
+                frame_count=int(prebaked["frame_count"]),
+                cached=True,
+            )
     try:
         settings = load_settings()
         hinter_options = {

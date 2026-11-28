@@ -77,6 +77,48 @@ def _stage_r4(source: Path, target: Path) -> None:
     _copy(ROOT / "docs/third-party/contentvec/LICENSE.txt", target / "ContentVec-LICENSE.txt")
 
 
+def _stage_r5(source: Path, target: Path) -> None:
+    hashes: dict[str, str] = {}
+    for line in (source / "SHA256SUMS").read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        digest, name = line.split(maxsplit=1)
+        hashes[name.removeprefix("*").removeprefix("./")] = digest
+    for rel in (
+        "configs/r5_streaming_contract.json",
+        "export_manifest.json",
+        "SHA256SUMS",
+        "torchscript/r5_bypass_decoder.ts.pt",
+        "torchscript/r5_end_to_end.ts.pt",
+        "weights/realization_badges_v1.json",
+    ):
+        src = source / rel
+        if src.is_file():
+            _copy(src, target / rel, hashes.get(rel))
+    coreml_pkg = source / "coreml_fp32" / "r5_wavlm_l8.mlpackage"
+    if coreml_pkg.is_dir():
+        dst_pkg = target / "coreml_fp32" / "r5_wavlm_l8.mlpackage"
+        shutil.copytree(coreml_pkg, dst_pkg, dirs_exist_ok=True)
+        for item in dst_pkg.rglob("*"):
+            item.chmod(0o755 if item.is_dir() else 0o644)
+
+
+def _stage_mhubert(source: Path, target: Path) -> None:
+    hashes: dict[str, str] = {}
+    sums_path = source / "SHA256SUMS"
+    if sums_path.is_file():
+        for line in sums_path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            digest, name = line.split(maxsplit=1)
+            hashes[name.removeprefix("*").removeprefix("./")] = digest
+    for path in sorted(source.rglob("*")):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(source).as_posix()
+        _copy(path, target / rel, hashes.get(rel))
+
+
 def _relocate_binary(path: Path, dependencies: tuple[str, ...]) -> None:
     if _run("lipo", "-archs", path, capture=True).strip() != "arm64":
         raise ValueError(f"Expected arm64 executable or library: {path}")
@@ -211,15 +253,41 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--app", type=Path, default=APP)
     parser.add_argument("--r4", type=Path, default=ROOT / "external/R4 final with hinting models")
+    parser.add_argument("--r5", type=Path, default=ROOT / "external/R5_CoreML_Export_v1")
+    parser.add_argument("--mhubert", type=Path, default=ROOT / "external/mhubert-147")
     parser.add_argument("--omnivoice", type=Path, default=ROOT / "omnivoice-tts")
     parser.add_argument("--output", type=Path, default=OUTPUT)
+    parser.add_argument(
+        "--staged-app-out",
+        type=Path,
+        default=None,
+        help="Optional path to save the staged asset-bundled .app alongside the .pkg",
+    )
+    parser.add_argument(
+        "--skip-pkg",
+        action="store_true",
+        help="Stage and sign the asset-bundled .app to --staged-app-out without building a .pkg",
+    )
     args = parser.parse_args()
     if sys.platform != "darwin" or platform.machine() != "arm64":
         parser.error("Use an Apple Silicon Mac.")
+    if args.skip_pkg and args.staged_app_out is None:
+        parser.error("--skip-pkg requires --staged-app-out.")
     app, output = args.app.resolve(strict=True), args.output.resolve()
-    output.parent.mkdir(parents=True, exist_ok=True)
+    bundled_backend = app / "Contents/Resources/backend/speech-guider-backend"
+    if not bundled_backend.is_file():
+        raise FileNotFoundError(
+            f"Bundled backend missing from {app} ({bundled_backend}). "
+            "Build the release app first with `npm run desktop:bundle` "
+            "(tauri build --config src-tauri/tauri.release.conf.json)."
+        )
+    app_out = (
+        args.staged_app_out.expanduser().resolve() if args.staged_app_out is not None else None
+    )
+    work_parent = app_out.parent if args.skip_pkg and app_out is not None else output.parent
+    work_parent.mkdir(parents=True, exist_ok=True)
     _run("codesign", "--verify", "--deep", "--strict", app)
-    with tempfile.TemporaryDirectory(prefix="installer-", dir=output.parent) as directory:
+    with tempfile.TemporaryDirectory(prefix="installer-", dir=work_parent) as directory:
         work = Path(directory)
         payload = work / "payload"
         payload.mkdir()
@@ -228,6 +296,10 @@ def main() -> None:
         assets = staged / "Contents/Resources/assets"
         assets.mkdir()
         _stage_r4(args.r4.resolve(strict=True), assets / "r4")
+        if args.r5.exists():
+            _stage_r5(args.r5.resolve(strict=True), assets / "r5")
+        if args.mhubert.exists():
+            _stage_mhubert(args.mhubert.resolve(strict=True), assets / "mhubert-147")
         _stage_omnivoice(args.omnivoice.resolve(strict=True), assets / "omnivoice")
         installer_credits = (ROOT / "docs/installer-assets.md").read_text(encoding="utf-8")
         r4_credits = (ROOT / "docs/attribution-for-r4.md").read_text(encoding="utf-8")
@@ -249,8 +321,20 @@ def main() -> None:
             staged,
         )
         _run("codesign", "--verify", "--deep", "--strict", staged)
-        _make_product(staged, work, output, attributions)
-    print(f"Local noncommercial installer: {output}")
+        if not args.skip_pkg:
+            _make_product(staged, work, output, attributions)
+        if app_out is not None:
+            if app_out.exists():
+                shutil.rmtree(app_out)
+            app_out.parent.mkdir(parents=True, exist_ok=True)
+            if args.skip_pkg:
+                shutil.move(str(staged), str(app_out))
+            else:
+                _run("ditto", staged, app_out)
+    if args.skip_pkg:
+        print(f"Staged desktop app: {app_out}")
+    else:
+        print(f"Local noncommercial installer: {output}")
 
 
 if __name__ == "__main__":

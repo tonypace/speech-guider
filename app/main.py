@@ -15,6 +15,7 @@ from app.api import (
     comparison,
     desktop_history,
     errors,
+    feedback_export,
     prosody_lab,
     settings,
     sse,
@@ -61,6 +62,7 @@ templates = Jinja2Templates(env=jinja_env)
 app.include_router(analyze.router)
 app.include_router(comparison.router)
 app.include_router(desktop_history.router)
+app.include_router(feedback_export.router)
 app.include_router(prosody_lab.router)
 app.include_router(settings.router)
 app.include_router(errors.router)
