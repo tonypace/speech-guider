@@ -192,7 +192,7 @@ describe('IntercomRecorder', () => {
             expect(recorder.isRecording).toBe(false);
         });
 
-        it('should stop recording on F5 keyup when on analysis tab', () => {
+        it('should stop recording on second F5 keydown when on analysis tab', () => {
             window.currentTab = 'analysis';
             const mockStream = new MockMediaStream();
             recorder.setupRecorder(mockStream);
@@ -201,7 +201,7 @@ describe('IntercomRecorder', () => {
             recorder.startRecording();
             const stopSpy = vi.spyOn(recorder, 'stopRecording');
 
-            const event = new KeyboardEvent('keyup', { key: 'F5', cancelable: true });
+            const event = new KeyboardEvent('keydown', { key: 'F5', cancelable: true });
             document.dispatchEvent(event);
 
             expect(event.defaultPrevented).toBe(true);
@@ -209,7 +209,7 @@ describe('IntercomRecorder', () => {
             expect(recorder.isRecording).toBe(false);
         });
 
-        it('should start and stop recording on mousedown/mouseup events', () => {
+        it('should start and stop recording on click toggle events', () => {
             const mockStream = new MockMediaStream();
             recorder.setupRecorder(mockStream);
             recorder.setupVisualizer(mockStream);
@@ -217,45 +217,43 @@ describe('IntercomRecorder', () => {
             const startSpy = vi.spyOn(recorder, 'startRecording');
             const stopSpy = vi.spyOn(recorder, 'stopRecording');
 
-            recorder.recordBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+            recorder.recordBtn.click();
             expect(startSpy).toHaveBeenCalledOnce();
             expect(recorder.isRecording).toBe(true);
 
-            recorder.recordBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+            recorder.recordBtn.click();
             expect(stopSpy).toHaveBeenCalledOnce();
             expect(recorder.isRecording).toBe(false);
         });
 
-        it('keeps recording on mouseleave and stops on window mouseup', () => {
+        it('ignores repeated F5 keydown events while held', () => {
+            window.currentTab = 'analysis';
             const mockStream = new MockMediaStream();
             recorder.setupRecorder(mockStream);
             recorder.setupVisualizer(mockStream);
             vi.spyOn(recorder, 'sendForAnalysis').mockResolvedValue();
 
-            recorder.recordBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'F5', cancelable: true }));
             expect(recorder.isRecording).toBe(true);
 
-            recorder.recordBtn.dispatchEvent(new MouseEvent('mouseleave', { bubbles: false }));
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'F5', repeat: true, cancelable: true }));
             expect(recorder.isRecording).toBe(true);
-
-            window.dispatchEvent(new MouseEvent('mouseup'));
-            expect(recorder.isRecording).toBe(false);
         });
 
-        it('supports Space and Enter hold-to-record on focused record button', () => {
+        it('supports Space and Enter toggle-to-record on focused record button', () => {
             const mockStream = new MockMediaStream();
             recorder.setupRecorder(mockStream);
             recorder.setupVisualizer(mockStream);
             vi.spyOn(recorder, 'sendForAnalysis').mockResolvedValue();
 
-            const down = new KeyboardEvent('keydown', { key: ' ', cancelable: true });
-            recorder.recordBtn.dispatchEvent(down);
-            expect(down.defaultPrevented).toBe(true);
+            const firstDown = new KeyboardEvent('keydown', { key: ' ', cancelable: true });
+            recorder.recordBtn.dispatchEvent(firstDown);
+            expect(firstDown.defaultPrevented).toBe(true);
             expect(recorder.isRecording).toBe(true);
 
-            const up = new KeyboardEvent('keyup', { key: ' ', cancelable: true });
-            recorder.recordBtn.dispatchEvent(up);
-            expect(up.defaultPrevented).toBe(true);
+            const secondDown = new KeyboardEvent('keydown', { key: 'Enter', cancelable: true });
+            recorder.recordBtn.dispatchEvent(secondDown);
+            expect(secondDown.defaultPrevented).toBe(true);
             expect(recorder.isRecording).toBe(false);
         });
     });

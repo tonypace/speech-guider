@@ -440,7 +440,9 @@ def r4_trajectory_to_canonical_frames(
     tvs_array: np.ndarray,
     labiodental_retraction: np.ndarray | Sequence[float] | None = None,
 ) -> list[dict[str, float]]:
-    """Convert an R4 speaker-Z trajectory array (T, 9) into canonical renderer frames."""
+    """Convert an R4/R5 speaker-Z trajectory array (T, 9 or 11) into canonical renderer frames."""
+    if tvs_array.ndim == 2 and tvs_array.shape[1] == 11:
+        tvs_array = tvs_array[:, :9]
     frames = aai_to_canonical_states_batch(tvs_array, SPEAKER_Z_METADATA)
     if labiodental_retraction is not None:
         ret_values = np.asarray(labiodental_retraction, dtype=np.float32)

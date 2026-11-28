@@ -30,12 +30,15 @@ from src.models.aai_adapter import (
     r4_trajectory_to_canonical_frames,
     representative_aai_pose,
 )
+from src.models.diagnostic_passages import list_diagnostic_passages
+from src.models.pronunciation_diagnostics import evaluate_pronunciation_diagnostics
+from src.models.r5_predictor import R5AAIPredictor
 from src.models.ssl_common import (
     DEFAULT_SSL_FEATURE_CONFIG,
     clear_torch_device_cache,
     get_best_torch_device,
 )
-from src.services.model_cache import get_ssl_predictor
+from src.services.model_cache import get_forced_aligner, get_ssl_predictor
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -53,10 +56,11 @@ def _ssl_aai_to_animation_state(
     return_trajectory: bool = False,
     contact_enabled: bool = False,
     hinter_options: dict[str, Any] | None = None,
+    extras_out: dict[str, Any] | None = None,
 ) -> dict[str, float] | tuple[dict[str, float], list[dict[str, float]], dict[str, Any]]:
     """Convert audio to animation state via SSL AAI predictor.
 
-    Uses the same frozen R4 decoder and display normalization as reference audio.
+    Uses the active R5 or R4 predictor and display normalization.
 
     Args:
         audio_tensor: Audio tensor
@@ -83,6 +87,21 @@ def _ssl_aai_to_animation_state(
         )
         tvs_array = prediction["tvs"].numpy()
         ssl_meta: dict[str, Any] = prediction["metadata"]
+        if extras_out is not None:
+            tvs_raw = prediction.get("tvs_raw")
+            tvs_11 = prediction.get("tvs_11ch")
+            bypass_43 = prediction.get("bypass_43d")
+            lab_ret = prediction.get("labiodental_retraction")
+            if tvs_raw is not None:
+                extras_out["tvs_raw"] = tvs_raw.numpy()
+            if tvs_11 is not None:
+                extras_out["tvs_11ch"] = tvs_11.numpy()
+            if bypass_43 is not None:
+                extras_out["bypass_43d"] = bypass_43.numpy()
+            if lab_ret is not None:
+                extras_out["labiodental_retraction"] = lab_ret.numpy()
+            if isinstance(predictor, R5AAIPredictor) and predictor.badges is not None:
+                extras_out["r5_badges"] = predictor.badges
 
         # Get representative pose from trajectory
         if len(tvs_array) == 1:
@@ -110,7 +129,7 @@ def _ssl_aai_to_animation_state(
         return animation_state
 
     except Exception as e:
-        logger.exception("R4 articulatory prediction failed")
+        logger.exception("Articulatory prediction failed")
         raise SSLAnalysisError(f"SSL AAI prediction failed: {e}") from e
 
 
@@ -120,6 +139,7 @@ def try_primary_ssl_analysis(
     return_trajectory: bool = False,
     contact_enabled: bool = False,
     hinter_options: dict[str, Any] | None = None,
+    extras_out: dict[str, Any] | None = None,
 ) -> tuple[dict[str, float], list[dict[str, float]] | None, dict[str, Any]]:
     """Run the SSL AAI analysis path.
 
@@ -138,6 +158,7 @@ def try_primary_ssl_analysis(
             return_trajectory=return_trajectory,
             contact_enabled=contact_enabled,
             hinter_options=hinter_options,
+            extras_out=extras_out,
         )
     except SSLAnalysisError as e:
         logger.warning(f"[try_primary_ssl_analysis] SSL AAI path failed: {e}")
@@ -225,6 +246,7 @@ async def _run_analysis_pipeline(
     ssl_animation_state: dict[str, float] | None = None
     ssl_trajectory: list[dict[str, float]] | None = None
     ssl_meta: dict[str, Any] = {}
+    ssl_extras: dict[str, Any] = {}
     ssl_error: str | None = None
 
     # Run SSL AAI analysis in thread to avoid blocking
@@ -236,6 +258,7 @@ async def _run_analysis_pipeline(
             True,
             contact_enabled,
             hinter_options,
+            ssl_extras,
         )
         logger.debug(
             "[analyze] SSL AAI analysis succeeded, animation state and trajectory generated"
@@ -253,29 +276,81 @@ async def _run_analysis_pipeline(
         )
         await run_blocking(clear_torch_device_cache, device)
 
+    # Step 2b: Forced alignment & 6-category pronunciation diagnostics (mHuBERT-147 + ctc_v1)
+    alignment_result = None
+    alignment_payload: dict[str, Any] | None = None
+    alignment_meta: dict[str, Any] = {"status": "unavailable"}
+    diagnostics_payload: dict[str, Any] = {
+        "status": "unavailable",
+        "reason": "Forced alignment assets are not staged.",
+        "categories": [],
+        "flagged_count": 0,
+    }
+    enriched_errors: list[dict[str, Any]] = []
+
+    try:
+        aligner = await run_blocking(get_forced_aligner)
+        alignment_result = await run_blocking(
+            aligner.align_with_posteriors,
+            audio_tensor,
+            target_text,
+            sample_rate,
+        )
+        alignment_meta = {
+            "status": "available",
+            "model": "mhubert-147-ipa-ctc-v1",
+            "word_count": len(alignment_result.alignment.words),
+        }
+        alignment_payload = _serialize_alignment(alignment_result.alignment)
+        diagnostics_payload, enriched_errors = await run_blocking(
+            lambda: evaluate_pronunciation_diagnostics(
+                alignment_result,
+                praat_sound=getattr(audio_context, "praat_sound", None),
+                tvs_raw=ssl_extras.get("tvs_raw"),
+                tvs_11ch=ssl_extras.get("tvs_11ch"),
+                bypass_43d=ssl_extras.get("bypass_43d"),
+                labiodental_retraction=ssl_extras.get("labiodental_retraction"),
+                r5_badges=ssl_extras.get("r5_badges"),
+            )
+        )
+    except FileNotFoundError as exc:
+        logger.info("[analyze] Forced alignment unavailable (assets missing): %s", exc)
+        diagnostics_payload["reason"] = "mHuBERT-147 forced alignment assets are not staged."
+    except Exception as exc:
+        logger.warning(
+            "[analyze] Forced alignment failed; falling back to acoustic prosody: %s", exc
+        )
+        diagnostics_payload["reason"] = "Forced alignment did not complete for this clip."
+
     # Step 3: Extract prosody metrics
     await send_progress_update(job_id, 0.6, "Extracting prosody metrics...", "prosody")
 
     prosody_analyzer = processor.ProsodyAnalyzer(audio_context)
 
-    # Estimate acoustic vowel intervals for live vocalic nPVI when forced alignment is unavailable
-    vowel_intervals: list[tuple[float, float]] = []
-    try:
-        vowel_intervals = await run_blocking(
-            _extract_acoustic_vowel_intervals,
-            audio_tensor,
-            sample_rate,
-            getattr(audio_context, "praat_sound", None),
-        )
-    except Exception:
-        logger.debug("[analyze] Acoustic vowel interval detection failed; proceeding without nPVI")
-        vowel_intervals = []
+    vowel_intervals, word_timestamps = _extract_aligned_intervals(alignment_result)
+    if len(vowel_intervals) < 2:
+        try:
+            vowel_intervals = await run_blocking(
+                _extract_acoustic_vowel_intervals,
+                audio_tensor,
+                sample_rate,
+                getattr(audio_context, "praat_sound", None),
+            )
+        except Exception:
+            logger.debug(
+                "[analyze] Acoustic vowel interval detection failed; proceeding without nPVI"
+            )
+            vowel_intervals = []
 
     logger.debug(
-        "[analyze] Running prosody analysis with %d acoustic vowel intervals", len(vowel_intervals)
+        "[analyze] Running prosody analysis with %d vowel intervals and %d words",
+        len(vowel_intervals),
+        len(word_timestamps),
     )
     prosody_metrics = await run_blocking(
-        prosody_analyzer.analyze_complete, vowel_timestamps=vowel_intervals, word_timestamps=[]
+        prosody_analyzer.analyze_complete,
+        vowel_timestamps=vowel_intervals,
+        word_timestamps=word_timestamps,
     )
 
     if prosody_metrics:
@@ -288,7 +363,7 @@ async def _run_analysis_pipeline(
     # Step 4: Generate feedback
     await send_progress_update(job_id, 0.9, "Generating feedback...", "feedback")
 
-    feedback = _generate_comprehensive_feedback(prosody_metrics)
+    feedback = _generate_comprehensive_feedback(prosody_metrics, diagnostics_payload)
     if ssl_animation_state is None:
         feedback = feedback.replace(
             "Articulatory trajectory captured",
@@ -321,6 +396,10 @@ async def _run_analysis_pipeline(
         "ssl_animation_state": ssl_animation_state,
         "ssl_trajectory": serialized_trajectory,
         "integration_meta": ssl_meta,
+        "alignment": alignment_payload,
+        "alignment_meta": alignment_meta,
+        "errors": enriched_errors,
+        "pronunciation_diagnostics": diagnostics_payload,
         "success": ssl_animation_state is not None,
         "status": "complete" if ssl_animation_state is not None else "partial",
         "message": "Analysis complete"
@@ -444,16 +523,90 @@ def serialize_prosody(prosody: processor.ProsodyMetrics | None) -> dict[str, Any
     }
 
 
-def _generate_comprehensive_feedback(prosody_metrics: processor.ProsodyMetrics | None) -> str:
+def _extract_aligned_intervals(
+    alignment_result: Any,
+) -> tuple[list[tuple[float, float]], list[tuple[str, float, float]]]:
+    """Extract strictly non-overlapping vowel intervals and word spans from alignment."""
+    if alignment_result is None or not getattr(alignment_result, "alignment", None):
+        return [], []
+    vowel_intervals: list[tuple[float, float]] = []
+    word_timestamps: list[tuple[str, float, float]] = []
+    prev_end = 0.0
+    for word in alignment_result.alignment.words:
+        if getattr(word, "not_reached", False):
+            continue
+        if word.end_time > word.start_time:
+            word_timestamps.append((word.word, word.start_time, word.end_time))
+        for ph in word.phonemes:
+            if ph.is_vowel and ph.end_time > ph.start_time:
+                start_t = max(prev_end, ph.start_time)
+                if ph.end_time > start_t:
+                    vowel_intervals.append((start_t, ph.end_time))
+                    prev_end = ph.end_time
+    return vowel_intervals, word_timestamps
+
+
+def _serialize_alignment(sentence_alignment: Any) -> dict[str, Any]:
+    return {
+        "total_duration": sentence_alignment.total_duration,
+        "overall_score": round(float(sentence_alignment.overall_score), 3),
+        "words": [
+            {
+                "word": w.word,
+                "start_time": w.start_time,
+                "end_time": w.end_time,
+                "not_reached": bool(getattr(w, "not_reached", False)),
+                "syllables": [
+                    {
+                        "syllable_index": s.syllable_index,
+                        "phonemes_target": s.phonemes_target,
+                        "phonemes_predicted": s.phonemes_predicted,
+                        "start_time": s.start_time,
+                        "end_time": s.end_time,
+                        "score": s.score,
+                        "severity": s.severity,
+                    }
+                    for s in getattr(w, "syllables", [])
+                ],
+                "phonemes": [
+                    {
+                        "phoneme": p.phoneme,
+                        "start_time": p.start_time,
+                        "end_time": p.end_time,
+                        "score": round(float(p.score), 3),
+                        "is_error": p.is_error,
+                        "predicted_phoneme": p.predicted_phoneme,
+                        "is_vowel": p.is_vowel,
+                    }
+                    for p in w.phonemes
+                ],
+            }
+            for w in sentence_alignment.words
+        ],
+    }
+
+
+def _generate_comprehensive_feedback(
+    prosody_metrics: processor.ProsodyMetrics | None,
+    diagnostics_payload: dict[str, Any] | None = None,
+) -> str:
     """Generate comprehensive feedback text."""
     logger.debug(f"[feedback] prosody_metrics: {prosody_metrics}")
 
     sections: list[str] = []
 
-    # Pronunciation summary
-    # NOTE: Phoneme-level error detection requires a phoneme CTC model.
-    # This feature is currently non-functional pending model integration.
-    sections.append("<strong>Pronunciation:</strong> Articulatory trajectory captured")
+    if diagnostics_payload and diagnostics_payload.get("status") == "available":
+        flagged = int(diagnostics_payload.get("flagged_count", 0))
+        cue_note = (
+            f"{flagged} pronunciation cue(s) highlighted below."
+            if flagged > 0
+            else "All checked phoneme cues clear."
+        )
+        sections.append(
+            f"<strong>Pronunciation:</strong> Articulatory trajectory captured — {cue_note}"
+        )
+    else:
+        sections.append("<strong>Pronunciation:</strong> Articulatory trajectory captured")
 
     # Prosody summary with student-friendly labels
     if prosody_metrics:
@@ -467,6 +620,10 @@ def _generate_comprehensive_feedback(prosody_metrics: processor.ProsodyMetrics |
             pitch_coaching = _get_mean_pitch_coaching()
             sections.append(f"- Pitch range: {range_label} — {range_coaching} ({f0_range:.1f} Hz)")
             sections.append(f"- Mean pitch: {pitch_label} — {pitch_coaching} ({f0_mean:.1f} Hz)")
+        if prosody_metrics.stress and prosody_metrics.stress.primary_stress_word:
+            sections.append(
+                f"- Primary stress word: <strong>{prosody_metrics.stress.primary_stress_word}</strong>"
+            )
         if prosody_metrics.rhythm:
             npvi = prosody_metrics.rhythm.npvi
             npvi_label = _get_npvi_label(npvi)
@@ -481,6 +638,12 @@ def _generate_comprehensive_feedback(prosody_metrics: processor.ProsodyMetrics |
     result = "<br>".join(sections)
     logger.debug(f"[feedback] Final feedback string: {result}")
     return result
+
+
+@router.get("/api/diagnostic-passages")
+async def get_diagnostic_passages() -> JSONResponse:
+    """Return curated diagnostic reading passages for the Analysis tab."""
+    return JSONResponse(content={"passages": list_diagnostic_passages()})
 
 
 @router.post("/api/analyze")

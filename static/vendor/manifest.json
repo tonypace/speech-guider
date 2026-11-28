@@ -3,7 +3,7 @@
     "tailwindcss": "3.4.19"
   },
   "sha256": {
-    "css/tailwind.min.css": "f181ea254f679cdd095cd17ae6e2e9ad64723880117a9a0f132965eb2321a9d9",
+    "css/tailwind.min.css": "823b68ce7cab1f901585c3bffd321bd88606228a4f5446e77fc6ef961764a13e",
     "vendor/Tailwind-LICENSE.txt": "60e0b68c0f35c078eef3a5d29419d0b03ff84ec1df9c3f9d6e39a519a5ae7985"
   }
 }

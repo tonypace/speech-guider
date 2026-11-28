@@ -121,12 +121,37 @@ async def select_error(request: SelectErrorRequest) -> SelectErrorResponse:
         target_params = svg_state_to_dict(default_articulatory_state())
         predicted_params = dict(target_params)
 
-    # Determine highlight zone based on error type
+    # Determine highlight zone based on error type or target phoneme
     highlight_zone = "tongue_tip"  # Default
-    if error.get("error_type") == "lip_rounding":
+    err_type = str(error.get("error_type") or error.get("category_id") or "")
+    clean_target = str(target_phoneme).strip().strip("/")
+    if err_type in {"lip_rounding", "labiodental_glide"} or clean_target in {
+        "p",
+        "b",
+        "m",
+        "f",
+        "v",
+        "w",
+        "u",
+        "o",
+    }:
         highlight_zone = "lips"
-    elif error.get("error_type") == "voicing":
+    elif err_type == "voicing":
         highlight_zone = "glottis"
+    elif err_type == "vowel_pairs" or clean_target in {
+        "k",
+        "g",
+        "ɡ",
+        "ŋ",
+        "æ",
+        "ɛ",
+        "ɪ",
+        "i",
+        "ɑ",
+        "ɔ",
+        "ə",
+    }:
+        highlight_zone = "tongue_body"
 
     logger.debug("Returning select_error response for highlight zone: %s", highlight_zone)
 

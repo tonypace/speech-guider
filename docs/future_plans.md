@@ -30,6 +30,10 @@ The initial codebase cleanup stack (`P0.1`–`P4.3`) was completed on **2026-11-
 
 ## Priority 2 — Planned features & domain research
 
+### Prosody Lab overhaul with forced-aligned vowels, stress, and reduction
+- **Files:** `src/audio/prosody_lab.py`, `src/models/alignment.py`, `app/api/prosody_lab.py`, `static/js/prosody_lab.js`
+- **Scope:** Replace acoustic-only syllable/P-center heuristics in Prosody Lab with `mHuBERT-147` forced-aligned vowel/word boundaries combined with Praat F0, intensity, duration, and `ctc_v1` `/ə/` vs. full-vowel posteriors to measure lexical/contrastive stress and vowel reduction accurately, and cross-link detected prosody issues to targeted diagnostic passages.
+
 ### Prosody Lab Audio Mode evaluation after student testing
 - **Files:** `app/templates/index.html`, `static/js/prosody_lab.js`, `static/js/prosody_rhythm_views.js`
 - **Scope:** Prompt user after student testing to decide between `Synth + Beats` (`synth_beats`) and `Real Voice / TTS Only` (`real_tts`) on `#prosody-audio-mode-select`, then lock in the winning audio mode.
@@ -47,6 +51,10 @@ The initial codebase cleanup stack (`P0.1`–`P4.3`) was completed on **2026-11-
 - **Scope:** Complete blind review and second-speaker validation of the experimental dental / “th” hint before enabling it by default. Compare false dental approaches against existing tongue contacts and lip seals.
 
 ### Forced alignment, phoneme error detection, and LLM feedback synthesis
-- **References:** [R5 + mHuBERT alignment plan](r5-mhubert-alignment-plan.md)
-- **Files:** `src/models/alignment.py`, `src/llm/__init__.py`, `app/api/analyze.py`
-- **Scope:** Replace the `ForcedAligner` scaffold with shared `utter-project/mHuBERT-147` + `ctc_v1` IPA forced alignment and 6-category pronunciation weakness diagnostics (feeding real vowel/word timestamps into live nPVI and word stress), plus optional `src/llm/` feedback synthesis on the upcoming R5 branch.
+- **References:** [R5 + mHuBERT alignment plan](r5-mhubert-alignment-plan.md), [R5 model integration](r5-model-integration.md)
+- **Files:** `src/models/alignment.py`, `src/models/g2p.py`, `src/models/pronunciation_diagnostics.py`, `src/llm/__init__.py`, `app/api/analyze.py`
+- **Scope:** Integrate `utter-project/mHuBERT-147` + `ctc_v1` IPA forced alignment and 6-category pronunciation weakness diagnostics (feeding real vowel/word timestamps into live nPVI and word stress), alongside optional `src/llm/` feedback synthesis.
+
+### Classroom evidence & teacher review pilot (deferred)
+- **References:** `/Users/tonypace/Builds and Artifacts/r5-client-suggestions.md`, [Release contracts](release-contracts.md)
+- **Scope:** Deferred beyond the R5 + mHuBERT Analysis rebuild: one-tap teacher marking, pseudonymous local clip/trajectory retention, blinded second-listener review packet export, and held-out learner threshold calibration for `/k, p/` and other R5 realization badges.

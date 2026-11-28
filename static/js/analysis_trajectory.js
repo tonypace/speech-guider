@@ -2,16 +2,23 @@ import { SvgArticulatoryRenderer } from './svg_articulatory_renderer.js';
 import { getSettings } from './microphone.js';
 
 /** Inspect estimated tract states on the recording's sample clock. */
-export function showAnalysisTrajectory(container, trajectory, blob) {
+export function showAnalysisTrajectory(container, trajectory, blob, options = {}) {
     const frames = trajectory?.frames;
     const rate = trajectory?.frame_rate;
     if (!container || !frames?.length || !(rate > 0)) return () => {};
     const contactEnabled = getSettings().contact_enabled !== false;
+    const isR5 = options?.modelVersion === 'r5';
+    const subtitle = isR5
+        ? 'R5 audio-based estimate, not measured tongue contact or clinical scoring.'
+        : `Audio-based estimate${contactEnabled ? ' (tongue contact enhanced)' : ''}, not measured tongue contact or pronunciation scoring.`;
     const section = document.createElement('section');
     section.className = 'bg-white rounded-lg shadow-md p-6 mb-6 min-h-[calc(100vh-8rem)] flex flex-col';
     section.innerHTML = `<div class="flex flex-wrap items-baseline justify-between gap-2">
-            <h3 class="text-xl font-semibold text-gray-800">Articulatory estimate</h3>
-            <p class="text-xs text-gray-500">Audio-based estimate${contactEnabled ? ' (tongue contact enhanced)' : ''}, not measured tongue contact or pronunciation scoring.</p>
+            <div class="flex flex-wrap items-center gap-2">
+                <h3 class="text-xl font-semibold text-gray-800">Articulatory estimate</h3>
+                <span data-focus-badge class="hidden inline-flex items-center rounded-full bg-indigo-100 px-2.5 py-0.5 text-xs font-medium text-indigo-800"></span>
+            </div>
+            <p class="text-xs text-gray-500">${subtitle}</p>
         </div>
         <div class="mt-3 flex flex-wrap items-center gap-3" data-playback>
             <audio controls preload="metadata" class="max-w-full"></audio>
@@ -48,6 +55,7 @@ export function showAnalysisTrajectory(container, trajectory, blob) {
     const audio = section.querySelector('audio');
     const speed = section.querySelector('select');
     const speedBadge = section.querySelector('[data-speed-badge]');
+    const focusBadge = section.querySelector('[data-focus-badge]');
     const updateSpeedBadge = (rateValue) => {
         if (!speedBadge) return;
         if (rateValue < 1) {
@@ -112,7 +120,8 @@ export function showAnalysisTrajectory(container, trajectory, blob) {
         }
     };
     render(0);
-    return () => {
+
+    const dispose = () => {
         window.removeEventListener('speechguider:tabchange', onTabChange);
         cancelAnimationFrame(animation);
         audio.pause();
@@ -121,4 +130,31 @@ export function showAnalysisTrajectory(container, trajectory, blob) {
         renderer.destroy();
         section.remove();
     };
+
+    dispose.seekTo = (startTime, endTime = null, label = '') => {
+        const safeStart = Math.max(0, Number(startTime) || 0);
+        const frameIndex = Math.round(safeStart * rate);
+        render(frameIndex);
+        if (url) {
+            try {
+                audio.currentTime = safeStart;
+            } catch {
+                // Ignore seek attempts before audio metadata loads.
+            }
+        }
+        if (focusBadge) {
+            if (label) {
+                const spanText = Number.isFinite(Number(endTime))
+                    ? `${safeStart.toFixed(2)}s–${Number(endTime).toFixed(2)}s`
+                    : `${safeStart.toFixed(2)}s`;
+                focusBadge.textContent = `Viewing "${label}" · ${spanText}`;
+                focusBadge.classList.remove('hidden');
+            } else {
+                focusBadge.classList.add('hidden');
+            }
+        }
+        section.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+    };
+
+    return dispose;
 }

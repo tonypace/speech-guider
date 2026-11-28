@@ -131,8 +131,6 @@ class TauriController {
    * Set up clicker input (Left, Right, Tab)
    */
     setupClickerInput() {
-        const TAB_HOLD_THRESHOLD = 200; // ms
-
         document.addEventListener('keydown', (event) => {
             if (!this.currentMode || window.currentTab === 'comparison') return;
             if (this.shouldIgnoreKeyEvent(event)) return;
@@ -155,24 +153,13 @@ class TauriController {
                         break;
                     }
                     event.preventDefault();
-                    if (!this.isRecording && this.tabDownTime === null) {
-                        this.tabDownTime = Date.now();
+                    if (event.repeat) break;
+                    if (this.isRecording) {
+                        this.handleRecordRelease();
+                    } else {
                         this.handleRecordPress();
                     }
                     break;
-                }
-            }
-        });
-
-        document.addEventListener('keyup', (event) => {
-            if (event.key === 'Tab' && this.isRecording) {
-                const holdDuration = this.tabDownTime !== null ? (Date.now() - this.tabDownTime) : TAB_HOLD_THRESHOLD;
-                this.tabDownTime = null;
-
-                this.handleRecordRelease();
-                if (holdDuration < TAB_HOLD_THRESHOLD) {
-                    // Short tap - also notify primary action handler after stopping recording cleanly
-                    this.handlePrimaryAction();
                 }
             }
         });

@@ -15,6 +15,7 @@ from app.models.schemas import (
 from app.services.concurrency import run_inference
 from app.utils.audio import AudioConversionError, cleanup_temp_file, save_upload_to_temp
 from src.audio.prosody_lab import analyze_prosody_recording, generate_prosody_reference
+from src.services.prebaked_references import get_prebaked_reference
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -56,6 +57,12 @@ async def create_prosody_lab_reference(
     """Synthesize a custom reference utterance and build a beat-mapped prosody phrase."""
 
     try:
+        prebaked = get_prebaked_reference(request.target_text)
+        if prebaked and isinstance(prebaked.get("prosody_reference"), dict):
+            payload = ProsodyLabReferenceResponse(**prebaked["prosody_reference"]).model_dump(
+                mode="json", by_alias=True
+            )
+            return JSONResponse(content=payload)
         result = await run_inference(generate_prosody_reference, request.target_text)
         payload = ProsodyLabReferenceResponse(**result).model_dump(mode="json", by_alias=True)
         return JSONResponse(content=payload)

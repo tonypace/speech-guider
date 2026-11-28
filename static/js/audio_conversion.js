@@ -40,3 +40,32 @@ export function encodePcmWav(audio, length = audio.length, mono = false, start =
     }
     return new Blob([bytes], { type: 'audio/wav' });
 }
+
+/** Slice a 16-bit mono PCM WAV Blob to [startSec, endSec] seconds. */
+export async function slicePcmWavBlob(wavBlob, startSec, endSec) {
+    if (!wavBlob) return null;
+    const buffer = await wavBlob.arrayBuffer();
+    if (buffer.byteLength <= 44) return wavBlob;
+    const view = new DataView(buffer);
+    const sampleRate = view.getUint32(24, true) || 16000;
+    const headerBytes = 44;
+    const totalSamples = Math.floor((buffer.byteLength - headerBytes) / 2);
+    if (totalSamples <= 0) return wavBlob;
+    const startSample = Math.max(0, Math.min(totalSamples - 1, Math.floor(startSec * sampleRate)));
+    const endSample = Math.max(startSample + 1, Math.min(totalSamples, Math.ceil(endSec * sampleRate)));
+    const sliceSamples = new Int16Array(buffer, headerBytes + startSample * 2, endSample - startSample);
+    const floatSamples = new Float32Array(sliceSamples.length);
+    for (let i = 0; i < sliceSamples.length; i++) {
+        floatSamples[i] = sliceSamples[i] / 0x8000;
+    }
+    return encodePcmWav(
+        {
+            numberOfChannels: 1,
+            sampleRate,
+            getChannelData: () => floatSamples,
+        },
+        floatSamples.length,
+        false,
+        0,
+    );
+}
